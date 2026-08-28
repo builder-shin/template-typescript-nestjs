@@ -402,6 +402,11 @@ export default tseslint.config(
       // 요구해 테스트가 전부 린트 오류가 된다. 함수 선언에만 반환 타입을 강제한다.
       '@typescript-eslint/explicit-function-return-type': ['error', { allowExpressions: true }],
       '@typescript-eslint/consistent-type-imports': 'error',
+      // NestJS의 @Module()/@Controller() 선언은 본체가 빈 클래스다. 프레임워크의
+      // 선언 문법이지 쓸데없는 클래스가 아니므로 데코레이터가 붙은 경우만 허용한다.
+      // 이 줄이 없으면 Task 5의 RoutesModule·AppModule부터 막히고, 이후 이 템플릿이
+      // 만드는 모든 모듈이 파일마다 disable 주석을 달아야 한다.
+      '@typescript-eslint/no-extraneous-class': ['error', { allowWithDecorator: true }],
     },
   },
   {
@@ -758,21 +763,25 @@ Expected: 설치 성공
 `test/health.controller.spec.ts`:
 
 ```ts
+import type { Server } from 'node:http';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { createTestApp } from './app-factory.js';
 
 // supertest는 `response.body`를 `any`로 노출한다. `strictTypeChecked`의
 // `no-unsafe-argument`에 걸리므로 단언 전에 명시적으로 좁힌다.
+//
+// `INestApplication`의 `TServer` 제네릭 기본값도 `any`라 `getHttpServer()`가
+// `any`를 흘린다. `INestApplication<Server>`로 좁혀 같은 규칙을 통과시킨다.
 interface HealthBody {
   readonly status: string;
 }
 
 describe('HealthController', () => {
-  let app: INestApplication;
+  let app: INestApplication<Server>;
 
   beforeAll(async () => {
-    app = await createTestApp();
+    app = (await createTestApp()) as INestApplication<Server>;
   });
 
   afterAll(async () => {
@@ -814,10 +823,10 @@ import type { INestApplication } from '@nestjs/common';
 import { createTestApp, registeredRoutes } from '../app-factory.js';
 
 describe('명시적 라우트 조립', () => {
-  let app: INestApplication;
+  let app: INestApplication<Server>;
 
   beforeAll(async () => {
-    app = await createTestApp();
+    app = (await createTestApp()) as INestApplication<Server>;
   });
 
   afterAll(async () => {
@@ -1050,6 +1059,7 @@ Expected: 설치 성공
 `test/config/openapi.spec.ts`:
 
 ```ts
+import type { Server } from 'node:http';
 import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
 import { createTestApp } from '../app-factory.js';
@@ -1061,10 +1071,10 @@ interface OpenApiDocument {
 }
 
 describe('OpenAPI 문서', () => {
-  let app: INestApplication;
+  let app: INestApplication<Server>;
 
   beforeAll(async () => {
-    app = await createTestApp();
+    app = (await createTestApp()) as INestApplication<Server>;
   });
 
   afterAll(async () => {
