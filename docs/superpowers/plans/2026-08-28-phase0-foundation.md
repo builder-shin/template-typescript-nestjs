@@ -1701,19 +1701,44 @@ const VERIFICATION_COMMANDS = [
   'docker compose down -v',
 ];
 
+const HEADING = '## 검증';
+
+/**
+ * 탐색을 `## 검증` 절로 한정한다.
+ *
+ * 같은 명령이 `## Docker로 실행`이나 `## 개별 검사`에도 자연스럽게 등장하므로,
+ * 문서 전체에서 첫 등장을 찾으면 그 앞선 등장이 잡혀 순서 단언이 깨진다.
+ * 그렇다고 다른 절의 표기를 비틀면 같은 동작을 한 문서 안에서 두 가지로 적게 된다.
+ * 단언해야 할 것은 "이 절이 이 목록을 이 순서로 담는가"이지
+ * "이 문자열들이 문서 어디서 처음 나오는가"가 아니다.
+ */
+function verificationSection(): string {
+  const start = readme.indexOf(HEADING);
+  if (start < 0) {
+    return '';
+  }
+  const rest = readme.slice(start + HEADING.length);
+  const next = rest.indexOf('
+## ');
+  return next < 0 ? rest : rest.slice(0, next);
+}
+
 describe('README', () => {
   it('검증 절을 가진다', () => {
-    expect(readme).toContain('## 검증');
+    expect(readme).toContain(HEADING);
   });
 
-  it('전체 검증 명령을 문자열 그대로 담는다', () => {
+  it('검증 절이 전체 검증 명령을 문자열 그대로 담는다', () => {
+    const section = verificationSection();
+
     for (const command of VERIFICATION_COMMANDS) {
-      expect(readme).toContain(command);
+      expect(section).toContain(command);
     }
   });
 
   it('검증 명령이 스펙과 같은 순서로 나온다', () => {
-    const positions = VERIFICATION_COMMANDS.map((command) => readme.indexOf(command));
+    const section = verificationSection();
+    const positions = VERIFICATION_COMMANDS.map((command) => section.indexOf(command));
 
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
   });
@@ -1748,7 +1773,6 @@ NestJS 12, TypeORM, PostgreSQL로 구성할 JSON:API 1.1 템플릿입니다. 현
 ```text
 src/app/          # 도메인 계층 (컨트롤러, JSON:API 프로토콜, 모델)
 src/config/       # 조립점 (앱 모듈, 명시 라우트, 설정)
-src/db/           # 마이그레이션과 시드
 test/             # 단위·PostgreSQL 통합 테스트
 scripts/check.sh  # 단일 검증 게이트
 ```
