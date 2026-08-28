@@ -82,10 +82,19 @@ describe('loadServerSettings', () => {
 
 describe('env 인자를 생략했을 때의 기본값', () => {
   const PROBE = 'SETTINGS_DEFAULT_ENV_PROBE';
+  let snapshot: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    snapshot = { ...process.env };
+  });
 
   afterEach(() => {
-    Reflect.deleteProperty(process.env, PROBE);
-    delete process.env.PORT;
+    for (const key of Object.keys(process.env)) {
+      if (!(key in snapshot)) {
+        Reflect.deleteProperty(process.env, key);
+      }
+    }
+    Object.assign(process.env, snapshot);
   });
 
   it('requireEnv는 process.env를 읽는다', () => {
