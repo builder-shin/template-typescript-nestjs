@@ -236,7 +236,22 @@ typescript-eslint가 요구하는 JS 컴파일러 API를 노출하지 않는다.
 - `tsconfig.json`의 `types`는 **허용 목록**이라, `@types/jest`를 설치해도 `["node"]`인 채로는 `describe`·`it`·`expect` 전역이 배제되어 `pnpm typecheck`가 `TS2593`/`TS2304`로 깨진다. `["node", "jest"]`로 바꾼다. `pnpm test`는 ts-jest가 별도로 처리하므로 이 회귀는 `typecheck`에서만 드러난다.
 - pnpm 11은 의존성의 빌드 스크립트를 기본 차단하고 `ERR_PNPM_IGNORED_BUILDS`로 exit 1을 낸다. `pnpm run test`가 내부적으로 install 상태를 확인하므로 Jest가 아예 실행되지 않는다. `pnpm-workspace.yaml`에 `allowBuilds`를 명시해 커밋해야 새로 clone한 사람과 CI가 같은 벽에 부딪히지 않는다.
 
-`pnpm-workspace.yaml`은 `allowBuilds` 두 줄만 담는다. `minimumReleaseAgeExclude`를 넣지 않는다.
+`pnpm-workspace.yaml`은 `allowBuilds`와 `overrides`만 담는다. `minimumReleaseAgeExclude`를 넣지 않는다.
+
+```yaml
+allowBuilds:
+  '@parcel/watcher': false
+  unrs-resolver: false
+overrides:
+  '@jest/transform': ~30.4.0
+  '@jest/types': ~30.4.0
+  babel-jest: ~30.4.0
+  jest-util: ~30.4.0
+```
+
+`overrides`가 `package.json`의 `pnpm` 필드가 아니라 이 파일에 있는 이유는 pnpm 11이 `package.json`의 `pnpm` 필드를 무시하고 경고를 내기 때문이다.
+
+`overrides`가 필요한 이유: `ts-jest`는 `@jest/transform`·`@jest/types`·`babel-jest`·`jest-util`을 `^29.0.0 || ^30.0.0`이라는 넓은 **optional peer**로 선언한다. pnpm은 이를 우리가 고정한 `jest` 버전과 **무관하게** 레지스트리 최신 30.x로 독립 해결하므로, `babel-jest`가 30.4.1(jest 트리 경유)과 30.5.0(ts-jest peer 경유) 두 인스턴스로 갈라진다. 갓 배포된 쪽이 `minimumReleaseAge` 게이트에 걸리는 것은 그 증상일 뿐이고, 한 트리에 같은 패키지가 두 버전으로 존재하는 것 자체가 고쳐야 할 문제다. `jest` 고정 버전을 올릴 때 이 네 줄도 같은 라인으로 함께 올린다.
 
 pnpm 11에는 기본 `minimumReleaseAge`(약 24시간) 공급망 게이트가 있어서, 방금 배포된 패키지를 lockfile에 담으면 `pnpm install --frozen-lockfile`이 `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`으로 거부한다. 이를 우회하는 예외 목록을 커밋하는 대신 **게이트를 통과하는 버전을 고른다.** 그래서 jest는 `latest`(30.5.0, 2026-08-28 배포)가 아니라 충분히 숙성된 `30.4.2`(2026-05-09 배포)로 고정한다. 예외 목록은 시점 의존적이라 버전을 올릴 때마다 재생성해야 하고, 무엇보다 남이 복제할 템플릿이 공급망 보호 우회를 기본값으로 배포하게 된다.
 
