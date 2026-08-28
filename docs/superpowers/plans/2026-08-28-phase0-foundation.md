@@ -40,6 +40,7 @@
 | `.secretlintrc.json` | 비밀 탐지 규칙 |
 | `.husky/pre-commit` | 커밋 훅 |
 | `.gitignore` / `.dockerignore` / `.env.example` | 저장소·이미지·환경 경계 |
+| `.gitattributes` | 줄바꿈을 LF로 고정 (Windows clone 방어) |
 | `Dockerfile` | builder / runtime 2단계 이미지 |
 | `docker-compose.yml` / `docker-compose.test.yml` | 개발 스택 / 테스트 전용 PostgreSQL |
 | `scripts/check.sh` | 단일 검증 게이트 |
@@ -153,7 +154,16 @@
 
 `types`를 다시 좁히는 이유는 Task 2가 루트 `tsconfig.json`의 `types`에 `"jest"`를 더하기 때문이다. 그대로 상속하면 `pnpm build`가 `src/`를 jest 전역(`describe`, `jest.fn()` 등)이 보이는 상태로 검사한다. jest는 프로덕션 의존성이 아니므로, 그런 코드는 타입 검사를 통과하고 런타임에 죽는다. 빌드 설정은 빌드에 필요한 것만 본다.
 
-- [ ] **Step 4: `.gitignore` 작성**
+- [ ] **Step 4: `.gitignore`와 `.gitattributes` 작성**
+
+`.gitattributes`가 없으면 `core.autocrlf=true`인 Windows에서 새로 clone할 때 모든 텍스트 파일이 CRLF로 체크아웃된다. Prettier 3의 기본 `endOfLine`이 `"lf"`라 `pnpm format:check`가 `.json`·`.yml`·`.js` 전반에서 실패하고, 그것을 포함하는 `scripts/check.sh` 게이트가 **첫 실행에서 깨진다.** 실제 clone으로 재현한 결과다.
+
+확장자별로 나열하지 않고 전체(`*`)에 적용하는 이유는 새 파일 형식이 추가될 때마다 같은 문제가 재발하기 때문이다.
+
+```gitattributes
+* text=auto eol=lf
+```
+
 
 ```gitignore
 node_modules/
