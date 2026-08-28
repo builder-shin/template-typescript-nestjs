@@ -1,6 +1,7 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/config/app.module.js';
+import { setupOpenApi } from '../src/config/openapi.js';
 
 /**
  * 애플리케이션 테스트의 유일한 조립 지점.
@@ -11,6 +12,7 @@ import { AppModule } from '../src/config/app.module.js';
 export async function createTestApp(): Promise<INestApplication> {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   const app = moduleRef.createNestApplication();
+  setupOpenApi(app);
   await app.init();
   return app;
 }
