@@ -574,7 +574,9 @@ describe('env 인자를 생략했을 때의 기본값', () => {
   const PROBE = 'SETTINGS_DEFAULT_ENV_PROBE';
 
   afterEach(() => {
-    delete process.env[PROBE];
+    // 동적 키 삭제는 `@typescript-eslint/no-dynamic-delete`에 걸리므로 Reflect를 쓴다.
+    // 정적 키인 `PORT`는 `delete`가 그대로 통과한다.
+    Reflect.deleteProperty(process.env, PROBE);
     delete process.env.PORT;
   });
 
