@@ -11,11 +11,13 @@ NestJS 12, TypeORM, PostgreSQL로 구성할 JSON:API 1.1 템플릿입니다. 현
 ## 구조
 
 ```text
-src/app/          # 도메인 계층 (컨트롤러, JSON:API 프로토콜, 모델)
-src/config/       # 조립점 (앱 모듈, 명시 라우트, 설정)
-test/             # 단위·PostgreSQL 통합 테스트
+src/app/          # 컨트롤러와 JSON:API 미디어 타입 상수
+src/config/       # 조립점 (앱 모듈, 명시 라우트, 설정, OpenAPI)
+test/             # 단위 테스트
 scripts/check.sh  # 단일 검증 게이트
 ```
+
+Phase 0은 기반만 담습니다. JSON:API 프로토콜 구현, 리소스 컨트롤러, 데이터베이스 계층, 인증, 백그라운드 잡은 아직 없습니다. `scripts/check.sh`가 임시 PostgreSQL을 띄우지만 현재 그것을 사용하는 테스트는 없으며, 데이터베이스 통합 테스트는 Phase 2에서 추가됩니다. 전체 설계는 `docs/superpowers/specs/`를 참고하세요.
 
 ## ESM 제약
 
@@ -74,7 +76,7 @@ pnpm start         # node dist/config/main.js
 pnpm lint          # eslint .
 pnpm format        # prettier --write .
 pnpm format:check  # prettier --check .
-pnpm typecheck     # tsc --noEmit
+pnpm typecheck     # tsc --noEmit -p tsconfig.json
 pnpm test          # jest (커버리지 게이트 80% 포함)
 pnpm test:quick    # jest (커버리지 없이 빠르게)
 pnpm secretlint    # 비밀 정보 탐지
