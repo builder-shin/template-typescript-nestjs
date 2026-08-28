@@ -156,6 +156,9 @@ coverage/
 .env
 *.log
 .coverage*
+
+# 계획 실행용 스크래치 워크스페이스 (ledger, 브리프, 리뷰 패키지)
+.superpowers/
 ```
 
 - [ ] **Step 5: 첫 소스 파일 작성**
@@ -390,11 +393,15 @@ export default tseslint.config(
 
 `.prettierignore`:
 
+`docs/`를 제외하는 이유는 설계 스펙과 구현 계획이 손으로 쓴 기록물이기 때문이다. Prettier가 표와 목록을 다시 흘리면 이 태스크의 커밋에 무관한 문서 변경이 섞인다. 참조 템플릿의 포매터(`ruff format`)도 Markdown을 건드리지 않았다.
+
 ```gitignore
 dist
 coverage
 node_modules
 pnpm-lock.yaml
+docs/
+.superpowers/
 ```
 
 - [ ] **Step 4: `package.json`에 script 추가**
@@ -848,9 +855,23 @@ interface ExpressInstance {
 }
 
 /**
+ * OpenAPI 문서화가 등록하는 경로들. 애플리케이션 라우트가 아니라 문서 UI의 정적 자산이다.
+ *
+ * `SwaggerModule.setup`은 라우터 스택에 8개 레이어를 남긴다(`/api-docs`, `/api-docs-yaml`,
+ * `/api-docs/LICENSE`, `/api-docs/swagger-ui-init.js` 등). 이 목록을 라우트 계약에 넣으면
+ * `@nestjs/swagger`의 내부 자산 배치가 바뀔 때마다 테스트가 깨진다. `/api/schema`의 실제
+ * 노출은 `test/config/openapi.spec.ts`가 HTTP 요청으로 따로 확인한다.
+ */
+function isDocumentationPath(path: string): boolean {
+  return path === '/api/schema' || path === '/api-docs-yaml' || path.startsWith('/api-docs');
+}
+
+/**
  * 애플리케이션이 실제로 노출하는 라우트 집합을 `"METHOD /path"` 문자열로 돌려준다.
  *
  * 라우트가 조용히 늘거나 사라지는 것을 잡기 위한 것이므로 정렬된 배열로 고정 비교한다.
+ * OpenAPI 문서 경로는 제외한다. 이 템플릿은 모든 애플리케이션 라우트를 `/api/v1`과
+ * `/health` 아래에만 두므로 이 제외가 실제 라우트를 가리지 않는다.
  */
 export function registeredRoutes(app: INestApplication): string[] {
   const instance = app.getHttpAdapter().getInstance() as ExpressInstance;
@@ -858,7 +879,7 @@ export function registeredRoutes(app: INestApplication): string[] {
   const routes: string[] = [];
 
   for (const layer of router?.stack ?? []) {
-    if (layer.route === undefined) {
+    if (layer.route === undefined || isDocumentationPath(layer.route.path)) {
       continue;
     }
     for (const [method, enabled] of Object.entries(layer.route.methods)) {
@@ -1064,6 +1085,8 @@ import { setupOpenApi } from './openapi.js';
 
 Run: `pnpm test:quick`
 Expected: PASS — 기존 테스트를 포함해 전부 통과
+
+특히 `test/config/routes.module.spec.ts`가 계속 통과해야 한다. `SwaggerModule.setup`은 라우터 스택에 문서 UI 자산 라우트 8개를 추가하지만, Task 5의 `isDocumentationPath` 제외 규칙이 이를 걸러낸다. 이 테스트가 깨진다면 제외 규칙이 실제 등록 경로와 어긋난 것이므로, 기대값을 늘리지 말고 제외 규칙을 고친다.
 
 - [ ] **Step 8: 커밋**
 
