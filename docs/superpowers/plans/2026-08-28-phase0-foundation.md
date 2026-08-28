@@ -1360,12 +1360,12 @@ ENV PNPM_HOME=/pnpm \
     PATH=/pnpm:$PATH
 RUN corepack enable
 
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
-RUN pnpm run build && pnpm prune --prod
+RUN pnpm run build && pnpm prune --prod --ignore-scripts
 
 FROM node:24-slim AS runtime
 
@@ -1484,7 +1484,12 @@ Expected: 두 명령 모두 출력 없이 종료 코드 0
 Run: `docker build --target runtime --tag template-typescript-nestjs:verify .`
 Expected: 빌드 성공
 
-pnpm은 `node_modules`를 심볼릭 링크 구조로 만든다. 두 단계 모두 `WORKDIR`이 `/app`이라 상대 링크가 그대로 유효하지만, 만약 runtime 이미지가 `ERR_MODULE_NOT_FOUND`로 실패하면 저장소 루트에 `.npmrc`를 만들어 링크 대신 평면 구조를 쓰게 한다.
+builder 단계의 두 줄에는 각각 이유가 있다. 둘 다 이 계획을 처음 쓴 뒤에 내린 룰링의 결과라, 그 룰링을 모르면 원인을 찾기 어렵다.
+
+- `COPY`에 **`pnpm-workspace.yaml`이 포함되어야 한다.** Task 2에서 `overrides`를 `package.json`의 `pnpm` 필드에서 이 파일로 옮겼고(pnpm 11이 전자를 무시한다), 그 순간부터 `pnpm-lock.yaml`이 이 파일의 내용에 의존하게 됐다. 없이 `pnpm install --frozen-lockfile`을 돌리면 `ERR_PNPM_LOCKFILE_CONFIG_MISMATCH`로 실패한다.
+- `prune`에 **`--ignore-scripts`가 필요하다.** Task 7이 `"prepare": "husky"`를 추가했기 때문에, `pnpm prune --prod`가 devDependencies에서 husky를 제거한 **직후** `prepare`를 재실행하다 `sh: 1: husky: not found`로 exit 1이 된다. `HUSKY=0`은 소용없다 — 셸이 바이너리를 찾지 못해 husky가 그 환경변수를 읽기 전에 죽는다. `prepare` 쪽을 `husky || true`로 무력화하지 않는 이유는, 로컬에서 훅 설치가 진짜로 실패할 때는 시끄럽게 실패해야 하기 때문이다. prod 의존성을 쳐내는 명령이 lifecycle 스크립트를 돌릴 이유도 없다.
+
+pnpm은 `node_modules`를 심볼릭 링크 구조로 만든다. 두 단계 모두 `WORKDIR`이 `/app`이라 상대 링크가 그대로 유효하다(실측으로 확인했고 폴백은 필요하지 않았다). 만약 runtime 이미지가 `ERR_MODULE_NOT_FOUND`로 실패하면 저장소 루트에 `.npmrc`를 만들어 링크 대신 평면 구조를 쓰게 한다.
 
 ```ini
 node-linker=hoisted
