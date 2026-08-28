@@ -1260,11 +1260,14 @@ Expected: 종료 코드 0. 비밀 정보가 검출되지 않는다
 
 - [ ] **Step 5: secretlint가 실제로 잡는지 1회 확인**
 
-저장소 루트에 임시 파일을 만든다.
+저장소 루트에 임시 파일을 만든다. 값은 **이 문서에 적지 않고 실행 시점에 생성한다.**
 
 ```bash
-printf 'GITHUB_TOKEN=ghp_016Cs7Xm4xLPqRtYuI9oPvBnM3kL2jH8gF5d\n' > secret-probe.txt
+printf 'GITHUB_TOKEN=ghp_%s\n' \
+  "$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 36)" > secret-probe.txt
 ```
+
+탐지되는 형태의 토큰을 이 계획 문서에 리터럴로 적으면 **문서 자체가 secretlint에 걸려 게이트가 막힌다.** 실제로 그렇게 적었다가 `docs/superpowers/plans/...`가 `found GitHub Token`으로 잡혀 `pnpm secretlint`가 exit 1이 되는 일이 있었다. 검증용 비밀은 저장소에 남기지 않고 그때그때 만든다.
 
 **AWS 예시 키(`AKIAIOSFODNN7EXAMPLE`)를 쓰지 않는다.** 그 값은 AWS 공식 문서의 플레이스홀더라 secretlint를 포함한 대부분의 스캐너가 의도적으로 화이트리스트에 넣는다. 같은 이유로 `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`도 검출되지 않는다. 그런 값으로 시험하면 **탐지가 되는데도 안 되는 것처럼 보이거나, 반대로 게이트가 동작한다고 잘못 믿게 된다.**
 
@@ -1272,9 +1275,11 @@ Run: `pnpm secretlint`
 Expected: FAIL — 종료 코드가 0이 아니고 아래와 같은 출력이 나온다
 
 ```text
-  1:13  error  [GITHUB_TOKEN] found GitHub Token(...)  @secretlint/secretlint-rule-preset-recommend > @secretlint/secretlint-rule-github
+  1:14  error  [GITHUB_TOKEN] found GitHub Token(...)  @secretlint/secretlint-rule-preset-recommend > @secretlint/secretlint-rule-github
 ✖ 1 problem (1 error, 0 warnings, 0 infos)
 ```
+
+**AWS Access Key ID는 기본 설정에서 검사되지 않는다.** `@secretlint/secretlint-rule-aws`의 `enableIDScanRule` 옵션이 기본값 `false`이기 때문이다. 이 기본값을 바꾸지 않는다 — Access Key ID는 자격 증명이 아니라 식별자(사용자명에 해당)이고, 실제 비밀인 Secret Access Key는 기본 설정에서 정상 탐지된다. 템플릿이 오탐이 잦은 정책을 복제하는 모든 사람에게 강제할 이유가 없다. 대신 이 경계가 의도된 것임을 여기 남긴다.
 
 종료 코드를 확인할 때 파이프를 쓰지 않는다. `pnpm secretlint | tail`의 `$?`는 secretlint가 아니라 `tail`의 종료 코드다.
 
