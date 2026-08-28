@@ -143,12 +143,15 @@
     "noEmit": false,
     "rootDir": "src",
     "outDir": "dist",
-    "sourceMap": true
+    "sourceMap": true,
+    "types": ["node"]
   },
   "include": ["src/**/*.ts"],
   "exclude": ["test/**/*.ts"]
 }
 ```
+
+`types`를 다시 좁히는 이유는 Task 2가 루트 `tsconfig.json`의 `types`에 `"jest"`를 더하기 때문이다. 그대로 상속하면 `pnpm build`가 `src/`를 jest 전역(`describe`, `jest.fn()` 등)이 보이는 상태로 검사한다. jest는 프로덕션 의존성이 아니므로, 그런 코드는 타입 검사를 통과하고 런타임에 죽는다. 빌드 설정은 빌드에 필요한 것만 본다.
 
 - [ ] **Step 4: `.gitignore` 작성**
 
