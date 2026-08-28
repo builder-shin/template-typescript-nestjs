@@ -13,7 +13,6 @@ NestJS 12, TypeORM, PostgreSQL로 구성할 JSON:API 1.1 템플릿입니다. 현
 ```text
 src/app/          # 도메인 계층 (컨트롤러, JSON:API 프로토콜, 모델)
 src/config/       # 조립점 (앱 모듈, 명시 라우트, 설정)
-src/db/           # 마이그레이션과 시드
 test/             # 단위·PostgreSQL 통합 테스트
 scripts/check.sh  # 단일 검증 게이트
 ```
@@ -51,9 +50,9 @@ pnpm start
 ## Docker로 실행
 
 ```bash
-docker compose up --build -d --wait
+docker compose up -d --build --wait
 curl -s http://localhost:4000/health/ready
-docker compose down --volumes
+docker compose down -v
 ```
 
 ## 환경 변수
@@ -79,7 +78,7 @@ pnpm typecheck     # tsc --noEmit
 pnpm test          # jest (커버리지 게이트 80% 포함)
 pnpm test:quick    # jest (커버리지 없이 빠르게)
 pnpm secretlint    # 비밀 정보 탐지
-pnpm check         # scripts/check.sh 전체 게이트
+pnpm check         # ./scripts/check.sh 전체 게이트
 ```
 
 `check`를 제외한 모든 태스크는 bash 없이 Windows에서 동작합니다. `check`는 bash 스크립트이므로 Git Bash 또는 WSL이 필요합니다.
