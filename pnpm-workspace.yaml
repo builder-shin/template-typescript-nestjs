@@ -1,6 +1,10 @@
 allowBuilds:
   '@parcel/watcher': false
   unrs-resolver: false
+# ts-jest는 아래 네 패키지를 ^29 || ^30 범위의 optional peer로 선언한다.
+# pnpm은 이를 package.json의 jest 고정 버전과 무관하게 독립 해결하므로,
+# 묶어두지 않으면 babel-jest 등이 두 버전으로 갈라진다.
+# package.json의 "jest" 버전을 올릴 때 이 네 줄도 같은 라인으로 함께 올린다.
 overrides:
   '@jest/transform': ~30.4.0
   '@jest/types': ~30.4.0
