@@ -1,0 +1,8 @@
+# 이 저장소는 LF로 통일한다. Windows의 core.autocrlf=true는 체크아웃 시
+# 모든 텍스트 파일을 CRLF로 바꾸는데, 그러면 Prettier의 기본
+# endOfLine="lf" 검사가 전부 실패해 `pnpm format:check`와 그것을 포함하는
+# scripts/check.sh 게이트가 새 clone에서 바로 깨진다.
+#
+# 셸 스크립트는 특히 중요하다. Git Bash는 CRLF shebang을 견디는 편이지만
+# 환경에 따라 `bad interpreter: ...^M`으로 실패한다.
+* text=auto eol=lf
