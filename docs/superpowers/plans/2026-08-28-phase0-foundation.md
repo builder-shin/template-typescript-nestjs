@@ -21,6 +21,7 @@
 - **모든 상대 import에 `.js` 확장자를 붙인다.** 빠뜨리면 `tsc`가 `TS2835`로 거부한다. 별도 ESLint 규칙을 추가하지 않는다.
 - Jest는 ESM이므로 `node --experimental-vm-modules node_modules/jest/bin/jest.js`로 실행한다. 이 경로 형태는 Windows/Linux 모두에서 동작하므로 `cross-env`를 추가하지 않는다.
 - 커버리지 게이트는 80%다.
+- **배포된 지 24시간이 지나지 않은 패키지 버전을 고정하지 않는다.** pnpm 11에는 기본 `minimumReleaseAge` 공급망 게이트가 있어서, 갓 배포된 버전이 lockfile에 들어가면 `pnpm install --frozen-lockfile`이 `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`으로 거부한다. 예외 목록(`minimumReleaseAgeExclude`)을 커밋해 우회하지 말고, 숙성된 버전을 고른다. 남이 복제할 템플릿이 공급망 보호 우회를 기본값으로 배포하게 두지 않는다. 이 규칙 때문에 jest는 `30.4.2`(30.5.0 아님), `@nestjs/swagger`는 `12.0.0`(12.0.1 아님)으로 고정한다.
 - 컨트롤러 자동 탐색을 추가하지 않는다. `RoutesModule`의 `controllers` 배열에 없는 컨트롤러는 존재하지 않는 것과 같다.
 - 애플리케이션 코드에 환경 변수의 암묵적 기본값을 두지 않는다. 누락 시 변수 이름이 담긴 오류(`PORT must be an integer`)로 실패한다.
 - 커밋 메시지에 AI 관련 태그(`Co-Authored-By: Claude` 등)를 넣지 않는다.
@@ -224,9 +225,22 @@ typescript-eslint가 요구하는 JS 컴파일러 API를 노출하지 않는다.
 
 **Files:**
 - Modify: `package.json` (devDependencies, `test` script)
+- Modify: `tsconfig.json` (`types`에 `"jest"` 추가)
 - Create: `jest.config.js`
+- Create: `pnpm-workspace.yaml`
 - Create: `test/setup.ts`
 - Create: `test/jsonapi/media-type.spec.ts`
+
+두 파일은 Task 1 작성 시점에 예상하지 못한 것이다.
+
+- `tsconfig.json`의 `types`는 **허용 목록**이라, `@types/jest`를 설치해도 `["node"]`인 채로는 `describe`·`it`·`expect` 전역이 배제되어 `pnpm typecheck`가 `TS2593`/`TS2304`로 깨진다. `["node", "jest"]`로 바꾼다. `pnpm test`는 ts-jest가 별도로 처리하므로 이 회귀는 `typecheck`에서만 드러난다.
+- pnpm 11은 의존성의 빌드 스크립트를 기본 차단하고 `ERR_PNPM_IGNORED_BUILDS`로 exit 1을 낸다. `pnpm run test`가 내부적으로 install 상태를 확인하므로 Jest가 아예 실행되지 않는다. `pnpm-workspace.yaml`에 `allowBuilds`를 명시해 커밋해야 새로 clone한 사람과 CI가 같은 벽에 부딪히지 않는다.
+
+`pnpm-workspace.yaml`은 `allowBuilds` 두 줄만 담는다. `minimumReleaseAgeExclude`를 넣지 않는다.
+
+pnpm 11에는 기본 `minimumReleaseAge`(약 24시간) 공급망 게이트가 있어서, 방금 배포된 패키지를 lockfile에 담으면 `pnpm install --frozen-lockfile`이 `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`으로 거부한다. 이를 우회하는 예외 목록을 커밋하는 대신 **게이트를 통과하는 버전을 고른다.** 그래서 jest는 `latest`(30.5.0, 2026-08-28 배포)가 아니라 충분히 숙성된 `30.4.2`(2026-05-09 배포)로 고정한다. 예외 목록은 시점 의존적이라 버전을 올릴 때마다 재생성해야 하고, 무엇보다 남이 복제할 템플릿이 공급망 보호 우회를 기본값으로 배포하게 된다.
+
+의존성을 올릴 때는 이 규칙을 지킨다: **배포된 지 하루가 지나지 않은 버전은 고정하지 않는다.**
 
 **Interfaces:**
 - Consumes: `JSONAPI_MEDIA_TYPE` (Task 1)
@@ -237,7 +251,7 @@ typescript-eslint가 요구하는 JS 컴파일러 API를 노출하지 않는다.
 Run:
 
 ```bash
-pnpm add -D jest@30.5.0 ts-jest@29.4.12 @types/jest@30.0.0
+pnpm add -D jest@30.4.2 ts-jest@29.4.12 @types/jest@30.0.0
 pnpm add reflect-metadata@0.2.2
 ```
 
@@ -960,7 +974,7 @@ RoutesModule의 controllers 배열이 공개 라우트의 유일한 등록 지�
 
 - [ ] **Step 1: 의존성 설치**
 
-Run: `pnpm add @nestjs/swagger@12.0.1`
+Run: `pnpm add @nestjs/swagger@12.0.0`
 Expected: 설치 성공
 
 - [ ] **Step 2: 실패하는 테스트 작성**
