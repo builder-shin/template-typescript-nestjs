@@ -1263,16 +1263,27 @@ Expected: 종료 코드 0. 비밀 정보가 검출되지 않는다
 저장소 루트에 임시 파일을 만든다.
 
 ```bash
-printf 'const key = "AKIAIOSFODNN7EXAMPLE";\n' > secret-probe.js
+printf 'GITHUB_TOKEN=ghp_016Cs7Xm4xLPqRtYuI9oPvBnM3kL2jH8gF5d\n' > secret-probe.txt
 ```
 
+**AWS 예시 키(`AKIAIOSFODNN7EXAMPLE`)를 쓰지 않는다.** 그 값은 AWS 공식 문서의 플레이스홀더라 secretlint를 포함한 대부분의 스캐너가 의도적으로 화이트리스트에 넣는다. 같은 이유로 `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`도 검출되지 않는다. 그런 값으로 시험하면 **탐지가 되는데도 안 되는 것처럼 보이거나, 반대로 게이트가 동작한다고 잘못 믿게 된다.**
+
 Run: `pnpm secretlint`
-Expected: FAIL — AWS 접근 키 패턴이 검출되고 종료 코드가 0이 아니다
+Expected: FAIL — 종료 코드가 0이 아니고 아래와 같은 출력이 나온다
 
-확인 후 파일을 지운다.
+```text
+  1:13  error  [GITHUB_TOKEN] found GitHub Token(...)  @secretlint/secretlint-rule-preset-recommend > @secretlint/secretlint-rule-github
+✖ 1 problem (1 error, 0 warnings, 0 infos)
+```
 
-Run: `rm secret-probe.js && pnpm secretlint`
+종료 코드를 확인할 때 파이프를 쓰지 않는다. `pnpm secretlint | tail`의 `$?`는 secretlint가 아니라 `tail`의 종료 코드다.
+
+확인 후 파일을 지운다. 이 파일은 절대 커밋하지 않는다.
+
+Run: `rm secret-probe.txt && pnpm secretlint`
 Expected: PASS (종료 코드 0)
+
+설정이 실제로 로드되는지도 한 번 확인한다. `.secretlintrc.json`의 rule id를 존재하지 않는 값으로 잠시 바꾸고 실행하면 `exit 2`와 함께 `Failed to load rule module`이 나와야 한다. 아무 규칙도 로드되지 않은 채 조용히 통과하는 상태와, 규칙이 로드됐지만 걸릴 게 없어 통과하는 상태는 종료 코드가 똑같이 0이라 겉으로 구분되지 않는다. 확인 후 원래 값으로 되돌린다.
 
 - [ ] **Step 6: husky 훅 설치**
 
