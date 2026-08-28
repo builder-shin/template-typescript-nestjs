@@ -482,5 +482,5 @@ Example 읽기는 공개, 쓰기와 관계 변경은 활성 사용자의 Bearer 
 | `@nestjs/swagger` CLI 플러그인은 webpack 빌드를 전제한다. 이 템플릿은 `tsc` 빌드다 | 플러그인을 쓰지 않고 `@ApiProperty`를 명시적으로 작성한다. Phase 0에서 확인 |
 | Jest ESM은 `--experimental-vm-modules`가 필요하다 | 프로브에서 동작 확인. `NODE_OPTIONS`를 npm script에 고정 |
 | TypeScript 7로 올리면 ts-jest·typescript-eslint가 동작하지 않는다 | TS 6.0.3에 고정하고, 상향은 두 도구가 TS 7 API를 지원한 뒤로 미룬다. 이 결정을 `AGENTS.md`에 근거와 함께 남긴다 |
-| ESM에서 상대 import의 `.js` 확장자 누락 | ESLint 규칙으로 강제하고 README·`AGENTS.md`에 명시 |
+| ESM에서 상대 import의 `.js` 확장자 누락 | 별도 조치 불필요. `"type": "module"` + `moduleResolution: node16`이면 `tsc`가 `TS2835`로 직접 거부한다(실측 확인). `typecheck`가 게이트 역할을 하므로 ESLint 플러그인을 추가하지 않고, 제약만 README·`AGENTS.md`에 명시한다 |
 | TypeORM 1.x는 최근 메이저 릴리스라 문서·예제가 0.3.x 기준인 경우가 많다 | 마이그레이션·QueryBuilder 계약을 Phase 2·3의 실제 PostgreSQL 테스트로 고정한다 |
