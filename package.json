@@ -12,10 +12,18 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "start": "node dist/config/main.js"
+    "start": "node dist/config/main.js",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
+    "test:quick": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage=false"
   },
   "devDependencies": {
+    "@types/jest": "30.0.0",
     "@types/node": "24.13.3",
+    "jest": "30.5.0",
+    "ts-jest": "29.4.12",
     "typescript": "6.0.3"
+  },
+  "dependencies": {
+    "reflect-metadata": "0.2.2"
   }
 }
