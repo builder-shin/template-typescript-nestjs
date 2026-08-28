@@ -572,12 +572,19 @@ describe('loadServerSettings', () => {
 
 describe('env 인자를 생략했을 때의 기본값', () => {
   const PROBE = 'SETTINGS_DEFAULT_ENV_PROBE';
+  let snapshot: NodeJS.ProcessEnv;
+
+  beforeEach(() => {
+    snapshot = { ...process.env };
+  });
 
   afterEach(() => {
-    // 동적 키 삭제는 `@typescript-eslint/no-dynamic-delete`에 걸리므로 Reflect를 쓴다.
-    // 정적 키인 `PORT`는 `delete`가 그대로 통과한다.
-    Reflect.deleteProperty(process.env, PROBE);
-    delete process.env.PORT;
+    for (const key of Object.keys(process.env)) {
+      if (!(key in snapshot)) {
+        Reflect.deleteProperty(process.env, key);
+      }
+    }
+    Object.assign(process.env, snapshot);
   });
 
   it('requireEnv는 process.env를 읽는다', () => {
@@ -606,9 +613,13 @@ describe('env 인자를 생략했을 때의 기본값', () => {
 });
 ```
 
-마지막 describe 블록이 없으면 **분기 커버리지가 80% 게이트를 통과하지 못한다.** 네 함수의 `env: NodeJS.ProcessEnv = process.env` 기본 파라미터는 명시적 `env`를 넘기는 테스트만으로는 실행되지 않는다. `afterEach`에서 두 변수를 지우는 이유는 `process.env` 변경이 다른 테스트로 새지 않게 하기 위해서다. 특히 `PORT`는 실행 환경에 이미 설정돼 있을 수 있다.
+마지막 describe 블록이 없으면 **분기 커버리지가 80% 게이트를 통과하지 못한다.** 네 함수의 `env: NodeJS.ProcessEnv = process.env` 기본 파라미터는 명시적 `env`를 넘기는 테스트만으로는 실행되지 않는다.
 
-**이 패턴은 이후 Phase에서 반복된다.** Phase 2의 `loadDatabaseSettings`, Phase 6의 `loadAuthSettings`, Phase 7의 `loadBrokerSettings`도 같은 `env` 기본 파라미터를 가지므로, 각각 인자를 생략하는 테스트를 하나씩 함께 둔다.
+`beforeEach`/`afterEach`가 **환경 전체를 스냅샷하고 복원하는** 이유는 두 가지다. 첫째, 테스트가 넣은 값이 다른 테스트로 새지 않아야 한다. 둘째, 그리고 이쪽이 놓치기 쉬운데, **테스트가 지운 값이 원래 있었다면 되돌아와야 한다.** `PORT`는 실행 환경(Heroku·Railway·Render, 여러 로컬 셋업)에 이미 설정돼 있는 경우가 흔하다. `delete process.env.PORT`로 끝내면 그 값이 Jest 워커 프로세스 전체에서 영구히 사라진다.
+
+변수 이름을 나열해 하나씩 정리하지 않는 이유는 그 목록이 변수를 추가할 때마다 낡기 때문이다. 전체 스냅샷은 한 번 쓰면 계속 옳다. 동적 키 삭제에 `Reflect.deleteProperty`를 쓰는 것은 `@typescript-eslint/no-dynamic-delete` 때문이다.
+
+**이 패턴은 이후 Phase에서 반복된다.** Phase 2의 `loadDatabaseSettings`, Phase 6의 `loadAuthSettings`, Phase 7의 `loadBrokerSettings`도 같은 `env` 기본 파라미터를 가지므로, 각각 인자를 생략하는 테스트와 위 스냅샷/복원 블록을 함께 둔다. 그 로더들이 다루는 `DATABASE_URL`·`REDIS_URL`·`JWT_SECRET_KEY`는 `PORT`보다 더 실제로 설정돼 있을 값들이다.
 
 - [ ] **Step 2: 테스트가 실패하는지 확인**
 
