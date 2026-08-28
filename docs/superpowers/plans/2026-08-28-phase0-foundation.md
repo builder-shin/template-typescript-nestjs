@@ -96,11 +96,13 @@
     "start": "node dist/config/main.js"
   },
   "devDependencies": {
-    "@types/node": "26.4.0",
+    "@types/node": "24.13.3",
     "typescript": "6.0.3"
   }
 }
 ```
+
+`@types/node`의 메이저는 `engines.node`의 하한과 같은 계열이어야 한다. 26.x로 타입 검사하면 Node 25/26 전용 API가 `typecheck`를 통과하면서 선언한 최소 런타임(24.11)에서는 크래시한다. Docker 베이스도 `node:24-slim`이다. Node 하한을 올릴 때는 이 값도 함께 올린다.
 
 - [ ] **Step 2: `tsconfig.json` 작성 (타입 검사용, `src` + `test`)**
 
@@ -196,7 +198,7 @@ export const probe = JSONAPI_MEDIA_TYPE;
 ```
 
 Run: `pnpm typecheck`
-Expected: FAIL — `src/app/jsonapi/extension-probe.ts(1,38): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './media-type.js'?`
+Expected: FAIL — `src/app/jsonapi/extension-probe.ts(1,36): error TS2835: Relative import paths need explicit file extensions in ECMAScript imports when '--moduleResolution' is 'node16' or 'nodenext'. Did you mean './media-type.js'?`
 
 목적은 `typecheck`가 ESM 확장자 규칙의 게이트임을 실행으로 확인하는 것이다. 이 파일은 커밋하지 않는다.
 
