@@ -569,7 +569,44 @@ describe('loadServerSettings', () => {
     expect(() => loadServerSettings({ PORT: 'http' })).toThrow('PORT must be an integer');
   });
 });
+
+describe('env 인자를 생략했을 때의 기본값', () => {
+  const PROBE = 'SETTINGS_DEFAULT_ENV_PROBE';
+
+  afterEach(() => {
+    delete process.env[PROBE];
+    delete process.env.PORT;
+  });
+
+  it('requireEnv는 process.env를 읽는다', () => {
+    process.env[PROBE] = 'from-process-env';
+
+    expect(requireEnv(PROBE)).toBe('from-process-env');
+  });
+
+  it('optionalInteger는 process.env를 읽는다', () => {
+    process.env[PROBE] = '42';
+
+    expect(optionalInteger(PROBE, 10)).toBe(42);
+  });
+
+  it('optionalNonNegativeInteger는 process.env를 읽는다', () => {
+    process.env[PROBE] = '7';
+
+    expect(optionalNonNegativeInteger(PROBE, 10)).toBe(7);
+  });
+
+  it('loadServerSettings는 process.env를 읽는다', () => {
+    process.env.PORT = '9090';
+
+    expect(loadServerSettings()).toEqual({ port: 9090 });
+  });
+});
 ```
+
+마지막 describe 블록이 없으면 **분기 커버리지가 80% 게이트를 통과하지 못한다.** 네 함수의 `env: NodeJS.ProcessEnv = process.env` 기본 파라미터는 명시적 `env`를 넘기는 테스트만으로는 실행되지 않는다. `afterEach`에서 두 변수를 지우는 이유는 `process.env` 변경이 다른 테스트로 새지 않게 하기 위해서다. 특히 `PORT`는 실행 환경에 이미 설정돼 있을 수 있다.
+
+**이 패턴은 이후 Phase에서 반복된다.** Phase 2의 `loadDatabaseSettings`, Phase 6의 `loadAuthSettings`, Phase 7의 `loadBrokerSettings`도 같은 `env` 기본 파라미터를 가지므로, 각각 인자를 생략하는 테스트를 하나씩 함께 둔다.
 
 - [ ] **Step 2: 테스트가 실패하는지 확인**
 
@@ -651,7 +688,7 @@ export function loadServerSettings(env: NodeJS.ProcessEnv = process.env): Server
 - [ ] **Step 4: 테스트 통과 확인**
 
 Run: `pnpm test:quick test/config/settings.spec.ts`
-Expected: PASS — 13개 테스트 통과
+Expected: PASS — 17개 테스트 통과
 
 - [ ] **Step 5: 린트와 타입 검사**
 
