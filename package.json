@@ -14,14 +14,22 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "node dist/config/main.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
-    "test:quick": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage=false"
+    "test:quick": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage=false",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
+    "@eslint/js": "10.0.1",
     "@types/jest": "30.0.0",
     "@types/node": "24.13.3",
+    "eslint": "10.9.1",
+    "eslint-config-prettier": "10.1.8",
     "jest": "30.4.2",
+    "prettier": "3.9.6",
     "ts-jest": "29.4.12",
-    "typescript": "6.0.3"
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.68.0"
   },
   "dependencies": {
     "reflect-metadata": "0.2.2"
