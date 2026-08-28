@@ -19,6 +19,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "secretlint": "secretlint --secretlintignore .gitignore \"**/*\"",
+    "check": "./scripts/check.sh",
     "prepare": "husky"
   },
   "devDependencies": {
