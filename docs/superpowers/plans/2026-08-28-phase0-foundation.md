@@ -244,6 +244,7 @@ typescript-eslint가 요구하는 JS 컴파일러 API를 노출하지 않는다.
 ```yaml
 allowBuilds:
   '@parcel/watcher': false
+  '@scarf/scarf': false
   unrs-resolver: false
 overrides:
   '@jest/transform': ~30.4.0
@@ -251,6 +252,8 @@ overrides:
   babel-jest: ~30.4.0
   jest-util: ~30.4.0
 ```
+
+세 항목 모두 `false`, 즉 **빌드 스크립트 실행을 거부**한다. `@parcel/watcher`와 `unrs-resolver`는 네이티브 최적화용 선택 의존성이라 거부해도 JS 폴백으로 동작한다. `@scarf/scarf`는 Task 6이 `@nestjs/swagger` → `swagger-ui-dist`를 통해 끌어오는 **설치 시점 텔레메트리**로, `postinstall`이 설치 통계를 외부(scarf.sh)로 전송한다. Swagger UI 자산 제공에는 불필요하고, 이 템플릿을 복제한 모든 소비자의 CI와 개발 머신이 같은 호출을 하게 되므로 차단한다.
 
 `overrides`가 `package.json`의 `pnpm` 필드가 아니라 이 파일에 있는 이유는 pnpm 11이 `package.json`의 `pnpm` 필드를 무시하고 경고를 내기 때문이다.
 
