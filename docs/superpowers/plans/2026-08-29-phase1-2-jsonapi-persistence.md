@@ -1299,10 +1299,14 @@ interface FakeRequest {
 }
 
 function contextFor(request: FakeRequest): ExecutionContext {
+  // handler/controller는 호출마다 같은 객체여야 한다. Reflector가 메타데이터를 찾을 때
+  // 매번 다른 객체를 받으면 조회가 성립하지 않는다.
+  const handler = function handler(): void {};
+  const controller = class Controller {};
   return {
     switchToHttp: () => ({ getRequest: () => request }),
-    getHandler: () => function handler() {},
-    getClass: () => class Controller {},
+    getHandler: () => handler,
+    getClass: () => controller,
   } as unknown as ExecutionContext;
 }
 
@@ -1854,14 +1858,18 @@ function contextFor(skip: boolean): { context: ExecutionContext; headers: Record
       headers[name.toLowerCase()] = value;
     },
   };
+  // handler/controller는 호출마다 같은 객체여야 한다. 화살표 안에서 새로 만들면
+  // Reflect.defineMetadata가 버려지는 객체에 붙고 Reflector가 아무것도 못 찾는다.
+  const handler = function handler(): void {};
+  const controller = class Controller {};
+  if (skip) {
+    Reflect.defineMetadata(NEGOTIATE_ACCEPT_KEY, true, handler);
+  }
   const context = {
     switchToHttp: () => ({ getResponse: () => response }),
-    getHandler: () => function handler() {},
-    getClass: () => class Controller {},
+    getHandler: () => handler,
+    getClass: () => controller,
   } as unknown as ExecutionContext;
-  if (skip) {
-    Reflect.defineMetadata(NEGOTIATE_ACCEPT_KEY, true, context.getHandler());
-  }
   return { context, headers };
 }
 
