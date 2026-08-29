@@ -42,7 +42,7 @@
 | OpenAPI | `@nestjs/swagger` 12 | |
 | 큐 | BullMQ 6 + `@nestjs/bullmq` 12 | |
 | 인증 | `@nestjs/jwt` 12 + `argon2` 0.45 | |
-| 테스트 | Jest 30.5 + ts-jest 29 + supertest 7 | ESM에서 `node --experimental-vm-modules`로 구동 |
+| 테스트 | Jest **30.4.2** + ts-jest 29 + supertest 7 | ESM에서 `node --experimental-vm-modules`로 구동. `latest`(30.5.0)가 아니라 30.4.2인 이유는 아래 24시간 규칙 때문이다 |
 | 린트/포맷 | ESLint 10.9 + typescript-eslint 8.68 + Prettier 3.9 | |
 | 비밀 탐지 | **secretlint** | 참조는 Python `pre-commit` + `detect-secrets`. TS 저장소에 Python 런타임을 요구하지 않기 위한 npm 네이티브 대체 |
 | 훅 | husky + lint-staged | `pre-commit` 프레임워크의 npm 대응 |
@@ -381,9 +381,10 @@ docker compose down -v
 | `lint` / `format` / `format:check` | `eslint .` / `prettier --write .` / `prettier --check .` |
 | `typecheck` | `tsc --noEmit` |
 | `build` | `tsc` (`dist/` 산출) |
-| `start` / `start:dev` | `node dist/config/main.js` / watch 모드 |
+| `start` | `node dist/config/main.js` |
 | `test` | `jest` (커버리지 게이트 포함) |
-| `test:jsonapi` / `test:controllers` / `test:db` | 좁은 Jest 경로 실행 |
+| `test:quick` | 커버리지 없이 빠르게 (Phase 0) |
+| `test:jsonapi` / `test:controllers` / `test:db` | 좁은 Jest 경로 실행 (Phase 1 이후) |
 | `migrate` / `seed` | TypeORM 마이그레이션 / `node dist/db/seeds.js` |
 | `db:up` / `worker` / `compose:verify` | Compose 서비스 기동과 설정 검증 |
 | `check` | `./scripts/check.sh` 호출만 한다 |
