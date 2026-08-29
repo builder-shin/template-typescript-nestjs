@@ -1,0 +1,45 @@
+services:
+  db:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-nestjs_template}
+      POSTGRES_USER: ${POSTGRES_USER:-nestjs}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-nestjs}
+    ports:
+      - '127.0.0.1:5432:5432'
+    volumes:
+      # postgres 18+ 이미지는 PGDATA를 `/var/lib/postgresql/18/docker`에 두고
+      # `VOLUME /var/lib/postgresql`을 선언한다. 따라서 마운트는 이 부모 경로 하나여야
+      # 한다. postgres 17까지의 관례대로 `/var/lib/postgresql/data`에 걸면 이미지가
+      # "unused mount/volume"으로 판단해 기동을 거부한다(exit 1).
+      # 참고: https://github.com/docker-library/postgres/pull/1259
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-nestjs} -d ${POSTGRES_DB:-nestjs_template}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  redis:
+    image: redis:8-alpine
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  api:
+    build: .
+    environment:
+      PORT: ${PORT:-4000}
+    ports:
+      - '${PORT:-4000}:${PORT:-4000}'
+
+volumes:
+  postgres_data:
+  redis_data:

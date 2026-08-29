@@ -1,0 +1,8 @@
+node_modules/
+dist/
+coverage/
+.env
+*.log
+
+# 계획 실행용 스크래치 워크스페이스 (ledger, 브리프, 리뷰 패키지)
+.superpowers/
