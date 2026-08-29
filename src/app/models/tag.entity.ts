@@ -28,6 +28,8 @@ export class Tag {
   @UpdateDateColumn({ name: 'updated_at', type: 'timestamptz' })
   updatedAt!: Date;
 
-  @ManyToMany('Example', 'tags')
+  // onDelete/onUpdate를 CASCADE로 명시하는 이유는 example.entity.ts의 tags 필드
+  // 주석 참고 — 이 옵션을 생략하면 이 방향(tag_id FK)만 NO ACTION으로 남는다.
+  @ManyToMany('Example', 'tags', { onDelete: 'CASCADE', onUpdate: 'CASCADE' })
   examples?: Example[];
 }
