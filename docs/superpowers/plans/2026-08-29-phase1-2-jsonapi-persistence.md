@@ -3125,7 +3125,9 @@ export function requireTestDatabaseUrl(env: NodeJS.ProcessEnv = process.env): st
   const url = raw.trim();
   let databaseName: string;
   try {
-    databaseName = new URL(url).pathname.replace(/^\//, '');
+    // 끝 슬래시를 먼저 떼어낸다. `.../app_test/`가 `app_test/`로 읽혀 정당한 URL이
+    // 거부되는 것을 막는다.
+    databaseName = new URL(url).pathname.replace(/^\//, '').replace(/\/$/, '');
   } catch {
     throw new Error('TEST_DATABASE_URL must be a valid connection URL');
   }
@@ -3179,8 +3181,15 @@ export async function withRollback<T>(
   try {
     return await fn(queryRunner.manager);
   } finally {
-    await queryRunner.rollbackTransaction();
-    await queryRunner.release();
+    try {
+      await queryRunner.rollbackTransaction();
+    } catch {
+      // 롤백 실패를 삼킨다. `fn`이 던진 오류가 진단의 근거인데, `finally`에서 새 오류가
+      // 나가면 JS 의미상 그 원래 오류를 덮어버린다. 롤백 실패는 대개 원래 실패의 결과다.
+    } finally {
+      // 롤백이 어떻게 되든 커넥션은 반드시 돌려준다. 여기서 새면 풀이 마른다.
+      await queryRunner.release();
+    }
   }
 }
 
@@ -3286,7 +3295,9 @@ describe('스키마 제약', () => {
         await manager.save(manager.create(Category, { name: '중복' }));
         await manager.save(manager.create(Category, { name: '중복' }));
       }),
-    ).rejects.toThrow();
+      // 인자 없는 toThrow()는 SQL 오타나 커넥션 끊김으로 실패해도 통과한다.
+      // 어떤 제약이 걸렸는지까지 고정한다.
+    ).rejects.toThrow(/duplicate key value violates unique constraint/);
   });
 
   it('tag 이름은 유일하다', async () => {
@@ -3295,7 +3306,7 @@ describe('스키마 제약', () => {
         await manager.save(manager.create(Tag, { name: '중복' }));
         await manager.save(manager.create(Tag, { name: '중복' }));
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/duplicate key value violates unique constraint/);
   });
 
   it('category 삭제가 Example을 지우지 않고 FK만 푼다', async () => {
@@ -3349,7 +3360,7 @@ describe('스키마 제약', () => {
           `INSERT INTO examples (title, status) VALUES ('제목', 'unknown')`,
         );
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/invalid input value for enum/);
   });
 
   it('withRollback이 실제로 롤백한다', async () => {
