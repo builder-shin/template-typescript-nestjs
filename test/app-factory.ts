@@ -32,7 +32,6 @@ interface ExpressRouter {
 
 interface ExpressInstance {
   readonly router?: ExpressRouter;
-  readonly _router?: ExpressRouter;
 }
 
 /**
@@ -44,7 +43,7 @@ interface ExpressInstance {
  * 노출은 `test/config/openapi.spec.ts`가 HTTP 요청으로 따로 확인한다.
  */
 function isDocumentationPath(path: string): boolean {
-  return path === '/api/schema' || path === '/api-docs-yaml' || path.startsWith('/api-docs');
+  return path === '/api/schema' || path.startsWith('/api-docs');
 }
 
 /**
@@ -52,11 +51,12 @@ function isDocumentationPath(path: string): boolean {
  *
  * 라우트가 조용히 늘거나 사라지는 것을 잡기 위한 것이므로 정렬된 배열로 고정 비교한다.
  * OpenAPI 문서 경로는 제외한다. 이 템플릿은 모든 애플리케이션 라우트를 `/api/v1`과
- * `/health` 아래에만 두므로 이 제외가 실제 라우트를 가리지 않는다.
+ * `/health` 아래에만 두는 것을 설계 계약으로 삼으므로, 이 제외가 실제 라우트를
+ * 가리지 않는다.
  */
 export function registeredRoutes(app: INestApplication): string[] {
   const instance = app.getHttpAdapter().getInstance() as ExpressInstance;
-  const router = instance.router ?? instance._router;
+  const router = instance.router;
   const routes: string[] = [];
 
   for (const layer of router?.stack ?? []) {

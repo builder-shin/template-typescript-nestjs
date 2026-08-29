@@ -1,7 +1,8 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
-const readmePath = fileURLToPath(new URL('../../README.md', import.meta.url));
+const repoRoot = new URL('../../', import.meta.url);
+const readmePath = fileURLToPath(new URL('README.md', repoRoot));
 const readme = readFileSync(readmePath, 'utf8');
 
 /**
@@ -38,9 +39,50 @@ function verificationSection(): string {
   return next < 0 ? rest : rest.slice(0, next);
 }
 
+const STRUCTURE_HEADING = '## 구조';
+
+/**
+ * `## 구조` 코드 펜스 안의 각 줄에서 경로 토큰만 뽑아낸다.
+ *
+ * 이 블록은 `## 검증` 절과 달리 테스트로 고정돼 있지 않아 드리프트하기 쉽다
+ * (커밋 f0d703d 참고). `src/db/`, 그다음 `test/`와 `src/app/`이 차례로 실제와
+ * 어긋났던 전례가 있고, Phase 2·6이 새 디렉터리를 만들 때 다시 어긋나기 쉽다.
+ * 줄의 모양은 `path/          # 설명`이므로 각 줄의 선행 공백을 제외한 첫
+ * 토큰을 경로로 본다.
+ */
+function structurePaths(): string[] {
+  const start = readme.indexOf(STRUCTURE_HEADING);
+  if (start < 0) {
+    return [];
+  }
+  const afterHeading = readme.slice(start + STRUCTURE_HEADING.length);
+  const fenceStart = afterHeading.indexOf('```text');
+  if (fenceStart < 0) {
+    return [];
+  }
+  const fenceBodyStart = afterHeading.indexOf('\n', fenceStart) + 1;
+  const fenceEnd = afterHeading.indexOf('```', fenceBodyStart);
+  const fenceBody = fenceEnd < 0 ? '' : afterHeading.slice(fenceBodyStart, fenceEnd);
+
+  return fenceBody
+    .split('\n')
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .map((line) => line.split(/\s+/)[0] ?? line);
+}
+
 describe('README', () => {
   it('검증 절을 가진다', () => {
     expect(readme).toContain(HEADING);
+  });
+
+  it('구조 절에 적은 경로가 실제로 존재한다', () => {
+    const paths = structurePaths();
+
+    expect(paths.length).toBeGreaterThan(0);
+    for (const path of paths) {
+      expect(existsSync(fileURLToPath(new URL(path, repoRoot)))).toBe(true);
+    }
   });
 
   it('검증 절이 전체 검증 명령을 문자열 그대로 담는다', () => {

@@ -33,7 +33,7 @@ services:
     environment:
       PORT: ${PORT:-4000}
     ports:
-      - '4000:4000'
+      - '${PORT:-4000}:${PORT:-4000}'
 
 volumes:
   postgres_data:

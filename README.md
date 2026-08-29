@@ -59,12 +59,12 @@ docker compose down -v
 
 ## 환경 변수
 
-| 변수                | 기본값            | 비고                                                 |
-| ------------------- | ----------------- | ---------------------------------------------------- |
-| `PORT`              | `4000`            | 정수가 아니면 `PORT must be an integer`로 실패합니다 |
-| `POSTGRES_DB`       | `nestjs_template` | Compose 전용입니다                                   |
-| `POSTGRES_USER`     | `nestjs`          | Compose 전용입니다                                   |
-| `POSTGRES_PASSWORD` | `nestjs`          | Compose 전용 개발 값입니다                           |
+| 변수                | 기본값            | 비고                                                                                                                                    |
+| ------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`              | `4000`            | 정수가 아니면 `PORT must be an integer`로 실패합니다. Compose는 이 값을 호스트에도 그대로 게시하고 컨테이너 헬스체크도 이 값을 따릅니다 |
+| `POSTGRES_DB`       | `nestjs_template` | Compose 전용입니다                                                                                                                      |
+| `POSTGRES_USER`     | `nestjs`          | Compose 전용입니다                                                                                                                      |
+| `POSTGRES_PASSWORD` | `nestjs`          | Compose 전용 개발 값입니다                                                                                                              |
 
 애플리케이션 코드에는 암묵적 기본값이 없습니다. 값이 잘못되면 변수 이름이 담긴 오류와 함께 프로세스가 시작되지 않습니다.
 
