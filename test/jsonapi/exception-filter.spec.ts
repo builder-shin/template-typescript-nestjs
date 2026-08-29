@@ -1,4 +1,10 @@
-import { HttpException, HttpStatus, NotFoundException } from '@nestjs/common';
+import {
+  ConsoleLogger,
+  HttpException,
+  HttpStatus,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common';
 import type { ArgumentsHost } from '@nestjs/common';
 import { ERROR_CATALOG, JsonApiError } from '../../src/app/jsonapi/errors.js';
 import {
@@ -34,6 +40,8 @@ function hostFor(acceptLanguage?: string | string[]): {
   };
   const request = {
     headers: acceptLanguage === undefined ? {} : { 'accept-language': acceptLanguage },
+    method: 'GET',
+    url: '/api/v1/examples',
   };
   const host = {
     switchToHttp: () => ({ getResponse: () => response, getRequest: () => request }),
@@ -132,8 +140,48 @@ describe('buildErrorDocument', () => {
   });
 });
 
+/** `Logger.overrideLogger`로 가로챈 `error` 호출 한 건. */
+interface LoggedError {
+  readonly message: unknown;
+  readonly params: readonly unknown[];
+}
+
 describe('JsonApiExceptionFilter', () => {
   const filter = new JsonApiExceptionFilter();
+  const logged: LoggedError[] = [];
+
+  /**
+   * Nest `Logger`의 정적 출력 대상을 가로챈다.
+   *
+   * `Logger.overrideLogger`는 프레임워크가 공개한 API이고, 인스턴스의 `localInstance`
+   * getter가 호출마다 이 정적 참조를 다시 읽으므로 이미 만들어진 필터 인스턴스에도
+   * 적용된다. mocking 프레임워크가 필요 없다 — 이 저장소의 ESM +
+   * `--experimental-vm-modules` 조합에서는 `jest` 전역이 주입되지 않는다.
+   *
+   * 가로채지 않으면 아래의 "알 수 없는 오류" 테스트들이 스택 트레이스를 테스트 출력에
+   * 쏟아낸다. 잡음을 없애는 김에 무엇이 실제로 기록되는지도 함께 단언한다.
+   */
+  beforeAll(() => {
+    Logger.overrideLogger({
+      log: () => undefined,
+      warn: () => undefined,
+      debug: () => undefined,
+      verbose: () => undefined,
+      error: (message: unknown, ...params: unknown[]) => {
+        logged.push({ message, params });
+      },
+    });
+  });
+
+  afterAll(() => {
+    // 정적 상태이므로 반드시 되돌린다. Jest는 파일마다 모듈 레지스트리를 새로 만들지만,
+    // 이 파일 안의 뒤따르는 describe까지 영향을 받는 것을 막는다.
+    Logger.overrideLogger(new ConsoleLogger());
+  });
+
+  beforeEach(() => {
+    logged.length = 0;
+  });
 
   it('JsonApiError의 status와 코드를 그대로 낸다', () => {
     const { host, captured } = hostFor();
@@ -216,5 +264,53 @@ describe('JsonApiExceptionFilter', () => {
     const { host, captured } = hostFor();
     filter.catch(new Error('데이터베이스 비밀번호가 틀렸습니다'), host);
     expect(JSON.stringify(captured.body)).not.toContain('비밀번호');
+  });
+
+  // 이 필터가 전역으로 등록되면 Nest의 기본 처리기가 실행되지 않으므로, 여기서 남기지
+  // 않는 예외는 어디에도 흔적이 남지 않는다. 아래 다섯 개가 "무엇을 남기고 무엇을
+  // 남기지 않는가"를 고정한다.
+  it('예상 못 한 예외는 서버 로그에 남긴다', () => {
+    const { host } = hostFor();
+    filter.catch(new Error('boom'), host);
+
+    const entry = firstOf(logged);
+    expect(String(entry.message)).toBe('GET /api/v1/examples -> INTERNAL_SERVER_ERROR');
+    // 스택은 두 번째 인자로 넘어간다. 응답에서 감춘 원인을 서버 쪽에서는 볼 수 있어야 한다.
+    expect(entry.params.some((param) => typeof param === 'string' && param.includes('boom'))).toBe(
+      true,
+    );
+  });
+
+  it('Error가 아닌 값이 던져져도 남긴다', () => {
+    const { host } = hostFor();
+    filter.catch('문자열이 던져졌다', host);
+
+    const entry = firstOf(logged);
+    expect(
+      entry.params.some(
+        (param) => typeof param === 'string' && param.includes('문자열이 던져졌다'),
+      ),
+    ).toBe(true);
+  });
+
+  it('JsonApiError는 남기지 않는다', () => {
+    // 카탈로그에 있는 의도된 결과다. 진단이 필요하면 던지는 쪽이 소유한다 —
+    // 여기서 또 찍으면 헬스체크 주기마다 같은 내용이 두 줄씩 쌓인다.
+    const { host } = hostFor();
+    filter.catch(new JsonApiError('INTERNAL_SERVER_ERROR'), host);
+    expect(logged).toHaveLength(0);
+  });
+
+  it('4xx HttpException은 남기지 않는다', () => {
+    // 라우터가 내는 404를 전부 찍으면 로그가 요청 스캐너에 그대로 휩쓸린다.
+    const { host } = hostFor();
+    filter.catch(new NotFoundException(), host);
+    expect(logged).toHaveLength(0);
+  });
+
+  it('5xx HttpException은 남긴다', () => {
+    const { host } = hostFor();
+    filter.catch(new HttpException('gateway', HttpStatus.BAD_GATEWAY), host);
+    expect(String(firstOf(logged).message)).toBe('GET /api/v1/examples -> HTTP_ERROR');
   });
 });

@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import type { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import type { Observable } from 'rxjs';
-import { JSONAPI_MEDIA_TYPE } from './media-type.js';
+import { JSONAPI_MEDIA_TYPE, pinJsonApiContentType } from './media-type.js';
+import type { HeaderWritableResponse } from './media-type.js';
 import { NEGOTIATE_ACCEPT_KEY } from './negotiation.js';
 
 /**
@@ -29,10 +30,11 @@ export class JsonApiResponseInterceptor implements NestInterceptor {
       context.getClass(),
     ]);
     if (!skip) {
-      context
-        .switchToHttp()
-        .getResponse<{ setHeader(name: string, value: string): unknown }>()
-        .setHeader('Content-Type', JSONAPI_MEDIA_TYPE);
+      const response = context.switchToHttp().getResponse<HeaderWritableResponse>();
+      // 순서가 중요하다: 먼저 고정해야 이 인터셉터가 쓴 값이 아니라 나중에 Express가
+      // 덧붙이는 `charset=utf-8`까지 함께 걸린다. 근거는 `pinJsonApiContentType` 주석 참고.
+      pinJsonApiContentType(response);
+      response.setHeader('Content-Type', JSONAPI_MEDIA_TYPE);
     }
     return next.handle();
   }

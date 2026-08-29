@@ -62,7 +62,10 @@ function parseRange(raw: string, position: number): LanguageRange | undefined {
     quality = parsed;
   }
 
-  if (quality <= 0) {
+  // RFC 9110의 qvalue는 0 이상 1 이하다. 범위를 벗어난 값(`q=5`)은 `q=abc`와 같은
+  // 형식 오류이므로 같은 방식으로 이 항목 전체를 버린다 — 받아주면 규격을 어긴 항목이
+  // 규격에 맞는 `q=1` 항목을 제치고 선택된다.
+  if (quality <= 0 || quality > 1) {
     return undefined;
   }
 
