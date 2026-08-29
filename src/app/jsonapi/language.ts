@@ -40,12 +40,11 @@ function parseRange(raw: string, position: number): LanguageRange | undefined {
     return undefined;
   }
 
-  const [tagPart, ...parameters] = trimmed.split(';');
-  // `trimmed`가 빈 문자열이 아니므로 `split(';')`은 항상 원소를 하나 이상 반환해
-  // `tagPart`는 실제로 `undefined`가 될 수 없지만, `noUncheckedIndexedAccess` 아래에서는
-  // 배열 구조분해 값도 `string | undefined`로 취급된다. `??`로 타입만 좁히고
-  // (도달 불가능한) 새 분기는 만들지 않는다.
-  const tag = (tagPart ?? '').trim().toLowerCase();
+  // `[0]` 인덱싱 대신 `indexOf`/`slice`로 나눈다 — `noUncheckedIndexedAccess`가 잡을
+  // 인덱스 접근 자체가 없고, 두 갈래(구분자 있음/없음) 모두 실제로 도달 가능하다.
+  const separator = trimmed.indexOf(';');
+  const tag = (separator === -1 ? trimmed : trimmed.slice(0, separator)).trim().toLowerCase();
+  const parameters = separator === -1 ? [] : trimmed.slice(separator + 1).split(';');
   if (tag === '') {
     return undefined;
   }
@@ -67,13 +66,12 @@ function parseRange(raw: string, position: number): LanguageRange | undefined {
     return undefined;
   }
 
-  const subtags = tag.split('-');
-  // 위와 같은 이유로 `subtags[0]`도 `string | undefined`로 취급된다.
-  // `tag`가 빈 문자열이 아니므로 실제로 `undefined`가 될 수는 없다 — `??`로 타입만 좁힌다.
+  // 마찬가지로 `[0]` 인덱싱 대신 `indexOf`/`slice`를 쓴다.
+  const dashIndex = tag.indexOf('-');
   return {
-    base: subtags[0] ?? tag,
+    base: dashIndex === -1 ? tag : tag.slice(0, dashIndex),
     quality,
-    specificity: subtags.length,
+    specificity: tag.split('-').length,
     position,
   };
 }
