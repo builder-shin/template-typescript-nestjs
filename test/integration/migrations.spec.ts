@@ -76,13 +76,16 @@ describe('스키마 제약', () => {
     });
   });
 
+  // 매처 없는 `.rejects.toThrow()`는 SQL 오타나 연결 끊김 등 어떤 실패에도 통과한다 —
+  // 유일성 제약이 실제로 걸려서 실패한 것인지 다른 이유로 실패한 것인지 구분하지 못한다.
+  // 그래서 PostgreSQL이 실제로 내는 오류 메시지를 매처로 고정한다.
   it('category 이름은 유일하다', async () => {
     await expect(
       withRollback(dataSource, async (manager) => {
         await manager.save(manager.create(Category, { name: '중복' }));
         await manager.save(manager.create(Category, { name: '중복' }));
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/duplicate key value violates unique constraint/);
   });
 
   it('tag 이름은 유일하다', async () => {
@@ -91,7 +94,7 @@ describe('스키마 제약', () => {
         await manager.save(manager.create(Tag, { name: '중복' }));
         await manager.save(manager.create(Tag, { name: '중복' }));
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/duplicate key value violates unique constraint/);
   });
 
   it('category 삭제가 Example을 지우지 않고 FK만 푼다', async () => {
@@ -141,7 +144,7 @@ describe('스키마 제약', () => {
       withRollback(dataSource, async (manager) => {
         await manager.query(`INSERT INTO examples (title, status) VALUES ('제목', 'unknown')`);
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow(/invalid input value for enum/);
   });
 
   it('withRollback이 실제로 롤백한다', async () => {

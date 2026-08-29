@@ -33,6 +33,11 @@ describe('requireTestDatabaseUrl', () => {
     expect(requireTestDatabaseUrl({ TEST_DATABASE_URL: url })).toBe(url);
   });
 
+  it('끝에 슬래시가 붙어도 DB 이름을 정확히 읽는다', () => {
+    const url = 'postgres://u:p@localhost:5432/app_test/';
+    expect(requireTestDatabaseUrl({ TEST_DATABASE_URL: url })).toBe(url);
+  });
+
   it('URL 형식이 아니면 거부한다', () => {
     expect(() => requireTestDatabaseUrl({ TEST_DATABASE_URL: 'not-a-url' })).toThrow(
       'TEST_DATABASE_URL must be a valid connection URL',
