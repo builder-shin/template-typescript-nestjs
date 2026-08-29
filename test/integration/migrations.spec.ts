@@ -78,14 +78,17 @@ describe('스키마 제약', () => {
 
   // 매처 없는 `.rejects.toThrow()`는 SQL 오타나 연결 끊김 등 어떤 실패에도 통과한다 —
   // 유일성 제약이 실제로 걸려서 실패한 것인지 다른 이유로 실패한 것인지 구분하지 못한다.
-  // 그래서 PostgreSQL이 실제로 내는 오류 메시지를 매처로 고정한다.
+  // 그렇다고 일반적인 문구("duplicate key value violates unique constraint")만 고정해도
+  // 부족하다 — 테이블에 걸린 아무 unique 제약이나 위반해도 통과해 버려서, 지금 검증하려는
+  // 그 제약이 실제로 걸렸는지는 여전히 증명하지 못한다. 그래서 제약 이름까지 포함한
+  // PostgreSQL의 실제 오류 메시지를 매처로 고정한다.
   it('category 이름은 유일하다', async () => {
     await expect(
       withRollback(dataSource, async (manager) => {
         await manager.save(manager.create(Category, { name: '중복' }));
         await manager.save(manager.create(Category, { name: '중복' }));
       }),
-    ).rejects.toThrow(/duplicate key value violates unique constraint/);
+    ).rejects.toThrow(/duplicate key value violates unique constraint "UQ_categories_name"/);
   });
 
   it('tag 이름은 유일하다', async () => {
@@ -94,7 +97,7 @@ describe('스키마 제약', () => {
         await manager.save(manager.create(Tag, { name: '중복' }));
         await manager.save(manager.create(Tag, { name: '중복' }));
       }),
-    ).rejects.toThrow(/duplicate key value violates unique constraint/);
+    ).rejects.toThrow(/duplicate key value violates unique constraint "UQ_tags_name"/);
   });
 
   it('category 삭제가 Example을 지우지 않고 FK만 푼다', async () => {
@@ -139,12 +142,14 @@ describe('스키마 제약', () => {
     });
   });
 
+  // 위와 같은 이유로 enum 이름까지 고정한다 — 다른 enum 위반이나 무관한 실패와 구분하기
+  // 위해서다.
   it('허용되지 않은 status를 거부한다', async () => {
     await expect(
       withRollback(dataSource, async (manager) => {
         await manager.query(`INSERT INTO examples (title, status) VALUES ('제목', 'unknown')`);
       }),
-    ).rejects.toThrow(/invalid input value for enum/);
+    ).rejects.toThrow(/invalid input value for enum example_status/);
   });
 
   it('withRollback이 실제로 롤백한다', async () => {

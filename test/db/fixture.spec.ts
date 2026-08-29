@@ -38,6 +38,14 @@ describe('requireTestDatabaseUrl', () => {
     expect(requireTestDatabaseUrl({ TEST_DATABASE_URL: url })).toBe(url);
   });
 
+  it('경로 세그먼트가 여러 개면 접미사가 맞아도 거부한다', () => {
+    expect(() =>
+      requireTestDatabaseUrl({
+        TEST_DATABASE_URL: 'postgres://u:p@host:5432/production/app_test',
+      }),
+    ).toThrow('TEST_DATABASE_URL must have exactly one path segment');
+  });
+
   it('URL 형식이 아니면 거부한다', () => {
     expect(() => requireTestDatabaseUrl({ TEST_DATABASE_URL: 'not-a-url' })).toThrow(
       'TEST_DATABASE_URL must be a valid connection URL',

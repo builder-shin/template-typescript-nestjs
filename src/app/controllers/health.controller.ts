@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Logger } from '@nestjs/common';
 import { InjectDataSource } from '@nestjs/typeorm';
 import { DataSource } from 'typeorm';
 import { JsonApiError } from '../jsonapi/errors.js';
@@ -30,6 +30,8 @@ export interface ReadyStatus {
 @SkipJsonApiNegotiation()
 @Controller('health')
 export class HealthController {
+  private readonly logger = new Logger(HealthController.name);
+
   constructor(@InjectDataSource() private readonly dataSource: DataSource) {}
 
   @Get('live')
@@ -41,7 +43,14 @@ export class HealthController {
   async ready(): Promise<ReadyStatus> {
     try {
       await this.dataSource.query('SELECT 1');
-    } catch {
+    } catch (error) {
+      // 원인은 서버 로그로만 보낸다: 운영자는 자격 증명·네트워크·타임아웃 등 실패 원인을
+      // 구분할 수 있어야 하지만, 클라이언트는 고정된 코드/detail만 받는다 — 드라이버
+      // 메시지가 그대로 새면 내부 정보 노출이 된다.
+      this.logger.error(
+        'readiness check failed: database unreachable',
+        error instanceof Error ? error.stack : String(error),
+      );
       throw new JsonApiError('INTERNAL_SERVER_ERROR', {
         detail: 'the database is not reachable',
       });

@@ -12,9 +12,11 @@ import { buildDataSourceOptions } from '../../src/config/database.js';
 /**
  * `TEST_DATABASE_URL`을 읽고 안전 조건을 확인한다.
  *
- * DB 이름이 `_test`로 끝나야 한다. 이 fixture는 `TRUNCATE`를 실행하므로, 변수를
- * 실수로 개발 DB나 운영 DB로 두면 데이터가 사라진다. 접미사 검사는 그 사고를 막는
- * 값싼 방벽이다 — 편의를 위해 우회로를 만들지 않는다.
+ * DB 이름이 `_test`로 끝나야 하고, 경로 세그먼트가 정확히 하나여야 한다. 이 fixture는
+ * `TRUNCATE`를 실행하므로, 변수를 실수로 개발 DB나 운영 DB로 두면 데이터가 사라진다.
+ * 세그먼트가 여럿이면(예: `/production/app_test`) 접미사 검사만으로는 걸러지지 않으므로
+ * 두 조건을 함께 본다 — 이 검사들은 그 사고를 막는 값싼 방벽이다. 편의를 위해
+ * 우회로를 만들지 않는다.
  */
 export function requireTestDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   const raw = env.TEST_DATABASE_URL;
@@ -30,6 +32,16 @@ export function requireTestDatabaseUrl(env: NodeJS.ProcessEnv = process.env): st
     databaseName = new URL(url).pathname.replace(/^\//, '').replace(/\/$/, '');
   } catch {
     throw new Error('TEST_DATABASE_URL must be a valid connection URL');
+  }
+
+  // Postgres 연결 URL의 경로 세그먼트는 하나뿐이다 — `/production/app_test`처럼 슬래시가
+  // 남아 있으면 `endsWith('_test')`가 경로 구조를 보지 않고 그대로 통과시켜 버린다.
+  // 세그먼트가 둘 이상이면 이 URL이 가리키는 게 우리가 생각하는 그 DB가 아니라는
+  // 뜻이므로, 접미사를 보기 전에 먼저 거부한다.
+  if (databaseName.includes('/')) {
+    throw new Error(
+      `TEST_DATABASE_URL must have exactly one path segment (received "${databaseName}")`,
+    );
   }
 
   if (!databaseName.endsWith('_test')) {
