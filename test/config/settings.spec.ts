@@ -180,4 +180,32 @@ describe('loadDatabaseSettings', () => {
       loadDatabaseSettings({ DATABASE_URL: url, DB_POOL_CONNECTION_TIMEOUT_MS: '-1' }),
     ).toThrow('DB_POOL_CONNECTION_TIMEOUT_MS must be non-negative');
   });
+
+  describe('env 인자를 생략했을 때의 기본값', () => {
+    let snapshot: NodeJS.ProcessEnv;
+
+    beforeEach(() => {
+      snapshot = { ...process.env };
+    });
+
+    afterEach(() => {
+      for (const key of Object.keys(process.env)) {
+        if (!(key in snapshot)) {
+          Reflect.deleteProperty(process.env, key);
+        }
+      }
+      Object.assign(process.env, snapshot);
+    });
+
+    it('loadDatabaseSettings는 process.env를 읽는다', () => {
+      process.env.DATABASE_URL = url;
+
+      expect(loadDatabaseSettings()).toEqual({
+        url,
+        poolMax: 10,
+        idleTimeoutMs: 30000,
+        connectionTimeoutMs: 30000,
+      });
+    });
+  });
 });
