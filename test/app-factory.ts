@@ -3,6 +3,17 @@ import type { Server } from 'node:http';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/config/app.module.js';
 import { setupOpenApi } from '../src/config/openapi.js';
+import { requireTestDatabaseUrl } from './db/fixture.js';
+
+/**
+ * 테스트 앱은 `TEST_DATABASE_URL`이 가리키는 DB에 붙는다.
+ *
+ * `AppModule`이 `DATABASE_URL`을 읽으므로 조립 전에 옮겨 담는다. 테스트가 운영 변수
+ * 이름을 직접 세팅하면 실수로 개발 DB에 붙을 수 있으므로, 여기 한 곳에서만 변환한다.
+ */
+function useTestDatabase(): void {
+  process.env.DATABASE_URL = requireTestDatabaseUrl();
+}
 
 /**
  * 애플리케이션 테스트의 유일한 조립 지점.
@@ -16,6 +27,7 @@ import { setupOpenApi } from '../src/config/openapi.js';
  * 조립 지점의 책임이므로 여기서 `Server`로 고정해 돌려준다.
  */
 export async function createTestApp(): Promise<INestApplication<Server>> {
+  useTestDatabase();
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   const app = moduleRef.createNestApplication<INestApplication<Server>>();
   setupOpenApi(app);

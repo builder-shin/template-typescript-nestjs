@@ -15,11 +15,17 @@
     "start": "node dist/config/main.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "test:quick": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage=false",
+    "test:jsonapi": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage=false test/jsonapi",
+    "test:controllers": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage=false test/controllers",
+    "test:db": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage=false test/integration test/db test/models",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "secretlint": "secretlint --secretlintignore .gitignore \"**/*\"",
     "check": "./scripts/check.sh",
+    "migrate": "typeorm migration:run -d dist/config/data-source.js",
+    "seed": "node dist/db/seeds.js",
+    "db:up": "docker compose up -d --wait db",
     "prepare": "husky"
   },
   "devDependencies": {

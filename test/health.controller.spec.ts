@@ -3,12 +3,11 @@ import type { Server } from 'node:http';
 import request from 'supertest';
 import { createTestApp } from './app-factory.js';
 import { ERROR_CATALOG } from '../src/app/jsonapi/errors.js';
+import type { LiveStatus, ReadyStatus } from '../src/app/controllers/health.controller.js';
 
 // supertest는 `response.body`를 `any`로 노출한다. `strictTypeChecked`의
-// `no-unsafe-argument`에 걸리므로 단언 전에 명시적으로 좁힌다.
-interface HealthBody {
-  readonly status: string;
-}
+// `no-unsafe-argument`에 걸리므로 단언 전에 명시적으로 좁힌다. 컨트롤러가 내보내는
+// `LiveStatus`/`ReadyStatus`를 그대로 써서 응답 모양이 컨트롤러와 갈라지지 않게 한다.
 
 /**
  * `noUncheckedIndexedAccess` 아래에서 `arr[0]`은 `T | undefined`다. 캐스트로 지우는 대신
@@ -38,14 +37,14 @@ describe('HealthController', () => {
     const response = await request(app.getHttpServer()).get('/health/live');
 
     expect(response.status).toBe(200);
-    expect(response.body as HealthBody).toEqual({ status: 'ok' });
+    expect(response.body as LiveStatus).toEqual({ status: 'ok' });
   });
 
   it('GET /health/ready 는 200과 ok 를 반환한다', async () => {
     const response = await request(app.getHttpServer()).get('/health/ready');
 
     expect(response.status).toBe(200);
-    expect(response.body as HealthBody).toEqual({ status: 'ok' });
+    expect(response.body as ReadyStatus).toEqual({ status: 'ok', database: 'ok' });
   });
 
   it('JSON:API vendor 타입이 아니라 평문 JSON으로 응답한다', async () => {
@@ -88,5 +87,15 @@ describe('HealthController', () => {
     const response = await request(app.getHttpServer()).get('/health/nope').expect(404);
     const body = response.body as { errors: { title: string }[] };
     expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.HTTP_ERROR.ko);
+  });
+
+  it('readiness가 데이터베이스를 확인한다', async () => {
+    const response = await request(app.getHttpServer()).get('/health/ready').expect(200);
+    expect(response.body as ReadyStatus).toEqual({ status: 'ok', database: 'ok' });
+  });
+
+  it('liveness는 데이터베이스를 확인하지 않는다', async () => {
+    const response = await request(app.getHttpServer()).get('/health/live').expect(200);
+    expect(response.body as LiveStatus).toEqual({ status: 'ok' });
   });
 });

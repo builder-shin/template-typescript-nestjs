@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = new URL('../../', import.meta.url);
@@ -103,5 +104,20 @@ describe('README', () => {
   it('ESM 상대 import 제약을 명시한다', () => {
     expect(readme).toContain('.js');
     expect(readme).toContain('ESM');
+  });
+});
+
+describe('README 환경 변수 문서', () => {
+  it('필수 환경 변수를 모두 문서화한다', () => {
+    const readme = readFileSync(join(process.cwd(), 'README.md'), 'utf8');
+    for (const name of ['DATABASE_URL', 'DB_POOL_MAX', 'PORT', 'TEST_DATABASE_URL']) {
+      expect(readme).toContain(name);
+    }
+  });
+
+  it('마이그레이션과 시드 명령을 문서화한다', () => {
+    const readme = readFileSync(join(process.cwd(), 'README.md'), 'utf8');
+    expect(readme).toContain('pnpm migrate');
+    expect(readme).toContain('pnpm seed');
   });
 });
