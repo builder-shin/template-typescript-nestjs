@@ -2460,7 +2460,14 @@ describe('Example 엔티티', () => {
 
   it('(created_at, id) 인덱스를 선언한다', () => {
     const indices = getMetadataArgsStorage().indices.filter((entry) => entry.target === Example);
-    const columns = indices.map((entry) => (entry.columns as string[]).join(','));
+    // `IndexMetadataArgs.columns`는 `string[]`와 선택자 함수의 유니온이다. 캐스트로
+    // 지우면 함수형이 왔을 때를 조용히 넘기게 되므로, 실제 분기로 좁힌다.
+    const columns = indices.map((entry) => {
+      if (!Array.isArray(entry.columns)) {
+        throw new Error('인덱스가 컬럼 배열이 아니라 선택자 함수로 선언되어 있다');
+      }
+      return entry.columns.join(',');
+    });
     expect(columns).toContain('createdAt,id');
   });
 });
@@ -2615,7 +2622,7 @@ export class Example {
   @Column({
     name: 'status',
     type: 'enum',
-    enum: EXAMPLE_STATUSES as string[],
+    enum: EXAMPLE_STATUSES,
     enumName: 'example_status',
     default: 'draft',
   })
