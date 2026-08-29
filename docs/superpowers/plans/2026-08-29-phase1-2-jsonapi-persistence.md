@@ -749,15 +749,20 @@ git commit -m "feat(jsonapi): Accept-Language 품질값 해석 추가"
 import { JsonApiError } from '../../src/app/jsonapi/errors.js';
 import { parseLinkageInput, parseResourceInput } from '../../src/app/jsonapi/document.js';
 
+// `expect(...).toBeInstanceOf()`는 Jest 매처일 뿐 TypeScript가 아는 타입 가드가 아니다.
+// 그래서 그 뒤에 `error as JsonApiError`를 쓰면 캐스트로 컴파일러를 침묵시키게 된다.
+// 원시 `instanceof`로 좁히면 캐스트 없이 같은 안전성을 얻고, 예상 밖의 오류가 나면
+// 그 오류가 그대로 터져 원인이 바로 보인다.
 function expectJsonApiError(fn: () => unknown, code: string, pointer?: string): void {
   try {
     fn();
   } catch (error) {
-    expect(error).toBeInstanceOf(JsonApiError);
-    const jsonApiError = error as JsonApiError;
-    expect(jsonApiError.code).toBe(code);
+    if (!(error instanceof JsonApiError)) {
+      throw error;
+    }
+    expect(error.code).toBe(code);
     if (pointer !== undefined) {
-      expect(jsonApiError.source?.pointer).toBe(pointer);
+      expect(error.source?.pointer).toBe(pointer);
     }
     return;
   }
@@ -1379,9 +1384,11 @@ describe('JsonApiNegotiationGuard', () => {
     try {
       guard().canActivate(context);
     } catch (error) {
-      expect(error).toBeInstanceOf(JsonApiError);
-      expect((error as JsonApiError).code).toBe('NOT_ACCEPTABLE');
-      expect((error as JsonApiError).status).toBe(406);
+      if (!(error instanceof JsonApiError)) {
+        throw error;
+      }
+      expect(error.code).toBe('NOT_ACCEPTABLE');
+      expect(error.status).toBe(406);
       return;
     }
     throw new Error('expected NOT_ACCEPTABLE');
@@ -1409,8 +1416,11 @@ describe('JsonApiNegotiationGuard', () => {
     try {
       guard().canActivate(context);
     } catch (error) {
-      expect((error as JsonApiError).code).toBe('UNSUPPORTED_MEDIA_TYPE');
-      expect((error as JsonApiError).status).toBe(415);
+      if (!(error instanceof JsonApiError)) {
+        throw error;
+      }
+      expect(error.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+      expect(error.status).toBe(415);
       return;
     }
     throw new Error('expected UNSUPPORTED_MEDIA_TYPE');
@@ -1427,7 +1437,10 @@ describe('JsonApiNegotiationGuard', () => {
     try {
       guard().canActivate(context);
     } catch (error) {
-      expect((error as JsonApiError).code).toBe('UNSUPPORTED_MEDIA_TYPE');
+      if (!(error instanceof JsonApiError)) {
+        throw error;
+      }
+      expect(error.code).toBe('UNSUPPORTED_MEDIA_TYPE');
       return;
     }
     throw new Error('expected UNSUPPORTED_MEDIA_TYPE');
@@ -1451,7 +1464,10 @@ describe('JsonApiNegotiationGuard', () => {
     try {
       guard().canActivate(context);
     } catch (error) {
-      expect((error as JsonApiError).code).toBe('UNSUPPORTED_MEDIA_TYPE');
+      if (!(error instanceof JsonApiError)) {
+        throw error;
+      }
+      expect(error.code).toBe('UNSUPPORTED_MEDIA_TYPE');
       return;
     }
     throw new Error('expected UNSUPPORTED_MEDIA_TYPE');
@@ -1465,7 +1481,10 @@ describe('JsonApiNegotiationGuard', () => {
     try {
       guard().canActivate(context);
     } catch (error) {
-      expect((error as JsonApiError).code).toBe('NOT_ACCEPTABLE');
+      if (!(error instanceof JsonApiError)) {
+        throw error;
+      }
+      expect(error.code).toBe('NOT_ACCEPTABLE');
       return;
     }
     throw new Error('expected NOT_ACCEPTABLE');
