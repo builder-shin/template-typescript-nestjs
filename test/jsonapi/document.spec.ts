@@ -1,15 +1,22 @@
 import { JsonApiError } from '../../src/app/jsonapi/errors.js';
 import { parseLinkageInput, parseResourceInput } from '../../src/app/jsonapi/document.js';
 
+/**
+ * `toBeInstanceOf`는 Jest 매처일 뿐 TypeScript 타입 가드가 아니다 — 써도
+ * `error`는 여전히 `unknown`으로 남아 이후 `.code`/`.source` 접근에 캐스트가
+ * 필요해진다. 대신 `instanceof`로 직접 좁혀 캐스트 없이 좁혀진 타입을 쓴다.
+ * (Jest 매처 방식으로 "단순화"하지 말 것 — 캐스트가 다시 필요해진다.)
+ */
 function expectJsonApiError(fn: () => unknown, code: string, pointer?: string): void {
   try {
     fn();
   } catch (error) {
-    expect(error).toBeInstanceOf(JsonApiError);
-    const jsonApiError = error as JsonApiError;
-    expect(jsonApiError.code).toBe(code);
+    if (!(error instanceof JsonApiError)) {
+      throw error;
+    }
+    expect(error.code).toBe(code);
     if (pointer !== undefined) {
-      expect(jsonApiError.source?.pointer).toBe(pointer);
+      expect(error.source?.pointer).toBe(pointer);
     }
     return;
   }
