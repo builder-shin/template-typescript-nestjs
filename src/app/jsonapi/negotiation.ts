@@ -1,0 +1,157 @@
+import { Injectable, SetMetadata } from '@nestjs/common';
+import type { CanActivate, ExecutionContext } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import { JsonApiError } from './errors.js';
+import { JSONAPI_MEDIA_TYPE } from './media-type.js';
+
+/**
+ * JSON:API 미디어 타입 협상.
+ *
+ * JSON:API 1.1은 vendor 타입에 미디어 타입 파라미터를 붙이는 것을 금지한다
+ * (`ext`와 `profile`만 예외). 따라서 `application/vnd.api+json; charset=utf-8`은
+ * 규격 위반이고, 받아주면 클라이언트가 규격을 벗어난 채로 굳는다.
+ *
+ * `q`는 HTTP 협상 파라미터이지 미디어 타입 파라미터가 아니므로 허용한다.
+ */
+
+/** 협상을 끄는 메타데이터 키. */
+export const NEGOTIATE_ACCEPT_KEY = 'jsonapi:skip-negotiation';
+
+/**
+ * 이 핸들러나 컨트롤러를 협상 대상에서 제외한다.
+ *
+ * `health`처럼 평문 JSON을 내는 라우트에 쓴다. 협상을 생략한다는 의도를 코드에 남기는 것이
+ * 목적이므로, 가드를 아예 붙이지 않는 것보다 이 데코레이터를 선호한다.
+ */
+export function SkipJsonApiNegotiation(): MethodDecorator & ClassDecorator {
+  return SetMetadata(NEGOTIATE_ACCEPT_KEY, true);
+}
+
+/** 본문을 실을 수 있는 메서드. 이때만 `Content-Type`을 본다. */
+const BODY_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH']);
+
+/**
+ * 미디어 타입 파라미터 하나(`q=0.9` 형태)의 키를 소문자로 뽑는다. `=`가 없으면 전체가 키다.
+ *
+ * `parameter.split('=')[0]` 대신 `indexOf`/`slice`를 쓴다 — `noUncheckedIndexedAccess`가
+ * 잡을 인덱스 접근 자체가 없고, `slice`는 항상 `string`을 돌려주므로 좁힐 것이 없다.
+ */
+function parameterKey(parameter: string): string {
+  const equalsIndex = parameter.indexOf('=');
+  const key = equalsIndex === -1 ? parameter : parameter.slice(0, equalsIndex);
+  return key.trim().toLowerCase();
+}
+
+/**
+ * `Accept` 후보 하나가 JSON:API 응답을 받아들이는지 판정한다.
+ *
+ * `range.split(';')` 구조분해 대신 `indexOf`/`slice`로 미디어 타입과 파라미터를 나눈다.
+ * 구조분해는 배열 타입에서 각 자리를 인덱싱하는 것과 같아서 `noUncheckedIndexedAccess`
+ * 아래에서는 첫 자리도 `string | undefined`가 된다.
+ */
+function isJsonApiRange(range: string): boolean {
+  const separator = range.indexOf(';');
+  const mediaType = (separator === -1 ? range : range.slice(0, separator)).trim().toLowerCase();
+
+  if (mediaType === '*/*' || mediaType === 'application/*') {
+    return true;
+  }
+  if (mediaType !== JSONAPI_MEDIA_TYPE) {
+    return false;
+  }
+  if (separator === -1) {
+    return true;
+  }
+  // vendor 타입에는 q 이외의 파라미터를 허용하지 않는다. 빈 파라미터(트레일링 `;`)는 무시한다.
+  return range
+    .slice(separator + 1)
+    .split(';')
+    .every((parameter) => {
+      const key = parameterKey(parameter);
+      return key === '' || key === 'q';
+    });
+}
+
+/** `Accept` 헤더가 JSON:API 응답을 받아들이는지 판정한다. */
+export function acceptsJsonApi(header: string | undefined): boolean {
+  if (header === undefined || header.trim() === '') {
+    return true;
+  }
+  return header.split(',').some((range) => isJsonApiRange(range));
+}
+
+/**
+ * `Content-Type` 헤더가 정확히 vendor 타입인지 판정한다.
+ *
+ * 여기도 구조분해 대신 `indexOf`/`slice`를 쓰는 이유는 `isJsonApiRange`와 같다.
+ */
+function isJsonApiContentType(header: string | undefined): boolean {
+  if (header === undefined) {
+    return false;
+  }
+  const separator = header.indexOf(';');
+  const mediaType = (separator === -1 ? header : header.slice(0, separator)).trim().toLowerCase();
+  if (mediaType !== JSONAPI_MEDIA_TYPE) {
+    return false;
+  }
+  if (separator === -1) {
+    return true;
+  }
+  return header
+    .slice(separator + 1)
+    .split(';')
+    .every((parameter) => parameter.trim() === '');
+}
+
+interface NegotiableRequest {
+  readonly method: string;
+  readonly headers: Record<string, string | string[] | undefined>;
+}
+
+/** 헤더 값을 하나만 뽑는다. 같은 헤더가 여러 번 오면(배열) 첫 값을 쓴다. */
+function headerValue(request: NegotiableRequest, name: string): string | undefined {
+  const raw = request.headers[name];
+  if (Array.isArray(raw)) {
+    return raw[0];
+  }
+  return raw;
+}
+
+/**
+ * 리소스 라우트의 `Accept`와 `Content-Type`을 검증한다.
+ *
+ * `Accept` 위반을 먼저 판정한다. 클라이언트가 우리 응답을 읽지 못하는 상황이
+ * 요청 본문 형식보다 앞선 문제이기 때문이다.
+ */
+@Injectable()
+export class JsonApiNegotiationGuard implements CanActivate {
+  constructor(private readonly reflector: Reflector) {}
+
+  canActivate(context: ExecutionContext): boolean {
+    const skip = this.reflector.getAllAndOverride<boolean>(NEGOTIATE_ACCEPT_KEY, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (skip) {
+      return true;
+    }
+
+    const request = context.switchToHttp().getRequest<NegotiableRequest>();
+
+    if (!acceptsJsonApi(headerValue(request, 'accept'))) {
+      throw new JsonApiError('NOT_ACCEPTABLE', {
+        detail: `this endpoint only produces ${JSONAPI_MEDIA_TYPE}`,
+      });
+    }
+
+    if (BODY_METHODS.has(request.method.toUpperCase())) {
+      if (!isJsonApiContentType(headerValue(request, 'content-type'))) {
+        throw new JsonApiError('UNSUPPORTED_MEDIA_TYPE', {
+          detail: `this endpoint only consumes ${JSONAPI_MEDIA_TYPE} without media type parameters`,
+        });
+      }
+    }
+
+    return true;
+  }
+}
