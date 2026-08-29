@@ -122,6 +122,17 @@ function headerValue(request: NegotiableRequest, name: string): string | undefin
  *
  * `Accept` 위반을 먼저 판정한다. 클라이언트가 우리 응답을 읽지 못하는 상황이
  * 요청 본문 형식보다 앞선 문제이기 때문이다.
+ *
+ * 알려진 커버리지 갭: 이 클래스는 분기 커버리지가 100%가 아니라 97.5%로 나온다.
+ * 유일한 미달성 분기는 `emitDecoratorMetadata`가 생성자 타입 정보를 내보내려고
+ * 합성하는 `design:paramtypes` 삼항연산자의 `: Object` 폴백이다 — 주입 타입
+ * (`Reflector`)이 런타임에 정의돼 있는 한 이 폴백은 실행될 수 없다. `__metadata`
+ * 호출은 타입 체커가 원본 소스 위치 없이 완전히 새로 합성하는 노드라서, 어떤 위치에
+ * 주석을 둬도 프린터가 그 노드에 트리비아를 물려줄 경로가 없다 — 그래서 `istanbul
+ * ignore`로 걷어낼 자리 자체가 없다(다섯 가지 배치를 실측한 근거는
+ * `task-4-report.md`의 "Fix: istanbul ignore 배치 실측" 참고). 이 현상은 생성자로
+ * 의존성을 주입받는 이 템플릿의 모든 클래스에서 동일하게 재현된다 — 이 가드만의
+ * 문제가 아니라, 앞으로 추가될 `@Injectable()`/`@Controller()` 등에서도 계속 나온다.
  */
 @Injectable()
 export class JsonApiNegotiationGuard implements CanActivate {
