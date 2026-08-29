@@ -35,8 +35,12 @@ services:
 
   api:
     build: .
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
       PORT: ${PORT:-4000}
+      DATABASE_URL: postgres://${POSTGRES_USER:-nestjs}:${POSTGRES_PASSWORD:-nestjs}@db:5432/${POSTGRES_DB:-nestjs_template}
     ports:
       - '${PORT:-4000}:${PORT:-4000}'
 

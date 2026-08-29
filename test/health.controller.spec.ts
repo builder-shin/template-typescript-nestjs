@@ -1,8 +1,11 @@
 import type { INestApplication } from '@nestjs/common';
 import type { Server } from 'node:http';
 import request from 'supertest';
+import { DataSource } from 'typeorm';
 import { createTestApp } from './app-factory.js';
-import { ERROR_CATALOG } from '../src/app/jsonapi/errors.js';
+import { buildDataSourceOptions } from '../src/config/database.js';
+import { ERROR_CATALOG, JsonApiError } from '../src/app/jsonapi/errors.js';
+import { HealthController } from '../src/app/controllers/health.controller.js';
 import type { LiveStatus, ReadyStatus } from '../src/app/controllers/health.controller.js';
 
 // supertest는 `response.body`를 `any`로 노출한다. `strictTypeChecked`의
@@ -97,5 +100,56 @@ describe('HealthController', () => {
   it('liveness는 데이터베이스를 확인하지 않는다', async () => {
     const response = await request(app.getHttpServer()).get('/health/live').expect(200);
     expect(response.body as LiveStatus).toEqual({ status: 'ok' });
+  });
+});
+
+/**
+ * `ready()`의 DB 장애 경로는 HTTP 계층 테스트로는 만들 수 없다 — 위 `describe`가 쓰는
+ * `app`은 실제로 살아 있는 테스트 DB에 붙어 있어야 다른 모든 테스트가 의미를 가진다.
+ * 그래서 여기서는 `createTestApp()`을 거치지 않고 `HealthController`를 직접 생성한다.
+ *
+ * `DataSource`는 `new`로 만들되 `initialize()`는 부르지 않는다 — `query`를 직접
+ * 대체할 것이므로 실제 연결이 필요 없다. 구조적으로 흉내만 낸 객체를 `DataSource`로
+ * 캐스트하는 대신, 진짜 `DataSource` 인스턴스를 만들어 타입을 그대로 만족시킨다 — 이
+ * 파일에도, 리포지토리 전체에도 컴파일러를 속이는 `as`는 없다.
+ *
+ * `jest.spyOn`/`jest.fn`은 쓰지 않는다. 이 프로젝트의 ESM + `--experimental-vm-modules`
+ * 조합에서는 `jest` 전역이 테스트 모듈에 주입되지 않는다(`describe`/`it`/`expect`는
+ * 주입되지만 `jest`는 아니다) — Jest의 공식 ESM 가이드가 `@jest/globals`에서
+ * 명시적으로 import하라고 권하는 것도 이 때문이다. 그 패키지를 새 의존성으로 들이는
+ * 대신, 인스턴스 프로퍼티를 직접 덮어써 같은 효과를 낸다 — 클래스 메서드는 프로토타입에
+ * 있고 인스턴스 프로퍼티가 이를 가리므로, mocking 프레임워크 없이도 `query` 호출을
+ * 가로챌 수 있다.
+ */
+describe('HealthController.ready() 단위 테스트', () => {
+  it('데이터베이스 질의가 실패하면 INTERNAL_SERVER_ERROR로 변환하고 원본 메시지를 감춘다', async () => {
+    const dataSource = new DataSource(
+      buildDataSourceOptions({
+        url: 'postgres://stub:stub@127.0.0.1:5432/stub',
+        poolMax: 1,
+        idleTimeoutMs: 1000,
+        connectionTimeoutMs: 1000,
+      }),
+    );
+    const internalMessage = 'password authentication failed for user "stub"';
+    dataSource.query = (): Promise<never> => Promise.reject(new Error(internalMessage));
+    const controller = new HealthController(dataSource);
+
+    expect.assertions(3);
+    try {
+      await controller.ready();
+    } catch (error) {
+      // `strictTypeChecked`의 `no-unsafe-*` 규칙 때문에 캐스트로 좁히지 않는다 — 실제
+      // `instanceof` 분기로 좁히고, 예상 밖의 오류는 그대로 다시 던져 테스트를 실패시킨다.
+      if (!(error instanceof JsonApiError)) {
+        throw error;
+      }
+      expect(error.code).toBe('INTERNAL_SERVER_ERROR');
+      // 실패 원인(자격 증명, 호스트, 드라이버 오류 메시지 등)이 클라이언트로 새면 정보
+      // 노출이 된다. `detail`은 카탈로그/컨트롤러가 고른 고정 문구여야 하고, DB가 실제로
+      // 뭐라고 실패했는지는 절대 담기지 않아야 한다.
+      expect(error.detail).toBe('the database is not reachable');
+      expect(error.detail).not.toContain(internalMessage);
+    }
   });
 });
