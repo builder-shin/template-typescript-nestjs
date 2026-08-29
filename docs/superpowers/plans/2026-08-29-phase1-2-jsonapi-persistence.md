@@ -2816,19 +2816,23 @@ describe('마이그레이션 명명 규약', () => {
 
     const classEpochs = MIGRATIONS.map((migration) => {
       const matched = CLASS_PATTERN.exec(migration.name);
-      if (matched === null) {
+      // `noUncheckedIndexedAccess` 아래에서 캡처 그룹은 `string | undefined`다.
+      // 구조분해 후 명시적으로 좁힌다 — 캐스트나 `!`를 쓰지 않는다.
+      const epoch = matched?.[2];
+      if (epoch === undefined) {
         throw new Error(`bad migration class name: ${migration.name}`);
       }
-      return Number(matched[2]);
+      return Number(epoch);
     }).sort((a, b) => a - b);
 
     const fileEpochs = files
       .map((name) => {
         const matched = FILE_PATTERN.exec(name);
-        if (matched === null) {
+        const stamp = matched?.[1];
+        if (stamp === undefined) {
           throw new Error(`bad migration file name: ${name}`);
         }
-        return fileTimestampToEpoch(matched[1]);
+        return fileTimestampToEpoch(stamp);
       })
       .sort((a, b) => a - b);
 
@@ -3310,7 +3314,9 @@ describe('스키마 제약', () => {
         `SELECT COUNT(*)::int AS count FROM example_tags WHERE example_id = $1`,
         [example.id],
       )) as { count: number }[];
-      expect(rows[0].count).toBe(0);
+      // 인덱싱을 피한다 — 배열 전체를 비교하면 `noUncheckedIndexedAccess`에 걸리지 않고
+      // "행이 정확히 하나"라는 것까지 함께 단언하게 된다.
+      expect(rows).toEqual([{ count: 0 }]);
     });
   });
 
@@ -3494,7 +3500,10 @@ describe('결정적 시드', () => {
   it('수정된 행을 선언 값으로 되돌린다', async () => {
     await withRollback(dataSource, async (manager) => {
       await seed(manager);
-      const id = Object.values(SEED_EXAMPLE_IDS)[0];
+      const [id] = Object.values(SEED_EXAMPLE_IDS);
+      if (id === undefined) {
+        throw new Error('SEED_EXAMPLE_IDS는 비어 있을 수 없다');
+      }
       const before = await manager.findOneByOrFail(Example, { id });
       await manager.update(Example, { id }, { title: '손으로 바꾼 제목' });
       await seed(manager);
