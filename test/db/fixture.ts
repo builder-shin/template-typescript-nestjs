@@ -79,8 +79,13 @@ export async function createTestDataSource(): Promise<DataSource> {
     await lockRunner.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_KEY]);
     await dataSource.runMigrations();
   } finally {
-    await lockRunner.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY]);
-    await lockRunner.release();
+    try {
+      await lockRunner.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY]);
+    } finally {
+      // unlock이 던져도 커넥션은 반드시 돌려준다. `withRollback`과 같은 이유다 —
+      // 여기서 새면 풀이 마른다. 커넥션이 닫히면 advisory lock은 서버가 알아서 푼다.
+      await lockRunner.release();
+    }
   }
 
   return dataSource;
