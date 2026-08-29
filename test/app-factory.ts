@@ -1,4 +1,5 @@
 import type { INestApplication } from '@nestjs/common';
+import type { Server } from 'node:http';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/config/app.module.js';
 import { setupOpenApi } from '../src/config/openapi.js';
@@ -8,10 +9,15 @@ import { setupOpenApi } from '../src/config/openapi.js';
  *
  * 테스트가 `Test.createTestingModule`을 직접 호출하지 않는다. 조립 방식이 갈라지면
  * 프로덕션 팩토리와 테스트 팩토리가 서로 다른 앱을 검증하게 된다.
+ *
+ * `INestApplication`의 `TServer` 기본값은 `any`라서, 이 값을 좁히지 않으면
+ * `getHttpServer()`가 `any`를 흘려 호출하는 쪽마다 `strictTypeChecked`의
+ * `no-unsafe-argument`를 피하려 캐스트를 반복해야 한다. 서버 타입을 아는 것은
+ * 조립 지점의 책임이므로 여기서 `Server`로 고정해 돌려준다.
  */
-export async function createTestApp(): Promise<INestApplication> {
+export async function createTestApp(): Promise<INestApplication<Server>> {
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-  const app = moduleRef.createNestApplication();
+  const app = moduleRef.createNestApplication<INestApplication<Server>>();
   setupOpenApi(app);
   await app.init();
   return app;

@@ -10,12 +10,10 @@ interface OpenApiDocument {
 }
 
 describe('OpenAPI 문서', () => {
-  // `INestApplication`은 `TServer = any`가 기본값이라 `getHttpServer()`가 `any`를
-  // 반환한다. `no-unsafe-argument`에 걸리므로 실제 반환 타입인 `Server`로 좁혀 선언한다.
   let app: INestApplication<Server>;
 
   beforeAll(async () => {
-    app = (await createTestApp()) as INestApplication<Server>;
+    app = await createTestApp();
   });
 
   afterAll(async () => {
