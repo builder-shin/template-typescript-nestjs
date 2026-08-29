@@ -73,11 +73,12 @@ describe('마이그레이션 명명 규약', () => {
     expect(MIGRATIONS).toHaveLength(migrationFiles().length);
   });
 
+  // 구현 여부만 본다. `down()`이 실제로 되돌리는지는 실제 PostgreSQL에서
+  // `test/integration/migration-revert.spec.ts`가 확인한다.
   it('모든 마이그레이션이 up과 down을 구현한다', () => {
     for (const migration of MIGRATIONS) {
-      const proto = migration.prototype as Record<string, unknown>;
-      expect(typeof proto.up).toBe('function');
-      expect(typeof proto.down).toBe('function');
+      expect(typeof migration.prototype.up).toBe('function');
+      expect(typeof migration.prototype.down).toBe('function');
     }
   });
 });

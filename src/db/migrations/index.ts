@@ -1,4 +1,20 @@
+import type { MigrationInterface } from 'typeorm';
 import { CreateExampleSchema1787961600000 } from './20260829000000-create-example-schema.js';
+
+/**
+ * 마이그레이션 클래스.
+ *
+ * `Function`을 확장해 TypeORM `DataSourceOptions.migrations`가 요구하는 타입을 그대로
+ * 만족시키면서, 생성자 시그니처와 `prototype`을 함께 선언한다. 그래서 호출하는 쪽이
+ * 캐스트 없이 `new migration()`으로 인스턴스를 만들고 `migration.prototype.up`을 읽을 수
+ * 있다 — `test/integration/migration-revert.spec.ts`가 `down()`을 실제로 실행하려면
+ * 이 정도의 타입이 필요하다.
+ */
+// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- TypeORM의 migrations 옵션 타입이 Function이다
+export interface MigrationClass extends Function {
+  new (): MigrationInterface;
+  readonly prototype: MigrationInterface;
+}
 
 /**
  * DataSource에 등록하는 마이그레이션의 유일한 목록.
@@ -9,5 +25,4 @@ import { CreateExampleSchema1787961600000 } from './20260829000000-create-exampl
  *
  * 순서는 TypeORM이 클래스명 끝의 epoch millis로 정하므로 이 배열의 순서에 의존하지 않는다.
  */
-// eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- TypeORM의 migrations 옵션 타입이 Function이다
-export const MIGRATIONS: readonly Function[] = [CreateExampleSchema1787961600000];
+export const MIGRATIONS: readonly MigrationClass[] = [CreateExampleSchema1787961600000];
