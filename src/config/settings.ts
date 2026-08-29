@@ -63,3 +63,32 @@ export interface ServerSettings {
 export function loadServerSettings(env: NodeJS.ProcessEnv = process.env): ServerSettings {
   return { port: optionalNonNegativeInteger('PORT', 4000, env) };
 }
+
+/** 데이터베이스 접속과 커넥션 풀 설정. */
+export interface DatabaseSettings {
+  readonly url: string;
+  readonly poolMax: number;
+  readonly idleTimeoutMs: number;
+  readonly connectionTimeoutMs: number;
+}
+
+/**
+ * 데이터베이스 설정을 환경에서 읽는다.
+ *
+ * `DB_POOL_MAX`는 1 이상이어야 한다. 0을 허용하면 커넥션을 영원히 얻지 못해 모든
+ * 질의가 조용히 매달리는데, 그 증상은 설정 오류처럼 보이지 않아 진단이 오래 걸린다.
+ * 그래서 `optionalNonNegativeInteger`(0을 통과시킨다)를 쓰지 않고 하한을 따로 검사한다.
+ */
+export function loadDatabaseSettings(env: NodeJS.ProcessEnv = process.env): DatabaseSettings {
+  const poolMax = optionalInteger('DB_POOL_MAX', 10, env);
+  if (poolMax < 1) {
+    throw new SettingsError('DB_POOL_MAX must be at least 1');
+  }
+
+  return {
+    url: requireEnv('DATABASE_URL', env),
+    poolMax,
+    idleTimeoutMs: optionalNonNegativeInteger('DB_POOL_IDLE_TIMEOUT_MS', 30000, env),
+    connectionTimeoutMs: optionalNonNegativeInteger('DB_POOL_CONNECTION_TIMEOUT_MS', 30000, env),
+  };
+}
