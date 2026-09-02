@@ -110,7 +110,25 @@ describe('README', () => {
 describe('README 환경 변수 문서', () => {
   it('필수 환경 변수를 모두 문서화한다', () => {
     const readme = readFileSync(join(process.cwd(), 'README.md'), 'utf8');
-    for (const name of ['DATABASE_URL', 'DB_POOL_MAX', 'PORT', 'TEST_DATABASE_URL']) {
+    // "필수"는 `settings.ts`/`test/db/fixture.ts`가 기본값 없이 `requireEnv`류로
+    // 읽는 변수를 뜻한다 — 없으면 프로세스가 아예 시작하지 않는다(`DATABASE_URL`·
+    // `JWT_SECRET_KEY`·`REDIS_URL`) 또는 테스트가 아예 시작하지 않는다
+    // (`TEST_DATABASE_URL`·`TEST_REDIS_URL`). `DB_POOL_MAX`·`PORT`는 기본값이 있어
+    // 엄밀히는 필수가 아니지만, Phase 2부터 이 목록에 있었고 README도 여전히
+    // 문서화하므로 남긴다 — 이 목록이 하던 일(README 표기가 실제 환경 변수와
+    // 어긋나지 않는지)을 계속하게 두는 것이 우선이다. 이 목록이 한때 네 개로 고정된
+    // 채 `REDIS_URL`·`TEST_REDIS_URL`이 늘어난 뒤에도 갱신되지 않아 "모두
+    // 문서화한다"는 이름과 실제로 4개만 보는 동작이 어긋났었다(Phase 7 전체 리뷰가
+    // 잡음) — 새 필수 변수가 생기면 여기도 함께 늘린다.
+    for (const name of [
+      'DATABASE_URL',
+      'JWT_SECRET_KEY',
+      'REDIS_URL',
+      'DB_POOL_MAX',
+      'PORT',
+      'TEST_DATABASE_URL',
+      'TEST_REDIS_URL',
+    ]) {
       expect(readme).toContain(name);
     }
   });

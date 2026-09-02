@@ -27,8 +27,9 @@ NestJS 12, TypeORM, PostgreSQL로 구성한 JSON:API 1.1 템플릿입니다. 현
 | `JWT_LEEWAY_SECONDS`                | API                     | `0`                          | token 만료 판정의 시계 오차 허용치                                             |
 | `REFRESH_SESSION_RETENTION_SECONDS` | 워커                    | `604800`                     | 음수 거부. 이보다 오래 지난 refresh session만 정리 대상입니다                  |
 | `TEST_DATABASE_URL`                 | 테스트                  | 없음(`check.sh`가 만듭니다)  | DB 이름이 `_test`로 끝나야 합니다                                              |
+| `TEST_REDIS_URL`                    | 테스트                  | 없음(`check.sh`가 만듭니다)  | `test/db/fixture.ts`가 요구합니다. URL 형식만 검사하고 이름 규칙은 없습니다    |
 
-`TEST_DATABASE_URL`의 `_test` 접미사 검사는 사고 방지 장치입니다. 테스트는 `TRUNCATE`를 실행하므로 이 변수를 개발 DB로 두면 데이터가 사라집니다.
+`TEST_DATABASE_URL`의 `_test` 접미사 검사는 사고 방지 장치입니다. 테스트는 `TRUNCATE`를 실행하므로 이 변수를 개발 DB로 두면 데이터가 사라집니다. `TEST_REDIS_URL`에는 같은 이름 규칙을 걸 수 없습니다 — Redis 연결 URL은 호스트·포트뿐이라 "테스트 전용"을 값만 보고 판정할 방법이 없습니다.
 
 ## 데이터베이스
 
@@ -104,7 +105,10 @@ BullMQ 큐(`jobs`) 하나에 잡 두 개가 올라갑니다. **CRUD는 이 잡�
 
 워커는 API와 분리된 프로세스입니다. Nest 애플리케이션을 부팅하지 않고 `DataSource`만 직접 만들어 큐에 붙습니다. `pnpm build`로 만든 `dist/`를 그대로 씁니다(위 로컬 실행 절과 같습니다).
 
+워커는 PostgreSQL과 Redis 둘 다 필요합니다. 먼저 두 서비스를 띄우세요 — `db`만 띄우는 `pnpm db:up`으로는 부족합니다.
+
 ```bash
+docker compose up -d --wait db redis
 pnpm worker    # node dist/app/jobs/worker.js
 ```
 
@@ -242,6 +246,7 @@ Compose 스택(`docker-compose.yml`)이 셸 기본값 문법(`${VAR:-default}`)�
 | 변수                | 기본값                              | 비고                                                                                                                                    |
 | ------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | `PORT`              | `4000`                              | 정수가 아니면 `PORT must be an integer`로 실패합니다. Compose는 이 값을 호스트에도 그대로 게시하고 컨테이너 헬스체크도 이 값을 따릅니다 |
+| `REDIS_PORT`        | `6379`                              | `redis` 서비스를 호스트의 `127.0.0.1`에 게시하는 포트입니다. 로컬 6379가 이미 쓰이고 있으면 바꾸세요                                    |
 | `POSTGRES_DB`       | `nestjs_template`                   | Compose 전용입니다                                                                                                                      |
 | `POSTGRES_USER`     | `nestjs`                            | Compose 전용입니다                                                                                                                      |
 | `POSTGRES_PASSWORD` | `nestjs`                            | Compose 전용 개발 값입니다                                                                                                              |
