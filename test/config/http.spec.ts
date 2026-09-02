@@ -42,17 +42,22 @@ describe('HTTP 조립', () => {
   });
 
   it('vendor 미디어 타입 본문을 파싱한다', async () => {
-    // 파싱되지 않으면 본문이 `{}`가 되어 "type이 없다"는 400이 나간다.
-    // 여기서 400 INVALID_JSONAPI_DOCUMENT가 아니라 TYPE_MISMATCH가 나오는 것이
-    // 본문이 실제로 읽혔다는 증거다.
+    // 예전에는 이 확인을 `POST /api/v1/examples`로 하고, 파싱되지 않으면 본문이
+    // `{}`가 되어 나가는 400 INVALID_JSONAPI_DOCUMENT 대신 TYPE_MISMATCH가 나오는 것을
+    // "본문이 실제로 읽혔다"는 증거로 삼았다. Phase 6이 그 라우트의 쓰기에 인증을
+    // 요구하면서, 인증 가드가 파서 결과를 보기도 전에(핸들러 진입 전에) 요청을 끊어
+    // 더는 증거가 되지 못한다 — 이 테스트는 자원이나 인증이 아니라 파서 자체를 확인하는
+    // 것이므로, 아래 테스트와 같은 프로브 경로로 옮겨 그 결합을 없앤다. `useBodyParser`가
+    // vendor 타입도 `application/json`과 같은 파서로 받는지가 여기서 갈리는 지점이다.
     const response = await request(app.getHttpServer())
-      .post('/api/v1/examples')
-      .set('Accept', 'application/vnd.api+json')
+      .post(PROBE_PATH)
       .set('Content-Type', 'application/vnd.api+json')
       .send(JSON.stringify({ data: { type: 'others', attributes: { title: '제목' } } }));
 
-    const body = response.body as { errors: { code: string }[] };
-    expect(body.errors[0]?.code).toBe('TYPE_MISMATCH');
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      received: { data: { type: 'others', attributes: { title: '제목' } } },
+    });
   });
 
   it('기본 JSON 파서를 죽이지 않는다', async () => {

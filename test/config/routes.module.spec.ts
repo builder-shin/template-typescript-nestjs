@@ -22,6 +22,7 @@ describe('명시적 라우트 조립', () => {
       'GET /api/v1/examples/:id/relationships/category',
       'GET /api/v1/examples/:id/relationships/tags',
       'GET /api/v1/examples/:id/tags',
+      'GET /api/v1/users/me',
       'GET /health/live',
       'GET /health/ready',
       'PATCH /api/v1/examples/:id',

@@ -1,6 +1,6 @@
 # TypeScript NestJS Template
 
-NestJS 12, TypeORM, PostgreSQL로 구성한 JSON:API 1.1 템플릿입니다. 현재 Phase 0-5(기반, JSON:API 프로토콜, 영속성 계층, 시리얼라이저와 조회 정책, 선언형 CRUD, `PUT` 업서트)까지 구현되어 있습니다.
+NestJS 12, TypeORM, PostgreSQL로 구성한 JSON:API 1.1 템플릿입니다. 현재 Phase 0-6(기반, JSON:API 프로토콜, 영속성 계층, 시리얼라이저와 조회 정책, 선언형 CRUD, `PUT` 업서트, 인증)까지 구현되어 있습니다.
 
 ## 요구 사항
 
@@ -12,14 +12,19 @@ NestJS 12, TypeORM, PostgreSQL로 구성한 JSON:API 1.1 템플릿입니다. 현
 
 애플리케이션 코드에 암묵적 기본값을 두지 않습니다. 필수 값이 없으면 변수 이름이 담긴 오류로 프로세스가 시작되지 않습니다.
 
-| 변수                            | 필요한 프로세스         | 기본값                      | 비고                                |
-| ------------------------------- | ----------------------- | --------------------------- | ----------------------------------- |
-| `DATABASE_URL`                  | API, 마이그레이션, 시드 | 없음(필수)                  | `postgres://user:pass@host:5432/db` |
-| `PORT`                          | API                     | `4000`                      |                                     |
-| `DB_POOL_MAX`                   | DB 접속 프로세스        | `10`                        | 1 이상                              |
-| `DB_POOL_IDLE_TIMEOUT_MS`       | DB 접속 프로세스        | `30000`                     |                                     |
-| `DB_POOL_CONNECTION_TIMEOUT_MS` | DB 접속 프로세스        | `30000`                     |                                     |
-| `TEST_DATABASE_URL`             | 테스트                  | 없음(`check.sh`가 만듭니다) | DB 이름이 `_test`로 끝나야 합니다   |
+| 변수                            | 필요한 프로세스         | 기본값                       | 비고                                |
+| ------------------------------- | ----------------------- | ---------------------------- | ----------------------------------- |
+| `DATABASE_URL`                  | API, 마이그레이션, 시드 | 없음(필수)                   | `postgres://user:pass@host:5432/db` |
+| `JWT_SECRET_KEY`                | API                     | 없음(필수)                   | UTF-8 최소 32바이트                 |
+| `PORT`                          | API                     | `4000`                       |                                     |
+| `DB_POOL_MAX`                   | DB 접속 프로세스        | `10`                         | 1 이상                              |
+| `DB_POOL_IDLE_TIMEOUT_MS`       | DB 접속 프로세스        | `30000`                      |                                     |
+| `DB_POOL_CONNECTION_TIMEOUT_MS` | DB 접속 프로세스        | `30000`                      |                                     |
+| `JWT_ISSUER` / `JWT_AUDIENCE`   | API                     | `template-typescript-nestjs` |                                     |
+| `JWT_ACCESS_EXPIRES_SECONDS`    | API                     | `900`                        | access token 수명(초)               |
+| `JWT_REFRESH_EXPIRES_SECONDS`   | API                     | `2592000`                    | refresh token 수명(초)              |
+| `JWT_LEEWAY_SECONDS`            | API                     | `0`                          | token 만료 판정의 시계 오차 허용치  |
+| `TEST_DATABASE_URL`             | 테스트                  | 없음(`check.sh`가 만듭니다)  | DB 이름이 `_test`로 끝나야 합니다   |
 
 `TEST_DATABASE_URL`의 `_test` 접미사 검사는 사고 방지 장치입니다. 테스트는 `TRUNCATE`를 실행하므로 이 변수를 개발 DB로 두면 데이터가 사라집니다.
 
@@ -40,6 +45,7 @@ pnpm seed           # 결정적 시드 적용 (몇 번을 돌려도 결과가 �
 
 ```text
 src/app/                # 컨트롤러와 JSON:API 미디어 타입 상수
+src/app/auth/           # 비밀번호 해시(argon2)·JWT 발급/검증·refresh session 회전
 src/app/controllers/concerns/  # CrudActions mixin과 하위 책임 분할
 src/app/controllers/api/v1/    # 리소스 선언
 src/app/jsonapi/        # JSON:API 프로토콜 — 오류·언어·문서·협상·필터·응답
@@ -54,7 +60,7 @@ test/                   # 단위 테스트
 scripts/check.sh        # 단일 검증 게이트
 ```
 
-Phase 0-5까지 구현되어 있습니다: 기반과 검증 게이트, JSON:API 프로토콜 계층(협상·문서·오류·언어), 영속성 계층(TypeORM 엔티티·마이그레이션·시드), 시리얼라이저와 조회 정책, 선언형 CRUD(`CrudActions`), 그리고 `PUT` 업서트(동일 id 동시 요청을 advisory 잠금으로 직렬화하는 생성/교체)입니다. `scripts/check.sh`가 실제 PostgreSQL 테스트 DB에 연결해 확인합니다. 아직 구현되지 않은 것은 인증, 비동기 작업, `AGENTS.md` 문서군입니다. 전체 설계는 `docs/superpowers/specs/`를 참고하세요.
+Phase 0-6까지 구현되어 있습니다: 기반과 검증 게이트, JSON:API 프로토콜 계층(협상·문서·오류·언어), 영속성 계층(TypeORM 엔티티·마이그레이션·시드), 시리얼라이저와 조회 정책, 선언형 CRUD(`CrudActions`), `PUT` 업서트(동일 id 동시 요청을 advisory 잠금으로 직렬화하는 생성/교체), 그리고 인증(argon2 비밀번호, JWT access/refresh, refresh session 회전, `GET /api/v1/users/me`, Example 쓰기 보호)입니다. `scripts/check.sh`가 실제 PostgreSQL 테스트 DB에 연결해 확인합니다. 아직 구현되지 않은 것은 비동기 작업과 `AGENTS.md` 문서군입니다. 전체 설계는 `docs/superpowers/specs/`를 참고하세요.
 
 ## ESM 제약
 
@@ -86,6 +92,28 @@ pnpm start
 - OpenAPI 스키마: `http://localhost:4000/api/schema`
 - 상태 확인: `http://localhost:4000/health/live`, `http://localhost:4000/health/ready`
 
+## 공개 API 표면
+
+| 메서드                        | 경로                                           | 동작                  | 인증                            |
+| ----------------------------- | ---------------------------------------------- | --------------------- | ------------------------------- |
+| `GET`                         | `/api/v1/examples`                             | 목록                  | 공개                            |
+| `POST`                        | `/api/v1/examples`                             | 생성                  | 활성 사용자 Bearer token 필요   |
+| `GET`                         | `/api/v1/examples/{id}`                        | 단건 조회             | 공개                            |
+| `PATCH`                       | `/api/v1/examples/{id}`                        | 일부 수정             | 활성 사용자 Bearer token 필요   |
+| `PUT`                         | `/api/v1/examples/{id}`                        | 전체 교체 또는 upsert | 활성 사용자 Bearer token 필요   |
+| `DELETE`                      | `/api/v1/examples/{id}`                        | 삭제                  | 활성 사용자 Bearer token 필요   |
+| `GET`/`PATCH`                 | `/api/v1/examples/{id}/relationships/category` | category linkage      | `GET` 공개, `PATCH` 인증 필요   |
+| `GET`                         | `/api/v1/examples/{id}/category`               | 연결된 category       | 공개                            |
+| `GET`/`POST`/`PATCH`/`DELETE` | `/api/v1/examples/{id}/relationships/tags`     | tags linkage          | `GET` 공개, 나머지 인증 필요    |
+| `GET`                         | `/api/v1/examples/{id}/tags`                   | 연결된 tags           | 공개                            |
+| `POST`                        | `/api/v1/auth/register`                        | 회원가입              | 공개                            |
+| `POST`                        | `/api/v1/auth/login`                           | 로그인                | 공개                            |
+| `POST`                        | `/api/v1/auth/refresh`                         | token 갱신(세션 회전) | 공개(유효한 refresh token 필요) |
+| `POST`                        | `/api/v1/auth/logout`                          | 로그아웃              | 공개(유효한 refresh token 필요) |
+| `GET`                         | `/api/v1/users/me`                             | 자기 자신 조회        | 활성 사용자 Bearer token 필요   |
+
+Example 읽기(`index`/`show`, 관계 `GET`)는 공개이고, 쓰기와 관계 변경은 `POST /api/v1/auth/login`이 발급한 access token을 `Authorization: Bearer <token>`으로 실어야 합니다. 토큰이 없으면 `401 AUTHENTICATION_REQUIRED`, 비활성 사용자의 토큰이면 `403 USER_INACTIVE`입니다.
+
 ## API 사용
 
 모든 `/api/v1` 요청에 `Accept: application/vnd.api+json`을 붙이고, 본문이 있는 요청에는 `Content-Type`도 같은 값을 붙입니다. **틀린 헤더가 가장 흔한 첫 걸림돌입니다** — `Accept`를 **다른** 타입으로 보내면 `406 NOT_ACCEPTABLE`입니다(헤더가 없거나 `*/*`이면 통과하므로, 헤더 없는 curl은 그냥 동작합니다). `Content-Type`은 **본문이 있는 요청**이면 메서드와 무관하게 이 값이어야 하고, 다르거나 빠지면 `415 UNSUPPORTED_MEDIA_TYPE`입니다 — 본문을 싣는 관계 `DELETE`도 포함입니다. `POST`·`PUT`·`PATCH`는 본문이 필수라 언제나 요구하고, 본문 없는 `GET`·`DELETE`는 이 헤더를 보지 않습니다. JSON:API 1.1은 이 미디어 타입에 파라미터를 금지하므로 `; charset=utf-8`을 붙이면 그것도 거부됩니다.
@@ -101,12 +129,36 @@ curl -sg -H 'Accept: application/vnd.api+json' \
   'http://localhost:4000/api/v1/examples?filter[status]=published&sort=-createdAt&page[size]=10&page[totals]=true'
 ```
 
+인증 — 쓰기와 관계 변경은 활성 사용자의 access token을 요구합니다. 가입 → 로그인 순으로 토큰을 받고, 아래 쓰기 예시의 `{accessToken}`은 로그인 응답(`data.attributes.accessToken`)에서 얻습니다. access token은 기본 900초, refresh token은 기본 2,592,000초 뒤에 만료됩니다(`JWT_ACCESS_EXPIRES_SECONDS`/`JWT_REFRESH_EXPIRES_SECONDS`).
+
+```bash
+curl -s -X POST http://localhost:4000/api/v1/auth/register \
+  -H 'Accept: application/vnd.api+json' \
+  -H 'Content-Type: application/vnd.api+json' \
+  -d '{"data":{"type":"users","attributes":{"email":"user@example.test","password":"충분히-긴-비밀번호-1234"}}}'
+
+curl -s -X POST http://localhost:4000/api/v1/auth/login \
+  -H 'Accept: application/vnd.api+json' \
+  -H 'Content-Type: application/vnd.api+json' \
+  -d '{"data":{"type":"authCredentials","attributes":{"email":"user@example.test","password":"충분히-긴-비밀번호-1234"}}}'
+# => {"data":{"type":"authTokens","id":"...","attributes":{"accessToken":"{accessToken}","refreshToken":"{refreshToken}", ...}}}
+```
+
+자기 자신 조회 — 발급받은 access token으로 현재 계정을 확인합니다. 토큰이 없으면 `401 AUTHENTICATION_REQUIRED`입니다.
+
+```bash
+curl -s http://localhost:4000/api/v1/users/me \
+  -H 'Accept: application/vnd.api+json' \
+  -H 'Authorization: Bearer {accessToken}'
+```
+
 생성 — `201`과 `Location` 헤더를 돌려줍니다. 클라이언트가 만든 `id`는 `403`으로 거부합니다.
 
 ```bash
 curl -s -X POST http://localhost:4000/api/v1/examples \
   -H 'Accept: application/vnd.api+json' \
   -H 'Content-Type: application/vnd.api+json' \
+  -H 'Authorization: Bearer {accessToken}' \
   -d '{"data":{"type":"examples","attributes":{"title":"제목","body":"본문"}}}'
 ```
 
@@ -123,6 +175,7 @@ curl -sg -H 'Accept: application/vnd.api+json' \
 curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}' \
   -H 'Accept: application/vnd.api+json' \
   -H 'Content-Type: application/vnd.api+json' \
+  -H 'Authorization: Bearer {accessToken}' \
   -d '{"data":{"type":"examples","id":"{id}","attributes":{"title":"새 제목"}}}'
 ```
 
@@ -132,6 +185,7 @@ curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}' \
 curl -sg -X PUT 'http://localhost:4000/api/v1/examples/{id}' \
   -H 'Accept: application/vnd.api+json' \
   -H 'Content-Type: application/vnd.api+json' \
+  -H 'Authorization: Bearer {accessToken}' \
   -d '{"data":{"type":"examples","id":"{id}","attributes":{"title":"제목"}}}'
 ```
 
@@ -139,7 +193,8 @@ curl -sg -X PUT 'http://localhost:4000/api/v1/examples/{id}' \
 
 ```bash
 curl -sg -X DELETE 'http://localhost:4000/api/v1/examples/{id}' \
-  -H 'Accept: application/vnd.api+json'
+  -H 'Accept: application/vnd.api+json' \
+  -H 'Authorization: Bearer {accessToken}'
 ```
 
 관계 교체 — 관계 라우트는 자원 문서가 아니라 linkage만 주고받고, 쓰기는 모두 `204`입니다. to-many는 `POST`로 더하고 `DELETE`로 뺍니다.
@@ -148,6 +203,7 @@ curl -sg -X DELETE 'http://localhost:4000/api/v1/examples/{id}' \
 curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}/relationships/tags' \
   -H 'Accept: application/vnd.api+json' \
   -H 'Content-Type: application/vnd.api+json' \
+  -H 'Authorization: Bearer {accessToken}' \
   -d '{"data":[{"type":"tags","id":"{tagId}"}]}'
 ```
 
@@ -163,12 +219,13 @@ docker compose down -v
 
 Compose 스택(`docker-compose.yml`)이 셸 기본값 문법(`${VAR:-default}`)으로 자체 처리하는 변수입니다. 위 애플리케이션 환경 변수와는 별개입니다.
 
-| 변수                | 기본값            | 비고                                                                                                                                    |
-| ------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`              | `4000`            | 정수가 아니면 `PORT must be an integer`로 실패합니다. Compose는 이 값을 호스트에도 그대로 게시하고 컨테이너 헬스체크도 이 값을 따릅니다 |
-| `POSTGRES_DB`       | `nestjs_template` | Compose 전용입니다                                                                                                                      |
-| `POSTGRES_USER`     | `nestjs`          | Compose 전용입니다                                                                                                                      |
-| `POSTGRES_PASSWORD` | `nestjs`          | Compose 전용 개발 값입니다                                                                                                              |
+| 변수                | 기본값                              | 비고                                                                                                                                    |
+| ------------------- | ----------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`              | `4000`                              | 정수가 아니면 `PORT must be an integer`로 실패합니다. Compose는 이 값을 호스트에도 그대로 게시하고 컨테이너 헬스체크도 이 값을 따릅니다 |
+| `POSTGRES_DB`       | `nestjs_template`                   | Compose 전용입니다                                                                                                                      |
+| `POSTGRES_USER`     | `nestjs`                            | Compose 전용입니다                                                                                                                      |
+| `POSTGRES_PASSWORD` | `nestjs`                            | Compose 전용 개발 값입니다                                                                                                              |
+| `JWT_SECRET_KEY`    | 명백한 더미 값(`.env.example` 참고) | 개발용 폴백입니다. **운영에서는 반드시 실제 값으로 덮어써야 합니다**                                                                    |
 
 ## 개별 검사
 

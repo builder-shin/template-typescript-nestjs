@@ -47,6 +47,7 @@ describe('OpenAPI 문서', () => {
       '/api/v1/examples/{id}/relationships/category',
       '/api/v1/examples/{id}/relationships/tags',
       '/api/v1/examples/{id}/tags',
+      '/api/v1/users/me',
       '/health/live',
       '/health/ready',
     ]);

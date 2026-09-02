@@ -11,6 +11,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { ApiBearerAuth } from '@nestjs/swagger';
 import type { CanActivate, Type } from '@nestjs/common';
 import type { ObjectLiteral } from 'typeorm';
 import type { RelationshipWriteRule } from '../../schemas/write-schema.js';
@@ -64,7 +65,14 @@ function decorate(
   apply(descriptor);
 }
 
-/** 쓰기 메서드에만 가드를 붙인다. */
+/**
+ * 쓰기 메서드에만 가드를 붙인다.
+ *
+ * 같은 자리에 `@ApiBearerAuth()`도 붙인다. `writeGuards`가 이 템플릿에서 뜻하는
+ * 보호 수단은 하나(`JwtActiveUserGuard`, Bearer access token)뿐이므로, 가드가 실제로
+ * 붙는 라우트에 문서화도 함께 붙여야 OpenAPI 문서와 실제 보호 대상이 어긋나지 않는다.
+ * 어긋나면 클라이언트가 이 문서만 보고 인증이 필요 없는 라우트라고 오해한다.
+ */
 function guardWrites(
   proto: object,
   names: readonly string[],
@@ -76,6 +84,7 @@ function guardWrites(
   for (const name of names) {
     decorate(proto, name, (descriptor) => {
       UseGuards(...guards)(proto, name, descriptor);
+      ApiBearerAuth()(proto, name, descriptor);
     });
   }
 }

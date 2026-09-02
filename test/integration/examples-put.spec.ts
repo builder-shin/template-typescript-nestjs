@@ -29,13 +29,23 @@ interface ErrorBody {
   errors: { code: string; status: string; title: string; source?: { pointer?: string } }[];
 }
 
+/** 로그인 응답. access token만 꺼내 쓴다. */
+interface TokensBody {
+  data: { attributes: Record<string, unknown> };
+}
+
 describe('PUT /api/v1/examples/{id}', () => {
   let app: INestApplication<Server>;
   let dataSource: DataSource;
+  // 이 스위트가 쓰기(PUT)에 쓰는 access token. 읽기 요청에는 붙이지 않는다.
+  let accessToken: string;
   // examples-api.spec.ts와의 상호 배제 손잡이. 이 스위트는 고정 id(`ID`/`OTHER`)와
   // `put-` 접두사만 써서 그 스위트의 행과 절대 안 겹치지만, 그 스위트의 "테이블 전체"
   // 단언(빈 컬렉션·총 개수)은 id가 다르든 말든 이 스위트가 잠깐 커밋해 둔 행까지 센다.
   // 자세한 이유는 fixture.ts의 `acquireCommitLock` 문서 주석 참고.
+  //
+  // `users`에는 이 잠금을 넓히지 않는다 — 이유는 examples-api.spec.ts의 같은 주석과
+  // 같다. 이 스위트가 만드는 계정은 `examples-put-` 접두사로만 지운다.
   let commitLock: CommitLockHandle;
 
   const api = (): ReturnType<typeof request> => request(app.getHttpServer());
@@ -45,6 +55,7 @@ describe('PUT /api/v1/examples/{id}', () => {
       .put(`/api/v1/examples/${id}`)
       .set('Accept', VENDOR)
       .set('Content-Type', VENDOR)
+      .set('Authorization', `Bearer ${accessToken}`)
       .send(
         JSON.stringify({
           data: {
@@ -60,6 +71,43 @@ describe('PUT /api/v1/examples/{id}', () => {
   beforeAll(async () => {
     app = await createTestApp();
     dataSource = app.get(DataSource);
+
+    // 이 스위트 전용 계정. `users`는 `acquireCommitLock`이 지키는 테이블이 아니므로
+    // 잠금을 잡기 전에 만들어도 안전하다 — 자세한 이유는 위 `commitLock` 주석 참고.
+    await api()
+      .post('/api/v1/auth/register')
+      .set('Accept', VENDOR)
+      .set('Content-Type', VENDOR)
+      .send(
+        JSON.stringify({
+          data: {
+            type: 'users',
+            attributes: {
+              email: 'examples-put-writer@example.test',
+              password: '충분히-긴-비밀번호-1234',
+            },
+          },
+        }),
+      )
+      .expect(201);
+    const login = await api()
+      .post('/api/v1/auth/login')
+      .set('Accept', VENDOR)
+      .set('Content-Type', VENDOR)
+      .send(
+        JSON.stringify({
+          data: {
+            type: 'authCredentials',
+            attributes: {
+              email: 'examples-put-writer@example.test',
+              password: '충분히-긴-비밀번호-1234',
+            },
+          },
+        }),
+      )
+      .expect(200);
+    accessToken = String((login.body as TokensBody).data.attributes.accessToken);
+
     commitLock = await acquireCommitLock(dataSource);
   });
 
@@ -73,13 +121,18 @@ describe('PUT /api/v1/examples/{id}', () => {
   });
 
   afterAll(async () => {
-    // release()가 던져도 app.close()는 반드시 돈다 — 여기서 건너뛰면 이 스위트가 연
-    // 커넥션이 풀에 남아 다른 워커가 굶는다. withRollback이 커넥션을 반드시 돌려주는
-    // 것과 같은 원칙이다.
+    // release()와 app.close()는 무엇이 먼저 던지든 반드시 돈다 — 여기서 건너뛰면 이
+    // 스위트가 연 커넥션이 풀에 남아 다른 워커가 굶는다. withRollback이 커넥션을
+    // 반드시 돌려주는 것과 같은 원칙이다. `examples-put-` 접두사만 지운다 — 조건
+    // 없는 DELETE는 다른 스위트가 동시에 커밋해 둔 계정까지 지운다.
     try {
-      await commitLock.release();
+      await dataSource.query(`DELETE FROM users WHERE email LIKE 'examples-put-%'`);
     } finally {
-      await app.close();
+      try {
+        await commitLock.release();
+      } finally {
+        await app.close();
+      }
     }
   });
 
@@ -181,6 +234,7 @@ describe('PUT /api/v1/examples/{id}', () => {
       .put(`/api/v1/examples/${ID}`)
       .set('Accept', VENDOR)
       .set('Content-Type', VENDOR)
+      .set('Authorization', `Bearer ${accessToken}`)
       .send(
         JSON.stringify({ data: { type: 'examples', id: OTHER, attributes: { title: '제목' } } }),
       );

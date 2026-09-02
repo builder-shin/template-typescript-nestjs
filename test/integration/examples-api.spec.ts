@@ -39,13 +39,27 @@ interface CollectionBody {
   meta?: { totalCount: number };
 }
 
+/** 로그인 응답. access token만 꺼내 쓴다. */
+interface TokensBody {
+  data: { attributes: Record<string, unknown> };
+}
+
 describe('Examples API', () => {
   let app: INestApplication<Server>;
   let dataSource: DataSource;
+  // 이 스위트가 쓰기에 쓰는 access token. 읽기 요청에는 절대 붙이지 않는다 — 읽기가
+  // 공개로 남아 있는지가 이 파일이 지켜야 할 계약이고, 전부에 붙이면 그 계약이
+  // 검증되지 않는다.
+  let accessToken: string;
   // examples-put.spec.ts와의 상호 배제 손잡이. 자세한 이유는 fixture.ts의
   // `acquireCommitLock` 문서 주석 참고 — 이 스위트가 실제로 커밋하는 유일한 다른
   // 스위트와 같은 공유 테이블을 쓰기 때문에, id 단위 정리만으로는 "테이블 전체"를
   // 단언하는 아래 totals/빈 컬렉션 테스트를 다른 워커의 커밋으로부터 지킬 수 없다.
+  //
+  // `users`에는 이 잠금을 넓히지 않는다. 이 스위트가 만드는 계정은 `examples-api-`
+  // 접두사로 지우고, `users`를 "테이블 전체"로 단언하는 테스트는(그런 컬렉션 라우트
+  // 자체가 없다) 이 파일에도 다른 어떤 스위트에도 없다 — 잠금이 막아 줄 간섭이
+  // 애초에 없으므로 넓히면 병렬성만 잃는다.
   let commitLock: CommitLockHandle;
 
   // 이 스위트가 커밋한 자원의 id. afterEach가 지우는 범위를 이 목록으로 좁힌다 —
@@ -72,6 +86,7 @@ describe('Examples API', () => {
       .post('/api/v1/examples')
       .set('Accept', VENDOR)
       .set('Content-Type', VENDOR)
+      .set('Authorization', `Bearer ${accessToken}`)
       .send(
         JSON.stringify({
           data: {
@@ -114,6 +129,43 @@ describe('Examples API', () => {
   beforeAll(async () => {
     app = await createTestApp();
     dataSource = app.get(DataSource);
+
+    // 이 스위트 전용 계정. `users`는 `acquireCommitLock`이 지키는 테이블이 아니므로
+    // 잠금을 잡기 전에 만들어도 안전하다 — 자세한 이유는 위 `commitLock` 주석 참고.
+    await api()
+      .post('/api/v1/auth/register')
+      .set('Accept', VENDOR)
+      .set('Content-Type', VENDOR)
+      .send(
+        JSON.stringify({
+          data: {
+            type: 'users',
+            attributes: {
+              email: 'examples-api-writer@example.test',
+              password: '충분히-긴-비밀번호-1234',
+            },
+          },
+        }),
+      )
+      .expect(201);
+    const login = await api()
+      .post('/api/v1/auth/login')
+      .set('Accept', VENDOR)
+      .set('Content-Type', VENDOR)
+      .send(
+        JSON.stringify({
+          data: {
+            type: 'authCredentials',
+            attributes: {
+              email: 'examples-api-writer@example.test',
+              password: '충분히-긴-비밀번호-1234',
+            },
+          },
+        }),
+      )
+      .expect(200);
+    accessToken = String((login.body as TokensBody).data.attributes.accessToken);
+
     commitLock = await acquireCommitLock(dataSource);
   });
 
@@ -138,13 +190,18 @@ describe('Examples API', () => {
   });
 
   afterAll(async () => {
-    // release()가 던져도 app.close()는 반드시 돈다 — 여기서 건너뛰면 이 스위트가 연
-    // 커넥션이 풀에 남아 다른 워커가 굶는다. withRollback이 커넥션을 반드시 돌려주는
-    // 것과 같은 원칙이다.
+    // release()와 app.close()는 무엇이 먼저 던지든 반드시 돈다 — 여기서 건너뛰면 이
+    // 스위트가 연 커넥션이 풀에 남아 다른 워커가 굶는다. withRollback이 커넥션을
+    // 반드시 돌려주는 것과 같은 원칙이다. `examples-api-` 접두사만 지운다 — 조건
+    // 없는 DELETE는 다른 스위트가 동시에 커밋해 둔 계정까지 지운다.
     try {
-      await commitLock.release();
+      await dataSource.query(`DELETE FROM users WHERE email LIKE 'examples-api-%'`);
     } finally {
-      await app.close();
+      try {
+        await commitLock.release();
+      } finally {
+        await app.close();
+      }
     }
   });
 
@@ -180,6 +237,7 @@ describe('Examples API', () => {
         .post('/api/v1/examples')
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
         .send(JSON.stringify({ data: { type: 'others', attributes: { title: '제목' } } }));
 
       expect(response.status).toBe(409);
@@ -191,6 +249,7 @@ describe('Examples API', () => {
         .post('/api/v1/examples')
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
         .send(
           JSON.stringify({
             data: { type: 'examples', id: MISSING, attributes: { title: '제목' } },
@@ -353,6 +412,7 @@ describe('Examples API', () => {
         .patch(`/api/v1/examples/${id}`)
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
         .send(JSON.stringify({ data: { type: 'examples', id, attributes: { title: '새 제목' } } }));
 
       expect(response.status).toBe(200);
@@ -370,6 +430,7 @@ describe('Examples API', () => {
         .patch(`/api/v1/examples/${id}`)
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
         .send(JSON.stringify({ data: { type: 'examples', id, attributes: { body: null } } }));
 
       expect((response.body as ResourceBody).data.attributes.body).toBeNull();
@@ -385,6 +446,7 @@ describe('Examples API', () => {
         .patch(`/api/v1/examples/${id}`)
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
         .send(JSON.stringify({ data: { type: 'examples', id, attributes: { title: null } } }));
 
       expect(response.status).toBe(422);
@@ -402,6 +464,7 @@ describe('Examples API', () => {
         .patch(`/api/v1/examples/${id}`)
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
         .send(JSON.stringify({ data: { type: 'examples', id: MISSING, attributes: {} } }));
 
       expect(response.status).toBe(409);
@@ -414,7 +477,10 @@ describe('Examples API', () => {
       const created = await createExample({ title: '제목' });
       const id = (created.body as ResourceBody).data.id;
 
-      const response = await api().delete(`/api/v1/examples/${id}`).set('Accept', VENDOR);
+      const response = await api()
+        .delete(`/api/v1/examples/${id}`)
+        .set('Accept', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`);
       expect(response.status).toBe(204);
       // 204는 본문이 없다. 라우트 등록기가 붙인 상태 코드가 실제로 나가는지 함께 본다.
       expect(response.text).toBe('');
@@ -445,6 +511,7 @@ describe('Examples API', () => {
         .patch(`/api/v1/examples/${id}/relationships/tags`)
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
         .send(JSON.stringify({ data: tags.map((tagId) => ({ type: 'tags', id: tagId })) }));
 
       expect(response.status).toBe(204);
@@ -469,6 +536,7 @@ describe('Examples API', () => {
         .post(`/api/v1/examples/${id}/relationships/tags`)
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
         .send(JSON.stringify({ data: [{ type: 'tags', id: first }] }));
       expect(added.status).toBe(204);
       expect(added.text).toBe('');
@@ -482,6 +550,7 @@ describe('Examples API', () => {
         .delete(`/api/v1/examples/${id}/relationships/tags`)
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
         .send(JSON.stringify({ data: [{ type: 'tags', id: first }] }));
       expect(removed.status).toBe(204);
       expect(removed.text).toBe('');
@@ -501,6 +570,7 @@ describe('Examples API', () => {
         .patch(`/api/v1/examples/${id}/relationships/category`)
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
         .send(JSON.stringify({ data: { type: 'categories', id: categoryId } }));
       expect(replaced.status).toBe(204);
       expect(replaced.text).toBe('');
@@ -517,6 +587,7 @@ describe('Examples API', () => {
         .patch(`/api/v1/examples/${id}/relationships/category`)
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
         .send(JSON.stringify({ data: null }));
       expect(cleared.status).toBe(204);
       expect(cleared.text).toBe('');
@@ -535,6 +606,7 @@ describe('Examples API', () => {
         .patch(`/api/v1/examples/${id}/relationships/tags`)
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
         .send(JSON.stringify({ data: tags.map((tagId) => ({ type: 'tags', id: tagId })) }))
         .expect(204);
 
@@ -556,6 +628,7 @@ describe('Examples API', () => {
         .patch(`/api/v1/examples/${id}/relationships/category`)
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
         .send(JSON.stringify({ data: { type: 'categories', id: categoryId } }))
         .expect(204);
 
@@ -645,6 +718,50 @@ describe('Examples API', () => {
       expect((korean.body as ErrorBody).errors[0]?.title).not.toBe(
         (english.body as ErrorBody).errors[0]?.title,
       );
+    });
+  });
+
+  describe('쓰기 보호', () => {
+    it('토큰 없이 쓰면 401이다', async () => {
+      // 스펙 16장: 읽기는 공개, 쓰기는 활성 사용자의 Bearer access token을 요구한다.
+      const response = await api()
+        .post('/api/v1/examples')
+        .set('Accept', VENDOR)
+        .set('Content-Type', VENDOR)
+        .send(JSON.stringify({ data: { type: 'examples', attributes: { title: '보호' } } }))
+        .expect(401);
+      expect((response.body as ErrorBody).errors[0]?.code).toBe('AUTHENTICATION_REQUIRED');
+    });
+
+    it('토큰 없이 읽는 것은 그대로 된다', async () => {
+      // 쓰기를 막으면서 읽기까지 막아 버리는 것이 이 변경의 가장 쉬운 실패다.
+      await api().get('/api/v1/examples').set('Accept', VENDOR).expect(200);
+    });
+
+    it('토큰 없이 관계를 바꾸면 401이다', async () => {
+      // 관계 쓰기 라우트도 `writeMethods`에 들어 있으므로 같은 가드가 붙어야 한다.
+      // 이 스위트는 고정 id를 쓰지 않으므로 대상은 이 테스트가 직접 만든다.
+      const created = await createExample({ title: '관계 보호' });
+      const id = (created.body as ResourceBody).data.id;
+
+      const response = await api()
+        .patch(`/api/v1/examples/${id}/relationships/category`)
+        .set('Accept', VENDOR)
+        .set('Content-Type', VENDOR)
+        .send(JSON.stringify({ data: null }))
+        .expect(401);
+      expect((response.body as ErrorBody).errors[0]?.code).toBe('AUTHENTICATION_REQUIRED');
+    });
+
+    it('Content-Type이 틀리면 인증보다 협상이 먼저 걸린다', async () => {
+      // 협상 가드는 컨트롤러 단위, 인증 가드는 라우트 단위라 Nest가 협상을 먼저 돌린다.
+      // 이 순서가 뒤집히면 잘못된 요청의 오류 코드가 조용히 바뀐다.
+      await api()
+        .post('/api/v1/examples')
+        .set('Accept', VENDOR)
+        .set('Content-Type', 'application/json')
+        .send(JSON.stringify({ data: { type: 'examples', attributes: { title: '협상' } } }))
+        .expect(415);
     });
   });
 });

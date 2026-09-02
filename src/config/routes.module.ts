@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthController } from '../app/controllers/api/v1/auth.controller.js';
 import { ExamplesController } from '../app/controllers/api/v1/examples.controller.js';
+import { UsersController } from '../app/controllers/api/v1/users.controller.js';
 import { HealthController } from '../app/controllers/health.controller.js';
 import { JwtActiveUserGuard } from '../app/auth/current-user.guard.js';
 import { JWT_SETTINGS_TOKEN, TokenService } from '../app/auth/tokens.js';
@@ -19,7 +20,7 @@ import { loadJwtSettings } from './settings.js';
  * 첫 요청에서야 드러나는 설정 오류보다 시작 실패가 낫다.
  */
 @Module({
-  controllers: [HealthController, ExamplesController, AuthController],
+  controllers: [HealthController, ExamplesController, AuthController, UsersController],
   providers: [
     { provide: JWT_SETTINGS_TOKEN, useFactory: () => loadJwtSettings() },
     TokenService,
