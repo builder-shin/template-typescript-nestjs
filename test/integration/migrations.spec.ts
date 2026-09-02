@@ -1,5 +1,5 @@
 import type { DataSource } from 'typeorm';
-import { createTestDataSource, truncateAll, withRollback } from '../db/fixture.js';
+import { createTestDataSource, withRollback } from '../db/fixture.js';
 import { Category } from '../../src/app/models/category.entity.js';
 import { Example } from '../../src/app/models/example.entity.js';
 import { Tag } from '../../src/app/models/tag.entity.js';
@@ -71,7 +71,10 @@ describe('스키마 제약', () => {
   });
 
   afterAll(async () => {
-    await truncateAll(dataSource);
+    // 이 describe는 전부 `withRollback` 안에서 돌아 커밋하는 것이 없다. 예전에는
+    // 방어로 `truncateAll`을 불렀는데, 다른 스펙이 실제 HTTP로 행을 커밋하기
+    // 시작하면서 그 방어가 위험이 됐다 — TRUNCATE는 워커 경계를 넘어 남의 커밋 행까지
+    // 지우고 ACCESS EXCLUSIVE 잠금으로 다른 워커의 읽기까지 막는다.
     await dataSource.destroy();
   });
 
