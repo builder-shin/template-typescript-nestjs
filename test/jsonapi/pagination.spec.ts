@@ -1,5 +1,6 @@
 import { JsonApiError } from '../../src/app/jsonapi/errors.js';
 import {
+  buildCursorLinks,
   buildOffsetLinks,
   isPageKey,
   parsePage,
@@ -224,5 +225,56 @@ describe('buildOffsetLinks', () => {
     expect(links.self).toContain('filter[status][in]=published');
     expect(links.next).toContain('filter[status][in]=draft');
     expect(links.next).toContain('filter[status][in]=published');
+  });
+});
+
+describe('buildCursorLinks', () => {
+  const base = '/api/v1/examples';
+
+  it('first와 last를 빈 진입점으로 낸다', () => {
+    const query = { 'page[after]': '' };
+    const links = buildCursorLinks(
+      base,
+      query,
+      parsePage(query, POLICY),
+      undefined,
+      undefined,
+      false,
+    );
+    expect(links.first).toBe('/api/v1/examples?page[after]=&page[size]=25');
+    expect(links.last).toBe('/api/v1/examples?page[before]=&page[size]=25');
+  });
+
+  it('다음 페이지가 있으면 마지막 행의 커서로 next를 낸다', () => {
+    const query = { 'page[after]': '' };
+    const links = buildCursorLinks(base, query, parsePage(query, POLICY), 'AAA', 'ZZZ', true);
+    expect(links.next).toBe('/api/v1/examples?page[after]=ZZZ&page[size]=25');
+    expect(links.prev).toBe('/api/v1/examples?page[before]=AAA&page[size]=25');
+  });
+
+  it('다음 페이지가 없으면 next를 내지 않는다', () => {
+    const query = { 'page[after]': '' };
+    const links = buildCursorLinks(base, query, parsePage(query, POLICY), 'AAA', 'ZZZ', false);
+    expect(links.next).toBeUndefined();
+  });
+
+  it('페이지가 비면 prev도 next도 없다', () => {
+    const query = { 'page[after]': 'X' };
+    const links = buildCursorLinks(
+      base,
+      query,
+      parsePage(query, POLICY),
+      undefined,
+      undefined,
+      false,
+    );
+    expect(links.prev).toBeUndefined();
+    expect(links.next).toBeUndefined();
+  });
+
+  it('filter를 링크에 실어 나른다', () => {
+    const query = { 'page[after]': '', 'filter[status]': 'draft' };
+    const links = buildCursorLinks(base, query, parsePage(query, POLICY), undefined, 'Z', true);
+    expect(links.next).toContain('filter[status]=draft');
   });
 });

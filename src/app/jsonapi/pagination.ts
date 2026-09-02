@@ -235,3 +235,59 @@ export function buildOffsetLinks(
 
   return links;
 }
+
+/**
+ * cursor 모드의 페이지 링크를 만든다.
+ *
+ * offset 모드와 달리 `first`와 `last`를 빈 진입점으로 낸다 — `page[after]=`는 컬렉션의
+ * 시작, `page[before]=`는 끝을 가리킨다. 총 개수를 모르고도 양 끝으로 갈 수 있다.
+ *
+ * `prev`/`next`는 이번 페이지의 첫 행과 마지막 행에서 만든 커서다. 페이지가 비었으면
+ * 만들 커서가 없으므로 둘 다 내지 않는다.
+ */
+export function buildCursorLinks(
+  basePath: string,
+  query: Readonly<Record<string, string | readonly string[] | undefined>>,
+  page: PageRequest,
+  firstCursor: string | undefined,
+  lastCursor: string | undefined,
+  hasMore: boolean,
+): PaginationLinks {
+  const preserved = preservedPairs(query);
+
+  const link = (pageParams: readonly (readonly [string, string])[]): string => {
+    const pairs: (readonly [string, string])[] = [
+      ...preserved,
+      ...pageParams,
+      ['page[size]', String(page.size)],
+      ...(page.totals ? [['page[totals]', 'true'] as const] : []),
+    ];
+    return `${basePath}?${toQueryString(pairs)}`;
+  };
+
+  const selfParams: (readonly [string, string])[] =
+    page.after !== undefined
+      ? [['page[after]', page.after]]
+      : [['page[before]', page.before ?? '']];
+
+  const links: {
+    self: string;
+    first?: string;
+    prev?: string;
+    next?: string;
+    last?: string;
+  } = {
+    self: link(selfParams),
+    first: link([['page[after]', '']]),
+    last: link([['page[before]', '']]),
+  };
+
+  if (firstCursor !== undefined) {
+    links.prev = link([['page[before]', firstCursor]]);
+  }
+  if (hasMore && lastCursor !== undefined) {
+    links.next = link([['page[after]', lastCursor]]);
+  }
+
+  return links;
+}
