@@ -22,14 +22,19 @@ import { User } from './user.entity.js';
  * `ON DELETE SET NULL`이라 새 세션이 지워져도 옛 행이 함께 사라지지 않는다 — 감사
  * 흔적이 지워지는 쪽이 더 나쁘다.
  *
- * `expires_at`·`user_id` 인덱스를 선언하는 이유: 마이그레이션이 같은 이름으로 실제
- * 인덱스를 만드는데, 여기서 선언을 생략하면 TypeORM이 "메타데이터에 없는 인덱스"로
- * 보고 `dataSource.driver.createSchemaBuilder().log()`에서 지우려 든다. 이름을
- * 명시하는 이유는 다른 인덱스와 같다 — 생략하면 해시 이름이 생겨 마이그레이션이 만든
- * `IDX_refresh_sessions_expires_at`/`IDX_refresh_sessions_user_id`와 어긋난다.
+ * `expires_at`·`user_id`·`replaced_by_id` 인덱스를 선언하는 이유: 마이그레이션이 같은
+ * 이름으로 실제 인덱스를 만드는데, 여기서 선언을 생략하면 TypeORM이 "메타데이터에
+ * 없는 인덱스"로 보고 `dataSource.driver.createSchemaBuilder().log()`에서 지우려
+ * 든다. 이름을 명시하는 이유는 다른 인덱스와 같다 — 생략하면 해시 이름이 생겨
+ * 마이그레이션이 만든 `IDX_refresh_sessions_expires_at`/`IDX_refresh_sessions_user_id`/
+ * `IDX_refresh_sessions_replaced_by_id`와 어긋난다. `replaced_by_id`는
+ * `20260902164541-add-refresh-sessions-replaced-by-index.ts`가 만든다 — `ON DELETE
+ * SET NULL` cascade가 이 컬럼으로 매번 찾는데, 인덱스가 없으면 그 UPDATE가 순차
+ * 스캔으로 돈다(그 마이그레이션의 docstring 참고).
  */
 @Index('IDX_refresh_sessions_expires_at', ['expiresAt'])
 @Index('IDX_refresh_sessions_user_id', ['userId'])
+@Index('IDX_refresh_sessions_replaced_by_id', ['replacedById'])
 @Entity({ name: 'refresh_sessions' })
 export class RefreshSession {
   @PrimaryGeneratedColumn('uuid')

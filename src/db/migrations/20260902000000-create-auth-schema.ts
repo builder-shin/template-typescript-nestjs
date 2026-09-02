@@ -51,14 +51,22 @@ export class CreateAuthSchema1788307200000 implements MigrationInterface {
           FOREIGN KEY ("replaced_by_id") REFERENCES "refresh_sessions" ("id") ON DELETE SET NULL
       )
     `);
-    // 갱신·로그아웃은 언제나 id로 한 행을 찾으므로 PK로 충분하다. 이 인덱스는
-    // Phase 7의 `purgeExpiredRefreshSessions`가 만료된 행을 오래된 순서로 훑기 위한
-    // 것이다 — 잡을 배치를 찾느라 테이블을 통째로 읽지 않게 한다. 이름은
+    // 갱신·로그아웃은 언제나 id로 한 행을 찾으므로 PK로 충분하다. 아래 `expires_at`
+    // 인덱스는 Phase 7의 `purgeExpiredRefreshSessions`가 만료된 행을 오래된 순서로
+    // 훑기 위한 것이다 — 잡을 배치를 찾느라 테이블을 통째로 읽지 않게 한다. 이름은
     // `RefreshSession` 엔티티의 `@Index` 데코레이터가 선언하는 이름과 같아야
     // 드리프트 검사가 조용하다.
     await queryRunner.query(`
       CREATE INDEX "IDX_refresh_sessions_expires_at" ON "refresh_sessions" ("expires_at")
     `);
+    // 이 인덱스는 위와 달리 purge 잡과 무관하다 — 이 저장소 어디에도 `refresh_sessions`를
+    // `user_id`로 조회·정렬하는 질의가 없다(모든 조회는 PK인 `id`로 한다,
+    // `refresh-session.ts`의 `lockSession` 참고). 존재 이유는 `FK_refresh_sessions_user`의
+    // `ON DELETE CASCADE`다 — `users` 행 하나가 지워지면 PostgreSQL이 이 컬럼으로
+    // 딸린 `refresh_sessions` 행을 찾아 함께 지우는데, 인덱스가 없으면 그 탐색이 순차
+    // 스캔이 된다. `replaced_by_id`의 `ON DELETE SET NULL` cascade가 같은 이유로
+    // 인덱스가 필요했던 것(`20260902164541-add-refresh-sessions-replaced-by-index.ts`
+    // 참고 — 이 컬럼은 그 교훈을 반영해 처음부터 인덱스를 함께 만든다)과 같은 사정이다.
     await queryRunner.query(`
       CREATE INDEX "IDX_refresh_sessions_user_id" ON "refresh_sessions" ("user_id")
     `);
