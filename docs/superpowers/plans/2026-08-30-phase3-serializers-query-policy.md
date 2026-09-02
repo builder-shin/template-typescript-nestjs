@@ -1499,7 +1499,7 @@ git commit -m "feat(schemas): Example 조회 정책과 정렬 인덱스를 같�
 - Consumes: `QueryPolicy`, `FilterOperator`, `FilterFieldPolicy` (Task 3); `JsonApiError` (`src/app/jsonapi/errors.ts`)
 - Produces:
   - `type ScalarFilterValue = string | number | boolean | Date`
-  - `type FilterValue = ScalarFilterValue | readonly ScalarFilterValue[] | null`
+  - `type FilterValue = ScalarFilterValue | readonly ScalarFilterValue[]`
   - `interface FilterCondition { parameter: string; property: string; operator: FilterOperator; value: FilterValue }`
   - `const FILTER_KEY_PATTERN: RegExp`
   - `function isFilterKey(key: string): boolean`
@@ -1921,7 +1921,7 @@ export function parseFilters(
 - [ ] **Step 4: 테스트가 통과하는지 확인한다**
 
 Run: `node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage=false test/jsonapi/filter.spec.ts`
-Expected: PASS (28 tests)
+Expected: PASS (26 tests)
 
 - [ ] **Step 5: 린트와 타입을 확인한다**
 
