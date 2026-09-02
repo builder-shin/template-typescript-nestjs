@@ -1,6 +1,6 @@
 # TypeScript NestJS Template
 
-NestJS 12, TypeORM, PostgreSQL로 구성한 JSON:API 1.1 템플릿입니다. 현재 Phase 0-4(기반, JSON:API 프로토콜, 영속성 계층, 시리얼라이저와 조회 정책, 선언형 CRUD)까지 구현되어 있습니다.
+NestJS 12, TypeORM, PostgreSQL로 구성한 JSON:API 1.1 템플릿입니다. 현재 Phase 0-5(기반, JSON:API 프로토콜, 영속성 계층, 시리얼라이저와 조회 정책, 선언형 CRUD, `PUT` 업서트)까지 구현되어 있습니다.
 
 ## 요구 사항
 
@@ -54,7 +54,7 @@ test/                   # 단위 테스트
 scripts/check.sh        # 단일 검증 게이트
 ```
 
-Phase 0-4까지 구현되어 있습니다: 기반과 검증 게이트, JSON:API 프로토콜 계층(협상·문서·오류·언어), 영속성 계층(TypeORM 엔티티·마이그레이션·시드), 시리얼라이저와 조회 정책, 그리고 선언형 CRUD(`CrudActions`)입니다. `scripts/check.sh`가 실제 PostgreSQL 테스트 DB에 연결해 확인합니다. 아직 구현되지 않은 것은 `PUT` upsert, 인증, 비동기 작업, `AGENTS.md` 문서군입니다. 전체 설계는 `docs/superpowers/specs/`를 참고하세요.
+Phase 0-5까지 구현되어 있습니다: 기반과 검증 게이트, JSON:API 프로토콜 계층(협상·문서·오류·언어), 영속성 계층(TypeORM 엔티티·마이그레이션·시드), 시리얼라이저와 조회 정책, 선언형 CRUD(`CrudActions`), 그리고 `PUT` 업서트(동일 id 동시 요청을 advisory 잠금으로 직렬화하는 생성/교체)입니다. `scripts/check.sh`가 실제 PostgreSQL 테스트 DB에 연결해 확인합니다. 아직 구현되지 않은 것은 인증, 비동기 작업, `AGENTS.md` 문서군입니다. 전체 설계는 `docs/superpowers/specs/`를 참고하세요.
 
 ## ESM 제약
 
@@ -124,6 +124,15 @@ curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}' \
   -H 'Accept: application/vnd.api+json' \
   -H 'Content-Type: application/vnd.api+json' \
   -d '{"data":{"type":"examples","id":"{id}","attributes":{"title":"새 제목"}}}'
+```
+
+전체 교체 — 없는 `id`면 `201`과 `Location`, 있으면 `200`으로 교체합니다. 전체 교체이므로 `PATCH`와 달리 보내지 않은 필드는 컬럼 기본값으로, 보내지 않은 관계는 빈 상태로 되돌립니다. 동일 `id`로 동시에 들어온 요청은 advisory 잠금으로 직렬화되어 섞이지 않습니다.
+
+```bash
+curl -sg -X PUT 'http://localhost:4000/api/v1/examples/{id}' \
+  -H 'Accept: application/vnd.api+json' \
+  -H 'Content-Type: application/vnd.api+json' \
+  -d '{"data":{"type":"examples","id":"{id}","attributes":{"title":"제목"}}}'
 ```
 
 삭제 — `204`이고 본문이 없습니다.
