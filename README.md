@@ -47,20 +47,20 @@ pnpm seed           # 결정적 시드 적용 (몇 번을 돌려도 결과가 �
 ## 구조
 
 ```text
-src/app/                # 컨트롤러와 JSON:API 미디어 타입 상수
+src/app/                # 애플리케이션 계층 루트(직접 소유한 파일 없음, 아래 하위 디렉터리로 구성)
 src/app/auth/           # 비밀번호 해시(argon2)·JWT 발급/검증·refresh session 회전
 src/app/controllers/concerns/  # CrudActions mixin과 하위 책임 분할
 src/app/controllers/api/v1/    # 리소스 선언
 src/app/jobs/            # BullMQ 잡 핸들러(processExample·purgeExpiredRefreshSessions)와 독립 워커 진입점
 src/app/jsonapi/        # JSON:API 프로토콜 — 오류·언어·문서·협상·필터·응답
 src/app/models/         # TypeORM 엔티티
-src/app/schemas/        # 조회 정책 (filter·sort·include allowlist)
+src/app/schemas/        # 쓰기 DTO, 관계 linkage 입력, QueryPolicy allowlist
 src/app/serializers/    # 공개 표현 (JSON:API type·attributes·relationships)
 src/config/             # 조립점 (앱 모듈, 명시 라우트, 설정, OpenAPI)
 src/config/database.ts  # DataSource 조립
 src/db/migrations/      # 마이그레이션 (명시 등록)
 src/db/seeds.ts         # 결정적 시드
-test/                   # 단위 테스트
+test/                   # 단위·통합 테스트 (test/integration/은 실제 PostgreSQL·Redis로 검증)
 scripts/check.sh        # 단일 검증 게이트
 ```
 
@@ -275,7 +275,7 @@ Compose 스택(`docker-compose.yml`)이 셸 기본값 문법(`${VAR:-default}`)�
 
 | 문서                                     | 언제 읽는가                                                                                                                      |
 | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENTS.md`                              | 저장소 전체를 바꾸기 전에 — 아키텍처, DB 규칙, 검증 명령, 새 자원의 조립점과 변경 순서                                           |
+| `AGENTS.md`                              | 저장소 전체를 바꾸기 전에 — 아키텍처, DB 규칙, 검증 명령, ESM·TypeScript 버전 제약, 새 자원의 조립점과 변경 순서                 |
 | `src/config/AGENTS.md`                   | 설정 로더·앱 조립·라우트 등록·DataSource 구성을 고칠 때                                                                          |
 | `src/db/AGENTS.md`                       | 시드(`src/db/seeds.ts`)를 고칠 때 — 결정적 시드와 트랜잭션 소유권                                                                |
 | `src/db/migrations/AGENTS.md`            | 마이그레이션을 추가하거나 고칠 때 — 명명 규약, `MIGRATIONS` 등록, `down()` 검증, 스키마 드리프트                                 |
