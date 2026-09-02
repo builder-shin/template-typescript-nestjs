@@ -101,7 +101,7 @@ PostgreSQL로 본다.
   스코프할 수 없고, 계약을 확인하려면 두 스위트 모두 `expires_at`을 의도적으로
   과거로 만들어 커밋해야 한다 — 그런 행이 병렬 워커에서 동시에 테이블에 있으면
   한쪽의 purge 호출이 다른 쪽이 시나리오를 위해 막 커밋한 행을 먼저 지워 버릴
-  수 있다. `job-dispatch.spec.ts`는 두 테스트 중 `purgeExpiredRefreshSessions`로
+  수 있다. `job-dispatch.spec.ts`는 세 테스트 중 `purgeExpiredRefreshSessions`로
   분배하는 하나만 같은 이유로 이 잠금을 잡는다 — 이미 만료된 `refresh_sessions`
   행을 커밋해 두고 그 잡을 실제로 호출하기 때문이다.
 
