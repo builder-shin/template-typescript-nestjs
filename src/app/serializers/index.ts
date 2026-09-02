@@ -20,10 +20,14 @@ export type {
 } from './serializer.js';
 
 /**
- * 이 저장소가 아는 시리얼라이저의 유일한 목록.
+ * `included` 조립과 관계 대상에 쓰는, `ErasedSerializer`를 구현한 시리얼라이저 목록.
  *
  * 엔티티·마이그레이션 목록과 같은 계약이다 — glob으로 탐색하지 않고, 이 배열에 없는
- * 시리얼라이저는 존재하지 않는 것과 같다.
+ * 시리얼라이저는 관계 대상으로도 `included`로도 쓸 수 없다.
+ *
+ * "저장소가 아는 전부"는 아니다. `USER_SERIALIZER`·`AUTH_TOKENS_SERIALIZER`처럼
+ * 관계 대상이 아니고 `serializeUnknown`을 구현하지 않는 시리얼라이저는 이 배열 밖에
+ * 있어도 정상이다 — 타입이 `ErasedSerializer[]`라 애초에 들어올 수도 없다.
  */
 export const SERIALIZERS: readonly ErasedSerializer[] = [
   ERASED_EXAMPLE_SERIALIZER,
