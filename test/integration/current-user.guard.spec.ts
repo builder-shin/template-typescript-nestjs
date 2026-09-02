@@ -81,6 +81,16 @@ describe('Bearer 인증 판정', () => {
     });
   });
 
+  it('스킴과 토큰 사이에 공백이 없으면 AUTHENTICATION_REQUIRED다', async () => {
+    // `bearerToken`의 `header.indexOf(' ')`가 -1을 돌려주는 분기다. 위 세 테스트는
+    // 전부 공백이 있는 헤더만 보내서 이 분기를 태우지 않는다.
+    await withRollback(dataSource, async (manager) => {
+      expect(await codeOf(() => authenticate(manager, 'BearerXYZ'))).toBe(
+        'AUTHENTICATION_REQUIRED',
+      );
+    });
+  });
+
   it('스킴 대소문자를 가리지 않는다', async () => {
     // RFC 9110은 인증 스킴을 대소문자 구분 없이 정한다.
     await withRollback(dataSource, async (manager) => {
@@ -122,6 +132,39 @@ describe('Bearer 인증 판정', () => {
     await withRollback(dataSource, async (manager) => {
       const token = tokens.signAccessToken('사용자가-아니다');
       expect(await codeOf(() => authenticate(manager, `Bearer ${token}`))).toBe('INVALID_TOKEN');
+    });
+  });
+
+  it('만료된 access token은 TOKEN_EXPIRED다', async () => {
+    // 넷 중 "갱신하라"에 해당하는 유일한 코드다. `TokenService` 단위 테스트가 만료
+    // 매핑 자체는 이미 고정하지만, 가드 경로로 만료 token이 실제로 TOKEN_EXPIRED로
+    // 나오는지는 이 스펙 밖이었다 — `authenticateRequest`가 나중에 `verifyAccessToken`
+    // 호출을 통째로 `catch`해 INVALID_TOKEN으로 뭉개도 그 테스트는 잡지 못한다.
+    //
+    // `jest.useFakeTimers()`는 이 프로젝트에서 못 쓴다(`test/health.controller.spec.ts`
+    // 참고). `test/auth/tokens.spec.ts`의 "만료는 INVALID_TOKEN이 아니라
+    // TOKEN_EXPIRED다"와 같은 방식으로 전역 `Date.now`를 검증 호출 동안만
+    // 바꿔치기한다. 공유 `tokens`는 만료가 900초라 그대로 쓰면 진행을 900초 넘게
+    // 앞당겨야 하므로, 만료가 1초인 전용 `TokenService`를 이 테스트에서만 만든다.
+    const realNow = Date.now;
+    await withRollback(dataSource, async (manager) => {
+      const user = await makeUser(manager, 'ㅎ@example.test', true);
+      const shortLived = new TokenService({ ...SETTINGS, accessExpiresSeconds: 1 });
+      const token = shortLived.signAccessToken(user.id);
+      try {
+        Date.now = (): number => realNow() + 5_000;
+        expect(
+          await codeOf(() =>
+            authenticateRequest(
+              { headers: { authorization: `Bearer ${token}` } },
+              shortLived,
+              manager,
+            ),
+          ),
+        ).toBe('TOKEN_EXPIRED');
+      } finally {
+        Date.now = realNow;
+      }
     });
   });
 
