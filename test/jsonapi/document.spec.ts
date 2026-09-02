@@ -357,4 +357,56 @@ describe('parseLinkageInput', () => {
       'INVALID_JSONAPI_DOCUMENT',
     );
   });
+
+  it('pointer 기준을 바꿀 수 있다', () => {
+    // 자원 문서 안의 relationships에서는 `/data`가 아니라 그 관계를 가리켜야 한다.
+    let thrown: unknown;
+    try {
+      parseLinkageInput(
+        { data: { type: 'others', id: 't1' } },
+        { expectedType: 'tags', cardinality: 'one', pointer: '/data/relationships/tags/data' },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    if (!(thrown instanceof JsonApiError)) {
+      throw new Error('JsonApiError가 던져지지 않았다');
+    }
+    expect(thrown.source).toEqual({ pointer: '/data/relationships/tags/data/type' });
+  });
+
+  it('배열 항목의 pointer도 기준을 따른다', () => {
+    let thrown: unknown;
+    try {
+      parseLinkageInput(
+        { data: [{ type: 'tags', id: 't1' }, { type: 'tags' }] },
+        { expectedType: 'tags', cardinality: 'many', pointer: '/data/relationships/tags/data' },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    if (!(thrown instanceof JsonApiError)) {
+      throw new Error('JsonApiError가 던져지지 않았다');
+    }
+    expect(thrown.source).toEqual({ pointer: '/data/relationships/tags/data/1/id' });
+  });
+
+  it('pointer를 주지 않으면 /data를 쓴다', () => {
+    let thrown: unknown;
+    try {
+      parseLinkageInput(
+        { data: { type: 'others', id: 't1' } },
+        {
+          expectedType: 'tags',
+          cardinality: 'one',
+        },
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    if (!(thrown instanceof JsonApiError)) {
+      throw new Error('JsonApiError가 던져지지 않았다');
+    }
+    expect(thrown.source).toEqual({ pointer: '/data/type' });
+  });
 });
