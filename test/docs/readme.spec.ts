@@ -1,23 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { VERIFICATION_COMMANDS, extractSection } from './verification-section.js';
 
 const repoRoot = new URL('../../', import.meta.url);
 const readmePath = fileURLToPath(new URL('README.md', repoRoot));
 const readme = readFileSync(readmePath, 'utf8');
-
-/**
- * 스펙이 정한 전체 검증 명령. README의 `## 검증` 절과 문자열 단위로 같아야 한다.
- * Phase 8에서 AGENTS.md가 추가되면 그 문서까지 같은 목록을 공유하는지 확인한다.
- */
-const VERIFICATION_COMMANDS = [
-  'pnpm install --frozen-lockfile',
-  './scripts/check.sh',
-  'docker compose config --quiet',
-  'docker build --target runtime --tag template-typescript-nestjs:verify .',
-  'docker compose up -d --build --wait',
-  'docker compose down -v',
-];
 
 const HEADING = '## 검증';
 
@@ -29,15 +17,13 @@ const HEADING = '## 검증';
  * 그렇다고 다른 절의 표기를 비틀면 같은 동작을 한 문서 안에서 두 가지로 적게 된다.
  * 단언해야 할 것은 "이 절이 이 목록을 이 순서로 담는가"이지
  * "이 문자열들이 문서 어디서 처음 나오는가"가 아니다.
+ *
+ * `extractSection`은 `test/docs/verification-section.ts`가 소유한다 —
+ * `test/docs/agents.spec.ts`가 루트 `AGENTS.md`의 같은 절을 확인할 때 이 함수와
+ * `VERIFICATION_COMMANDS`를 그대로 다시 쓴다.
  */
 function verificationSection(): string {
-  const start = readme.indexOf(HEADING);
-  if (start < 0) {
-    return '';
-  }
-  const rest = readme.slice(start + HEADING.length);
-  const next = rest.indexOf('\n## ');
-  return next < 0 ? rest : rest.slice(0, next);
+  return extractSection(readme, HEADING);
 }
 
 const STRUCTURE_HEADING = '## 구조';
