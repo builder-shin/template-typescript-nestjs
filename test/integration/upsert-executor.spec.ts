@@ -45,6 +45,9 @@ describe('replacementValues', () => {
   });
 
   it('보내지 않은 필드에 컬럼 기본값이 있으면 그 값으로 되돌린다', async () => {
+    // 아래 "보낸 status는 그대로 남는다"와 짝이다 — 이 테스트는 "결측 → 되돌림" 분기를,
+    // 그 테스트는 "보낸 값 사용" 분기를 본다. `status`는 컬럼 기본값(`draft`)이 있어
+    // 두 분기의 결과가 서로 달라지므로 어느 분기가 실행됐는지 가릴 수 있다.
     await withRollback(dataSource, (manager) => {
       const values = replacementValues(manager, Example, { title: '제목' }, OWNED);
       expect(values.status).toBe('draft');
@@ -52,7 +55,29 @@ describe('replacementValues', () => {
     });
   });
 
+  it('보낸 status는 그대로 남는다', async () => {
+    // 위 "보내지 않은 필드에 컬럼 기본값이 있으면..." 테스트와 짝이다. `status`를 보내면
+    // "보낸 값 사용" 분기(`property in attributes`)를 타고, 보내지 않으면 위 테스트가
+    // 보는 "결측 → 되돌림" 분기(`resetValueFor`)를 탄다 — 결과가 갈리므로 둘 중 어느
+    // 분기가 실행됐는지 이 쌍으로 가릴 수 있다.
+    await withRollback(dataSource, (manager) => {
+      const values = replacementValues(
+        manager,
+        Example,
+        { title: '제목', status: 'published' },
+        OWNED,
+      );
+      expect(values.status).toBe('published');
+      return Promise.resolve();
+    });
+  });
+
   it('null로 보낸 nullable 필드도 null이다', async () => {
+    // 주의: 이 테스트 하나만으로는 "보낸 값 사용"과 "결측 → 되돌림" 두 분기를 가릴 수
+    // 없다 — `body`가 nullable이라 두 분기 모두 결과가 `null`로 같다. 분기를 가르는
+    // 것은 위 `status` 쌍("보내지 않은 필드에 컬럼 기본값이 있으면..."/"보낸 status는
+    // 그대로 남는다")이고, 이 테스트가 지키는 것은 별개의 계약이다 — 명시적 `null`이
+    // "안 보냄"으로 오인되어 사라지지 않는다는 것.
     await withRollback(dataSource, (manager) => {
       const values = replacementValues(manager, Example, { title: '제목', body: null }, OWNED);
       expect(values.body).toBeNull();
@@ -152,6 +177,26 @@ describe('upsertRow', () => {
     });
   });
 
+  it('프로퍼티 이름과 DB 컬럼 이름이 다른 필드도 실제로 갱신한다', async () => {
+    // `orUpdate`는 DB 컬럼 이름을 받고 `values`의 키는 프로퍼티 이름이다(파일 머리 주석
+    // 참고). `publishedAt` 프로퍼티는 DB 컬럼명이 `published_at`으로 갈리므로,
+    // `updatable`을 만들 때 `column.databaseName` 대신 프로퍼티 이름을 그대로 넘기는
+    // 회귀가 생기면 `EXCLUDED.publishedAt`이 실제 컬럼과 이름이 달라 쿼리 자체가 죽는다
+    // (실측: "column excluded.publishedAt does not exist"). title·body만 쓰는 다른
+    // 테스트들은 프로퍼티 이름과 컬럼 이름이 우연히 같아서 이 회귀를 잡지 못한다.
+    await withRollback(dataSource, async (manager) => {
+      const first = new Date('2026-01-01T00:00:00.000Z');
+      const second = new Date('2026-06-15T00:00:00.000Z');
+      await upsertRow(manager, Example, ID, { title: '처음', publishedAt: first });
+      await upsertRow(manager, Example, ID, { title: '두 번째', publishedAt: second });
+      const rows = await manager.query<{ published_at: Date }[]>(
+        `SELECT published_at FROM examples WHERE id = $1`,
+        [ID],
+      );
+      expect(rows[0]?.published_at.toISOString()).toBe(second.toISOString());
+    });
+  });
+
   it('트랜잭션 안에서 advisory 잠금을 잡는다', async () => {
     await withRollback(dataSource, async (manager) => {
       await upsertRow(manager, Example, ID, { title: '처음' });
@@ -178,6 +223,15 @@ describe('upsertRow', () => {
     // 갱신할 컬럼이 하나도 없으면 `ON CONFLICT DO UPDATE`가 만들 SET 절이 없다.
     await withRollback(dataSource, async (manager) => {
       await expect(upsertRow(manager, Example, ID, {})).rejects.toThrow(TypeError);
+    });
+  });
+
+  it('컬럼이 없는 프로퍼티를 넘기면 프로그래밍 오류다', async () => {
+    // `upsertRow`의 `values`는 스키마와 무관한 자유 `Record`라 이 분기는 방어 코드가
+    // 아니라 호출자 입력 검증이다 — `replacementValues`를 거치지 않고 오탈자 난
+    // 프로퍼티 이름을 직접 넘기는 호출이 실제로 여기 도달한다.
+    await withRollback(dataSource, async (manager) => {
+      await expect(upsertRow(manager, Example, ID, { 없는프로퍼티: 1 })).rejects.toThrow(TypeError);
     });
   });
 });

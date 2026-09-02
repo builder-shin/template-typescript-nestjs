@@ -105,8 +105,14 @@ export type RelationshipWriteSchema = Readonly<Record<string, RelationshipWriteR
  * 존재하지 않아 `Object.keys`로 잡히지 않으므로, 데코레이터가 등록해 둔
  * class-validator 메타데이터가 유일하게 정확한 출처다.
  *
- * 상속 체인까지 훑는다(세 번째 인자 `true`). 스키마를 상속으로 나눠 쓰는 것은 흔한
- * 정리 방식이고, 부모의 필드를 빠뜨리면 그 필드가 교체 대상에서 조용히 빠진다.
+ * 상속 체인까지 훑는다. class-validator 0.15.1의 `MetadataStorage.getTargetValidationMetadatas`
+ * 소스를 보면, 조상 생성자에 등록된 메타데이터를 모으는 코드(`filteredForInheritedMetadatasSearch`)는
+ * 인자 분기 밖에서 무조건 실행된다 — 세 번째 인자(`always: true`)가 그 걸음을 켜는
+ * 스위치가 아니다. 그 인자가 실제로 가르는 것은 필드별 `@ValidateIf`류의 `groups`/`always`
+ * 데코레이터 옵션이 있을 때의 포함 여부이고, `groups`를 아예 안 넘기는 이 호출에서는
+ * `always`·`strictGroups` 값과 무관하게 매칭된 메타데이터가 전부 결과에 남는다(둘 다
+ * 최종적으로 `return true`로 떨어진다). 스키마를 상속으로 나눠 쓰는 것은 흔한 정리
+ * 방식이고, 부모의 필드를 빠뜨리면 그 필드가 교체 대상에서 조용히 빠진다.
  */
 export function schemaProperties(schema: ClassConstructor<object>): readonly string[] {
   const metadatas = getMetadataStorage().getTargetValidationMetadatas(schema, '', true, false);

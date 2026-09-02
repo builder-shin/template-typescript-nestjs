@@ -29,6 +29,19 @@ class Parent {
   child?: Child;
 }
 
+/** `extends` 상속의 부모. `Derived`가 이 클래스의 필드를 물려받는다. */
+class Base {
+  @IsString()
+  title!: string;
+}
+
+/** `Base`를 `extends`한 자식. 자기 필드(`size`)와 물려받은 필드(`title`)를 함께 갖는다. */
+class Derived extends Base {
+  @IsOptional()
+  @IsInt()
+  size?: number;
+}
+
 /** 집합 오류가 아니면 다시 던져 테스트를 실패시킨다. */
 async function caught(run: () => Promise<unknown>): Promise<JsonApiErrors> {
   try {
@@ -128,6 +141,14 @@ describe('schemaProperties', () => {
     // `Parent`가 소유하는 것은 `title`과 `child`이지 `child.name`이 아니다.
     // 자식의 기본값은 자식 스키마가 정할 일이다.
     expect([...schemaProperties(Parent)].sort()).toEqual(['child', 'title']);
+  });
+
+  it('extends로 상속한 필드도 함께 돌려준다', () => {
+    // 위 중첩 스키마 테스트는 "합성"(필드로 다른 스키마를 갖는 것)만 본다. 이 테스트가
+    // 보는 것은 `extends` "상속"이다 — `Derived`는 자기 필드(`size`)뿐 아니라 `Base`의
+    // `title`도 소유한다. 부모의 필드를 빠뜨리면 그 필드가 PUT 교체 대상에서 조용히
+    // 빠지므로, 상속 체인을 걷는 동작 자체를 여기서 붙잡는다.
+    expect([...schemaProperties(Derived)].sort()).toEqual(['size', 'title']);
   });
 
   it('데코레이터가 없는 클래스는 빈 목록이다', () => {
