@@ -24,6 +24,11 @@ interface LinkageBody {
   data: { type: string; id: string } | null;
 }
 
+/** `examples-api.spec.ts`와 같은 모양. 상태 코드는 여러 원인이 공유하지만 이 코드는 원인을 특정한다. */
+interface ErrorBody {
+  errors: { code: string; status: string; title: string; source?: { pointer?: string } }[];
+}
+
 describe('PUT /api/v1/examples/{id}', () => {
   let app: INestApplication<Server>;
   let dataSource: DataSource;
@@ -68,8 +73,14 @@ describe('PUT /api/v1/examples/{id}', () => {
   });
 
   afterAll(async () => {
-    await commitLock.release();
-    await app.close();
+    // release()가 던져도 app.close()는 반드시 돈다 — 여기서 건너뛰면 이 스위트가 연
+    // 커넥션이 풀에 남아 다른 워커가 굶는다. withRollback이 커넥션을 반드시 돌려주는
+    // 것과 같은 원칙이다.
+    try {
+      await commitLock.release();
+    } finally {
+      await app.close();
+    }
   });
 
   it('없는 id면 201과 Location을 낸다', async () => {
@@ -174,6 +185,8 @@ describe('PUT /api/v1/examples/{id}', () => {
         JSON.stringify({ data: { type: 'examples', id: OTHER, attributes: { title: '제목' } } }),
       );
     expect(response.status).toBe(409);
+    // 상태 코드만으로는 TYPE_MISMATCH 같은 다른 409 원인과 갈리지 않는다.
+    expect((response.body as ErrorBody).errors[0]?.code).toBe('ID_MISMATCH');
   });
 
   it('교체 스키마의 필수 필드가 없으면 422다', async () => {
@@ -184,11 +197,14 @@ describe('PUT /api/v1/examples/{id}', () => {
 
   it('없는 관계 대상을 가리키면 자원도 남지 않는다', async () => {
     const missing = '0195c1a0-0000-7000-8000-0000000009ff';
-    await put(
+    const response = await put(
       ID,
       { title: '제목' },
       { category: { data: { type: 'categories', id: missing } } },
     ).expect(404);
+    // 상태 코드만으로는 RESOURCE_NOT_FOUND(자원 자체가 없음) 같은 다른 404 원인과
+    // 갈리지 않는다 — 이 404는 관계 대상을 못 찾은 것이어야 한다.
+    expect((response.body as ErrorBody).errors[0]?.code).toBe('RELATIONSHIP_RESOURCE_NOT_FOUND');
 
     const rows = await dataSource.query<{ count: number }[]>(
       `SELECT COUNT(*)::int AS count FROM examples WHERE id = $1`,
@@ -207,8 +223,10 @@ describe('PUT /api/v1/examples/{id}', () => {
     // upsert *앞에* DB 접근이 생겨도(훅, 사전 확인 등) 계속 성립하게 만드는 보강이다 —
     // 그래서 이 테스트를 통과시키는 힘은 지금 advisory 잠금에서 나오지 않는다. 실측:
     // upsertRow의 advisory 잠금 줄을 비활성화한 채 이 테스트를 2-way 8회·4-way 15회
-    // 돌려도 전부 통과했다. 잠금 자체의 계약(삽입 전에 걸린다, 트랜잭션 스코프다)은
-    // test/integration/upsert-executor.spec.ts가 pg_locks로 직접 검증한다.
+    // 돌려도 전부 통과했다. 잠금이 트랜잭션 스코프라는 것(잡혀 있다가 트랜잭션이 끝나면
+    // 풀린다)은 test/integration/upsert-executor.spec.ts가 pg_locks로 직접 검증한다 —
+    // 다만 "삽입 문장보다 먼저 잠근다"는 순서는 그 pg_locks 단언이 아니라 upsertRow의
+    // 소스를 읽어서 아는 사실이다(잠금 쿼리가 insert 호출보다 앞에 있다).
     //
     // 두 요청은 attribute와 관계를 모두 다르게 보낸다. 직렬화되지 않으면 한쪽의 제목과
     // 다른 쪽의 관계가 섞인 상태가 남을 수 있다 — 두 요청 중 어느 것도 보낸 적 없는 상태다.

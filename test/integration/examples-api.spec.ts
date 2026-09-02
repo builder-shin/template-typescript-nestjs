@@ -138,8 +138,14 @@ describe('Examples API', () => {
   });
 
   afterAll(async () => {
-    await commitLock.release();
-    await app.close();
+    // release()가 던져도 app.close()는 반드시 돈다 — 여기서 건너뛰면 이 스위트가 연
+    // 커넥션이 풀에 남아 다른 워커가 굶는다. withRollback이 커넥션을 반드시 돌려주는
+    // 것과 같은 원칙이다.
+    try {
+      await commitLock.release();
+    } finally {
+      await app.close();
+    }
   });
 
   describe('POST /api/v1/examples', () => {

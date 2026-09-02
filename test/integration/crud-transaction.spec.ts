@@ -15,6 +15,7 @@ import { EXAMPLE_QUERY_POLICY } from '../../src/app/schemas/example.query-policy
 import {
   EXAMPLE_RELATIONSHIPS,
   ExampleCreate,
+  ExampleReplace,
   ExampleUpdate,
 } from '../../src/app/schemas/example.schemas.js';
 import { EXAMPLE_SERIALIZER } from '../../src/app/serializers/example.serializer.js';
@@ -36,6 +37,14 @@ import { createTestDataSource } from '../db/fixture.js';
  * `ExamplesController`를 등록하므로 쓸 수 없다 — 같은 경로에 훅 없는 컨트롤러가 함께
  * 붙는다. 조립은 `test/controllers/route-registrar.spec.ts`의 프로브 앱과 같은 모양이고,
  * 실제 DB와 전역 예외 필터만 더한 것이다.
+ *
+ * `replace()`(`PUT`)도 `create`/`update`와 같은 `beforeSave`/`afterSave`를 부르지만
+ * 그 사실을 실제로 실행해 보는 테스트가 저장소 어디에도 없었다 — `examples-put.spec.ts`의
+ * "없는 관계 대상을 가리키면 자원도 남지 않는다"는 관계 해석이 `beforeSave`보다 먼저
+ * 실패하는 경로라 훅이 아예 불리지 않는다(위의 "관계 대상을 못 찾으면"과 같은 이유로
+ * 롤백 자체를 증명하지 못한다). 그래서 이 프로브에도 `enableUpsert`를 켠다 — `PUT`
+ * 라우트가 생겨야 `upsertRow`가 행을 이미 만든 **뒤에** `afterSave`가 던지는 경로를
+ * 실제로 탈 수 있다.
  */
 
 const VENDOR = 'application/vnd.api+json';
@@ -45,6 +54,15 @@ const HOOK_FAILURE = '훅이 터졌다';
 
 /** 이 스펙이 만들려 시도하는 유일한 제목. 정리 범위를 이 값으로 좁힌다. */
 const PROBE_TITLE = '롤백될 것';
+
+/**
+ * `PUT` 프로브가 쓰는 고정 id.
+ *
+ * `upsert`는 경로에 id가 필요해 `POST` 프로브처럼 서버가 생성하게 둘 수 없다. 아래
+ * 정리는 여전히 `PROBE_TITLE`로 범위를 좁히므로(자원 id가 아니라 제목으로 지운다)
+ * 이 id 자체를 별도로 정리할 필요는 없다 — 롤백이 제대로 되면 애초에 남는 행이 없다.
+ */
+const PUT_PROBE_ID = '0195c1a0-0000-7000-8000-00000000f001';
 
 /**
  * `ExamplesController`와 같은 선언에 `afterSave`만 더한다.
@@ -59,6 +77,8 @@ const ProbeHost = CrudActions({
   updateSchema: ExampleUpdate,
   relationshipsSchema: EXAMPLE_RELATIONSHIPS,
   queryPolicy: EXAMPLE_QUERY_POLICY,
+  replaceSchema: ExampleReplace,
+  enableUpsert: true,
   afterSave: (): void => {
     throw new Error(HOOK_FAILURE);
   },
@@ -86,6 +106,19 @@ describe('CrudActions 트랜잭션 경계', () => {
       .set('Accept', VENDOR)
       .set('Content-Type', VENDOR)
       .send(JSON.stringify({ data: { type: 'examples', attributes: { title: PROBE_TITLE } } }));
+  }
+
+  /** 없는 id로 `PUT` — upsert가 반드시 생성 분기(행을 새로 만드는 쪽)를 타게 한다. */
+  function putProbe(): Promise<Response> {
+    return request(app.getHttpServer())
+      .put(`/api/v1/examples/${PUT_PROBE_ID}`)
+      .set('Accept', VENDOR)
+      .set('Content-Type', VENDOR)
+      .send(
+        JSON.stringify({
+          data: { type: 'examples', id: PUT_PROBE_ID, attributes: { title: PROBE_TITLE } },
+        }),
+      );
   }
 
   beforeAll(async () => {
@@ -159,6 +192,24 @@ describe('CrudActions 트랜잭션 경계', () => {
     const rows = await dataSource.query<{ count: string }[]>(
       'SELECT COUNT(*) AS count FROM examples WHERE title = $1',
       [PROBE_TITLE],
+    );
+    expect(rows[0]?.count).toBe('0');
+  });
+
+  it('PUT의 afterSave가 던지면 upsert가 만든 행도 함께 롤백된다', async () => {
+    // 위 POST 테스트와 증명하는 지점이 다르다. `examples-put.spec.ts`의 "없는 관계
+    // 대상을 가리키면 자원도 남지 않는다"는 관계 해석이 beforeSave보다 먼저 실패하는
+    // 경로라 훅이 아예 불리지 않는다 — 트랜잭션이 없어도 0행이라 롤백을 증명하지 못한다
+    // (위 파일 머리 주석과 같은 이유). 이 테스트는 그 반대다: upsertRow의
+    // `INSERT ... ON CONFLICT`가 행을 이미 만든 **뒤에** afterSave가 던진다. 롤백이
+    // 깨지면 upsert가 만든 행이 그대로 남는다.
+    const response = await putProbe();
+
+    expect(response.status).toBe(500);
+
+    const rows = await dataSource.query<{ count: string }[]>(
+      'SELECT COUNT(*) AS count FROM examples WHERE id = $1',
+      [PUT_PROBE_ID],
     );
     expect(rows[0]?.count).toBe('0');
   });
