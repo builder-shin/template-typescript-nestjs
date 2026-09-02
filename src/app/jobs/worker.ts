@@ -46,6 +46,20 @@ async function bootstrap(): Promise<void> {
   );
 
   /**
+   * `error` 리스너가 없으면 Node가 `EventEmitter`의 "listener 없는 에러 이벤트는
+   * 던진다" 기본 동작을 적용하는데, bullmq는 그 throw를 자기 안에서 잡아 조용히
+   * `console.error`로만 남기고 넘어간다(실측, `bullmq` 소스의 `emit('error', ...)`
+   * 호출부). 그러면 Redis 연결 장애 같은 신호가 이 파일이 나머지 로그 전부를 보내는
+   * Nest `Logger`를 완전히 우회해 `console.error`로만 나가고, Compose의 `worker`
+   * 서비스는 healthcheck를 꺼 뒀으므로(위 주석 참고) 아무것도 이 상태를 알아채지
+   * 못한다. 이것은 관찰 가능성 문제이지 안전성 문제가 아니다 — bullmq는 이 이벤트와
+   * 무관하게 스스로 재연결한다.
+   */
+  worker.on('error', (error: Error) => {
+    logger.error('워커에서 처리되지 않은 오류가 발생했다', error.stack);
+  });
+
+  /**
    * graceful shutdown은 실측된 세 줄이다 — `worker.close()`가 이미 "진행 중인 잡이
    * 끝날 때까지 대기"를 구현한다(프로브: 1.5초짜리 잡 중간(300ms)에 `close()`를 불러
    * 남은 1200ms를 정확히 기다린 뒤 반환). `{ url }`로 연결을 넘겼으므로(`brokerConnection`)

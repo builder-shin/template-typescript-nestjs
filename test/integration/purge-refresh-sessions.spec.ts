@@ -210,6 +210,38 @@ describe('purgeExpiredRefreshSessions', () => {
     await expect(exists(targetId)).resolves.toBe(true);
   });
 
+  it('batchSize가 1 이상의 정수가 아니면 TypeError이고, 배치를 하나도 돌리지 않는다', async () => {
+    // `batchSize: 0`을 그냥 통과시키면 `batchDeleted < batchSize`가 `0 < 0`으로 영원히
+    // 거짓이 되어 아무것도 못 지운 채 배치만 반복한다 — lockTimeoutMs와 같은 이유로
+    // 루프를 시작하기 전에 검사해야 한다.
+    const userId = await createUser('batchsize-typeerror');
+    const targetId = await createSession(userId, new Date(Date.now() - 120_000));
+
+    await expect(
+      purgeExpiredRefreshSessions(dataSource, {
+        retentionSeconds: 0,
+        batchSize: 0,
+        lockTimeoutMs: 500,
+      }),
+    ).rejects.toThrow(TypeError);
+    await expect(
+      purgeExpiredRefreshSessions(dataSource, {
+        retentionSeconds: 0,
+        batchSize: -1,
+        lockTimeoutMs: 500,
+      }),
+    ).rejects.toThrow(TypeError);
+    await expect(
+      purgeExpiredRefreshSessions(dataSource, {
+        retentionSeconds: 0,
+        batchSize: 1.5,
+        lockTimeoutMs: 500,
+      }),
+    ).rejects.toThrow(TypeError);
+
+    await expect(exists(targetId)).resolves.toBe(true);
+  });
+
   it('가리키는 대상 행이 지워지면 replaced_by_id가 null이 되고, 그 행 자체는 남는다', async () => {
     // newSession(B)이 곧 purge 대상(만료)이고, oldSession(A)이 B를 replacedById로
     // 가리킨다(회전으로 폐기된 옛 세션이 새 세션을 가리키는 실제 모양,

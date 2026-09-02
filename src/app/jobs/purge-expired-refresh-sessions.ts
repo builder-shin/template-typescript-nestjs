@@ -139,6 +139,17 @@ export async function purgeExpiredRefreshSessions(
     );
   }
 
+  // `batchSize`도 같은 이유로 방어한다 — 오늘은 `dispatch.ts`의 상수(500)에서만 오지만,
+  // 이 함수는 호출자가 늘어날 것을 전제로 만들어졌다(위 `lockTimeoutMs` 검사와 같은
+  // 근거). `0`을 그냥 통과시키면 `batchDeleted < batchSize`가 `0 < 0`으로 영원히
+  // 거짓이 되어 매 배치가 아무것도 지우지 못한 채 `MAX_BATCHES`(10,000)까지 빈 왕복을
+  // 반복한다 — 멈추기는 하지만 그 전까지 워커 슬롯 하나를 붙잡는다. 음수는 그대로
+  // `LIMIT`에 실리면 PostgreSQL이 별도의 구문 오류로 거절하므로, 여기서 먼저 걸러
+  // 원인이 분명한 오류로 바꾼다.
+  if (!Number.isInteger(batchSize) || batchSize < 1) {
+    throw new TypeError(`batchSize는 1 이상의 정수여야 한다(받은 값: ${String(batchSize)})`);
+  }
+
   const cutoff = new Date(Date.now() - retentionSeconds * 1000);
 
   let deleted = 0;
