@@ -110,9 +110,33 @@ describe('serializeResource', () => {
       relationships: {},
     };
     const object = serializeResource(pathless, { id: 'a1', name: '글쓴이' });
-    expect(object.links).toBeUndefined();
+    expect('links' in object).toBe(false);
     expect(object.id).toBe('a1');
     expect(object.attributes.name).toBe('글쓴이');
+  });
+
+  it('resourcePath가 없으면 관계에도 링크를 내지 않되 linkage는 낸다', () => {
+    // 관계의 self·related 링크는 **부모**의 경로로 만들어진다. 부모에 경로가 없으면
+    // 만들 수 없지만, linkage(어떤 자원과 이어져 있는가)는 경로와 무관하게 유효하다.
+    const pathless: ResourceSerializer<Post> = {
+      type: 'posts',
+      attributes: { title: (entry) => entry.title },
+      relationships: {
+        author: {
+          cardinality: 'one',
+          eagerLoad: 'author',
+          read: (entry) => entry.author,
+          target: () => ERASED_AUTHOR,
+        },
+      },
+    };
+    const object = serializeResource(pathless, post({ author: { id: 'a1', name: '글쓴이' } }));
+    const author = object.relationships.author;
+    if (author === undefined) {
+      throw new Error('author 관계가 없다');
+    }
+    expect('links' in author).toBe(false);
+    expect(author.data).toEqual({ type: 'authors', id: 'a1' });
   });
 
   it('로드되지 않은 관계는 data를 생략한다', () => {
