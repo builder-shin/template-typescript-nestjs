@@ -53,7 +53,10 @@ export class AuthController {
       return singleDocument(serializeResource(USER_SERIALIZER, user), []);
     } catch (error: unknown) {
       if (isEmailConflict(error)) {
-        throw new JsonApiError('RESOURCE_CONFLICT', { detail: 'that email is already registered' });
+        // 카탈로그(`errors.ts`)의 `EMAIL_ALREADY_REGISTERED` 메시지가 이미 이 상황을
+        // 정확히 말하므로 `detail`을 따로 반복하지 않는다 — 이 파일의 다른 오류들
+        // (`INVALID_CREDENTIALS`·`USER_INACTIVE`)도 같은 이유로 detail이 없다.
+        throw new JsonApiError('EMAIL_ALREADY_REGISTERED');
       }
       throw error;
     }

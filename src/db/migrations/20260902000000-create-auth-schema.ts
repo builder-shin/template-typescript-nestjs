@@ -18,7 +18,7 @@ import type { MigrationInterface, QueryRunner } from 'typeorm';
  * .createSchemaBuilder().log()`)가 인덱스는 지우고 제약은 새로 만들려 든다 — 실측으로
  * 확인했다. 제약이어도 위반 시 PostgreSQL 오류에 이름이 그대로 실린다
  * (`duplicate key value violates unique constraint "UQ_users_email"`)로 `auth.controller.ts`가
- * 이름으로 RESOURCE_CONFLICT를 가리는 데는 지장이 없다.
+ * 이름으로 EMAIL_ALREADY_REGISTERED를 가리는 데는 지장이 없다.
  */
 export class CreateAuthSchema1788307200000 implements MigrationInterface {
   async up(queryRunner: QueryRunner): Promise<void> {

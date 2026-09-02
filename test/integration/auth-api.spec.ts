@@ -83,7 +83,7 @@ describe('인증 API', () => {
     // 갈리면 유니크 제약으로 되돌릴 수 없는 상태가 남는다.
     await register('auth-대소문자@example.test').expect(201);
     const response = await register('AUTH-대소문자@EXAMPLE.TEST').expect(409);
-    expect((response.body as ErrorBody).errors[0]?.code).toBe('RESOURCE_CONFLICT');
+    expect((response.body as ErrorBody).errors[0]?.code).toBe('EMAIL_ALREADY_REGISTERED');
   });
 
   it('짧은 비밀번호는 422다', async () => {
