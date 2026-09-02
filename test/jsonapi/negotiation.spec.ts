@@ -31,6 +31,21 @@ function guard(): JsonApiNegotiationGuard {
   return new JsonApiNegotiationGuard(new Reflector());
 }
 
+/**
+ * 가드가 415로 거절하는지 본다.
+ *
+ * 본문 유무 판정에 케이스가 여럿이라, 같은 try/catch를 케이스마다 되풀이하지 않는다.
+ * 코드까지 확인하므로 "무엇이든 던지기만 하면 통과"가 되지 않는다.
+ */
+function rejectsAsUnsupportedMediaType(context: ExecutionContext): boolean {
+  try {
+    guard().canActivate(context);
+  } catch (error) {
+    return error instanceof JsonApiError && error.code === 'UNSUPPORTED_MEDIA_TYPE';
+  }
+  return false;
+}
+
 describe('acceptsJsonApi', () => {
   it('헤더가 없으면 허용한다', () => {
     expect(acceptsJsonApi(undefined)).toBe(true);
@@ -158,44 +173,81 @@ describe('JsonApiNegotiationGuard', () => {
     throw new Error('expected UNSUPPORTED_MEDIA_TYPE');
   });
 
-  it('Content-Type을 보내지 않은 메서드는 통과한다', () => {
-    // 본문이 필수인 메서드만 헤더를 요구한다. GET/DELETE에 헤더를 강요하면
-    // `DELETE /examples/{id}`처럼 본문이 없는 요청이 415가 된다.
+  it('본문 없는 메서드는 Content-Type을 보지 않는다', () => {
+    // 스펙 5.1이 요구하는 대상은 "본문이 있는 요청"이다. 본문을 싣지 않은 요청이
+    // 엉뚱한 Content-Type을 달고 오는 것은 그 문장이 거부하라고 한 것이 아니다.
     for (const method of ['GET', 'HEAD', 'DELETE', 'OPTIONS']) {
-      const context = contextFor({ method, headers: { accept: 'application/vnd.api+json' } });
+      const context = contextFor({
+        method,
+        headers: { accept: 'application/vnd.api+json', 'content-type': 'text/plain' },
+      });
       expect(guard().canActivate(context)).toBe(true);
     }
   });
 
-  it('DELETE가 보낸 Content-Type도 검사한다', () => {
+  it('본문을 실은 DELETE는 Content-Type이 틀리면 거부한다', () => {
     // 관계 라우트의 DELETE는 linkage 본문을 싣는다. 메서드로만 판정하면 이 본문이
     // 협상을 통과해 버린다.
     const context = contextFor({
       method: 'DELETE',
-      headers: { accept: 'application/vnd.api+json', 'content-type': 'application/json' },
+      headers: {
+        accept: 'application/vnd.api+json',
+        'content-length': '42',
+        'content-type': 'application/json',
+      },
     });
-    try {
-      guard().canActivate(context);
-    } catch (error) {
-      if (!(error instanceof JsonApiError)) {
-        throw error;
-      }
-      expect(error.code).toBe('UNSUPPORTED_MEDIA_TYPE');
-      expect(error.status).toBe(415);
-      return;
-    }
-    throw new Error('expected UNSUPPORTED_MEDIA_TYPE');
+    expect(rejectsAsUnsupportedMediaType(context)).toBe(true);
   });
 
-  it('DELETE에 vendor Content-Type이면 통과한다', () => {
+  it('본문을 실은 DELETE는 Content-Type이 없으면 거부한다', () => {
+    const context = contextFor({
+      method: 'DELETE',
+      headers: { accept: 'application/vnd.api+json', 'content-length': '42' },
+    });
+    expect(rejectsAsUnsupportedMediaType(context)).toBe(true);
+  });
+
+  it('본문을 실은 DELETE도 vendor Content-Type이면 통과한다', () => {
     const context = contextFor({
       method: 'DELETE',
       headers: {
         accept: 'application/vnd.api+json',
+        'content-length': '42',
         'content-type': 'application/vnd.api+json',
       },
     });
     expect(guard().canActivate(context)).toBe(true);
+  });
+
+  it('길이를 모르는 chunked 본문도 본문으로 본다', () => {
+    // `Transfer-Encoding`이 붙으면 `Content-Length`가 없다. 길이만 보면 이 요청이
+    // 본문 없는 것으로 읽혀 검사에서 샌다.
+    const context = contextFor({
+      method: 'DELETE',
+      headers: {
+        accept: 'application/vnd.api+json',
+        'transfer-encoding': 'chunked',
+        'content-type': 'application/json',
+      },
+    });
+    expect(rejectsAsUnsupportedMediaType(context)).toBe(true);
+  });
+
+  it('본문 없음으로 읽는 헤더 값들', () => {
+    // `Content-Length: 0`은 빈 본문이고, 빈 헤더 값은 아무것도 말하지 않는다. 둘 다
+    // 본문 없음으로 읽어 본문 없는 요청과 같이 다룬다.
+    const cases: Record<string, string>[] = [
+      { 'content-length': '0' },
+      { 'content-length': '' },
+      { 'transfer-encoding': '' },
+    ];
+    for (const headers of cases) {
+      const context = contextFor({
+        method: 'DELETE',
+        headers: { accept: 'application/vnd.api+json', 'content-type': 'text/plain', ...headers },
+      });
+      expect(guard().canActivate(context)).toBe(true);
+    }
   });
 
   it('POST에 Content-Type이 아예 없으면 UNSUPPORTED_MEDIA_TYPE', () => {

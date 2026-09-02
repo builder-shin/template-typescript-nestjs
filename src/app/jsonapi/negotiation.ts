@@ -34,12 +34,11 @@ export function SkipJsonApiNegotiation(): MethodDecorator & ClassDecorator {
 }
 
 /**
- * 본문을 **반드시** 실어야 하는 메서드. 이때만 `Content-Type`이 없는 것을 오류로 본다.
+ * 프로토콜상 본문이 필수인 메서드. 본문 없이 와도 `Content-Type` 요구를 유지한다.
  *
- * `Content-Type`을 **보냈을 때** 그 값이 맞는지는 메서드와 무관하게 본다(가드 참고).
- * 이 집합에 `DELETE`가 없는 이유가 그 분리다 — `DELETE /examples/{id}`는 본문이 없지만
- * `DELETE /examples/{id}/relationships/tags`는 linkage 본문을 싣는다. 메서드만으로
- * 판정하면 둘 중 하나는 반드시 틀린다.
+ * 이 집합에 `DELETE`가 없는 것은 `DELETE`를 봐주기 위해서가 아니다 — 판정의 주된
+ * 기준은 본문 유무이고(`carriesBody`), 이 집합은 "본문이 필수인데 빠뜨린 요청"까지
+ * 잡기 위한 보강이다.
  */
 const BODY_REQUIRED_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH']);
 
@@ -131,6 +130,22 @@ function headerValue(request: NegotiableRequest, name: string): string | undefin
 }
 
 /**
+ * 요청이 본문을 싣고 있는지 본다.
+ *
+ * 헤더로만 판정한다. 파싱 결과(`{}`)로는 "빈 본문"과 "본문 없음"을 가를 수 없고,
+ * `Content-Length`는 Node의 http 서버가 앱 코드보다 먼저 채우는 원시 헤더라 가드
+ * 시점에 읽을 수 있다 — body parser의 등록 순서와 무관하다.
+ */
+function carriesBody(request: NegotiableRequest): boolean {
+  const encoding = headerValue(request, 'transfer-encoding');
+  if (encoding !== undefined && encoding.trim() !== '') {
+    return true;
+  }
+  const length = headerValue(request, 'content-length');
+  return length !== undefined && length.trim() !== '' && length.trim() !== '0';
+}
+
+/**
  * 리소스 라우트의 `Accept`와 `Content-Type`을 검증한다.
  *
  * `Accept` 위반을 먼저 판정한다. 클라이언트가 우리 응답을 읽지 못하는 상황이
@@ -168,14 +183,13 @@ export class JsonApiNegotiationGuard implements CanActivate {
       });
     }
 
-    // 규칙이 둘로 갈린다. (1) 보낸 `Content-Type`은 메서드와 무관하게 vendor 타입이어야
-    // 한다 — 관계 라우트의 `DELETE`처럼 본문을 싣는 메서드가 검사에서 새지 않게 한다.
-    // (2) 본문이 필수인 메서드는 `Content-Type`을 생략할 수 없다.
-    const contentType = headerValue(request, 'content-type');
-    const declaredButWrong = contentType !== undefined && !isJsonApiContentType(contentType);
-    const missingButRequired =
-      contentType === undefined && BODY_REQUIRED_METHODS.has(request.method.toUpperCase());
-    if (declaredButWrong || missingButRequired) {
+    // 스펙 5.1: **본문이 있는 요청**은 vendor `Content-Type`을 요구한다. 판정 기준이
+    // 메서드가 아니라 본문 유무인 것이 핵심이다 — `DELETE /examples/{id}`는 본문이
+    // 없지만 `DELETE /examples/{id}/relationships/tags`는 linkage 본문을 싣는다.
+    // `POST`/`PUT`/`PATCH`는 프로토콜상 본문이 필수라, 본문 없이 와도 요구를 유지한다.
+    const requiresJsonApiContentType =
+      carriesBody(request) || BODY_REQUIRED_METHODS.has(request.method.toUpperCase());
+    if (requiresJsonApiContentType && !isJsonApiContentType(headerValue(request, 'content-type'))) {
       throw new JsonApiError('UNSUPPORTED_MEDIA_TYPE', {
         detail: `this endpoint only consumes ${JSONAPI_MEDIA_TYPE} without media type parameters`,
       });

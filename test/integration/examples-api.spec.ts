@@ -578,6 +578,17 @@ describe('Examples API', () => {
       expect((response.body as ErrorBody).errors[0]?.code).toBe('UNSUPPORTED_MEDIA_TYPE');
     });
 
+    it('본문 없는 GET은 Content-Type이 달라도 통과한다', async () => {
+      // 스펙 5.1이 415를 요구하는 대상은 "본문이 있는 요청"이다. 본문을 싣지 않은
+      // 요청에 붙은 Content-Type은 아무것도 서술하지 않으므로 협상 대상이 아니다.
+      const response = await api()
+        .get('/api/v1/examples')
+        .set('Accept', VENDOR)
+        .set('Content-Type', 'application/json');
+
+      expect(response.status).toBe(200);
+    });
+
     it('오류도 vendor Content-Type으로 나간다', async () => {
       const response = await api().get(`/api/v1/examples/${MISSING}`).set('Accept', VENDOR);
       expect(response.headers['content-type']).toBe(VENDOR);

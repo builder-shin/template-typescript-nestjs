@@ -88,7 +88,7 @@ pnpm start
 
 ## API 사용
 
-모든 `/api/v1` 요청에 `Accept: application/vnd.api+json`을 붙이고, 본문이 있는 요청에는 `Content-Type`도 같은 값을 붙입니다. **틀린 헤더가 가장 흔한 첫 걸림돌입니다** — `Accept`를 **다른** 타입으로 보내면 `406 NOT_ACCEPTABLE`입니다(헤더가 없거나 `*/*`이면 통과하므로, 헤더 없는 curl은 그냥 동작합니다). `Content-Type`은 보냈다면 메서드와 무관하게 이 값이어야 하고 다르면 `415 UNSUPPORTED_MEDIA_TYPE`이며, `POST`·`PUT`·`PATCH`는 아예 빠뜨려도 `415`입니다. JSON:API 1.1은 이 미디어 타입에 파라미터를 금지하므로 `; charset=utf-8`을 붙이면 그것도 거부됩니다.
+모든 `/api/v1` 요청에 `Accept: application/vnd.api+json`을 붙이고, 본문이 있는 요청에는 `Content-Type`도 같은 값을 붙입니다. **틀린 헤더가 가장 흔한 첫 걸림돌입니다** — `Accept`를 **다른** 타입으로 보내면 `406 NOT_ACCEPTABLE`입니다(헤더가 없거나 `*/*`이면 통과하므로, 헤더 없는 curl은 그냥 동작합니다). `Content-Type`은 **본문이 있는 요청**이면 메서드와 무관하게 이 값이어야 하고, 다르거나 빠지면 `415 UNSUPPORTED_MEDIA_TYPE`입니다 — 본문을 싣는 관계 `DELETE`도 포함입니다. `POST`·`PUT`·`PATCH`는 본문이 필수라 언제나 요구하고, 본문 없는 `GET`·`DELETE`는 이 헤더를 보지 않습니다. JSON:API 1.1은 이 미디어 타입에 파라미터를 금지하므로 `; charset=utf-8`을 붙이면 그것도 거부됩니다.
 
 `/health`는 JSON:API가 아니라 평문 JSON이므로 이 헤더를 쓰지 않습니다.
 
