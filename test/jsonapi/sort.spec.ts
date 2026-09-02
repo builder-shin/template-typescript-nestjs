@@ -6,7 +6,9 @@ const POLICY: QueryPolicy = {
   filters: {},
   sorts: {
     createdAt: { property: 'createdAt', nullable: false },
-    title: { property: 'title', nullable: false },
+    // 공개 이름과 저장 프로퍼티를 일부러 다르게 둔다. 네 필드가 모두 같은 이름이면
+    // 구현이 `property: field`로 퇴행해도 테스트가 통과해 버린다.
+    name: { property: 'title', nullable: false },
     publishedAt: { property: 'publishedAt', nullable: true },
     id: { property: 'id', nullable: false },
   },
@@ -37,8 +39,8 @@ describe('parseSort', () => {
   });
 
   it('오름차순 필드를 해석한다', () => {
-    expect(parseSort({ sort: 'title' }, POLICY)[0]).toEqual({
-      field: 'title',
+    expect(parseSort({ sort: 'name' }, POLICY)[0]).toEqual({
+      field: 'name',
       property: 'title',
       direction: 'ASC',
       nullable: false,
@@ -46,19 +48,23 @@ describe('parseSort', () => {
   });
 
   it('앞의 빼기표는 내림차순이다', () => {
-    expect(parseSort({ sort: '-title' }, POLICY)[0]?.direction).toBe('DESC');
+    expect(parseSort({ sort: '-name' }, POLICY)[0]?.direction).toBe('DESC');
   });
 
   it('여러 필드를 순서대로 해석한다', () => {
-    expect(parseSort({ sort: '-createdAt,title' }, POLICY).map((term) => term.field)).toEqual([
+    expect(parseSort({ sort: '-createdAt,name' }, POLICY).map((term) => term.field)).toEqual([
       'createdAt',
-      'title',
+      'name',
       'id',
     ]);
   });
 
   it('공개 이름이 아니라 정책의 property를 실어 준다', () => {
-    expect(parseSort({ sort: 'title' }, POLICY)[0]?.property).toBe('title');
+    // 사용자 입력이 열 이름이 되는 경로를 막는 계약이다. 공개 이름과 property가
+    // 다른 필드로 확인해야 이 계약이 실제로 고정된다.
+    const term = parseSort({ sort: 'name' }, POLICY)[0];
+    expect(term?.field).toBe('name');
+    expect(term?.property).toBe('title');
   });
 
   it('nullable 표시를 정책에서 가져온다', () => {
@@ -67,7 +73,7 @@ describe('parseSort', () => {
 
   it('tie breaker를 언제나 마지막에 붙인다', () => {
     // 전순서가 아니면 같은 페이지를 두 번 요청했을 때 순서가 달라진다.
-    const terms = parseSort({ sort: 'title' }, POLICY);
+    const terms = parseSort({ sort: 'name' }, POLICY);
     expect(terms[terms.length - 1]).toEqual({
       field: 'id',
       property: 'id',
@@ -83,9 +89,9 @@ describe('parseSort', () => {
   });
 
   it('공백을 허용한다', () => {
-    expect(parseSort({ sort: ' -createdAt , title ' }, POLICY).map((term) => term.field)).toEqual([
+    expect(parseSort({ sort: ' -createdAt , name ' }, POLICY).map((term) => term.field)).toEqual([
       'createdAt',
-      'title',
+      'name',
       'id',
     ]);
   });
@@ -109,11 +115,11 @@ describe('parseSort 거부', () => {
 
   it('같은 필드를 두 번 쓰면 거부한다', () => {
     // 뒤 항목은 절대 적용되지 않는데 사용자는 적용됐다고 읽는다.
-    expect(caught(() => parseSort({ sort: 'title,-title' }, POLICY)).code).toBe('INVALID_SORT');
+    expect(caught(() => parseSort({ sort: 'name,-name' }, POLICY)).code).toBe('INVALID_SORT');
   });
 
   it('sort가 두 번 오면 거부한다', () => {
-    expect(caught(() => parseSort({ sort: ['title', 'createdAt'] }, POLICY)).code).toBe(
+    expect(caught(() => parseSort({ sort: ['name', 'createdAt'] }, POLICY)).code).toBe(
       'INVALID_SORT',
     );
   });
@@ -126,8 +132,8 @@ describe('sortSignature', () => {
 
   it('정렬이 다르면 서명도 다르다', () => {
     // 커서는 이 서명에 묶인다. 정렬이 바뀐 뒤 커서를 재사용하면 거부해야 한다.
-    expect(sortSignature(parseSort({ sort: 'title' }, POLICY))).not.toBe(
-      sortSignature(parseSort({ sort: '-title' }, POLICY)),
+    expect(sortSignature(parseSort({ sort: 'name' }, POLICY))).not.toBe(
+      sortSignature(parseSort({ sort: '-name' }, POLICY)),
     );
   });
 
