@@ -34,6 +34,17 @@ describe('OpenAPI 문서', () => {
     const response = await request(app.getHttpServer()).get('/api/schema');
     const document = response.body as OpenApiDocument;
 
-    expect(Object.keys(document.paths).sort()).toEqual(['/health/live', '/health/ready']);
+    // OpenAPI는 경로 파라미터를 `:id`가 아니라 `{id}`로 적는다. 같은 라우트 집합을
+    // Express 표기로 고정하는 것은 `routes.module.spec.ts`다.
+    expect(Object.keys(document.paths).sort()).toEqual([
+      '/api/v1/examples',
+      '/api/v1/examples/{id}',
+      '/api/v1/examples/{id}/category',
+      '/api/v1/examples/{id}/relationships/category',
+      '/api/v1/examples/{id}/relationships/tags',
+      '/api/v1/examples/{id}/tags',
+      '/health/live',
+      '/health/ready',
+    ]);
   });
 });

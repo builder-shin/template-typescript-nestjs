@@ -1,7 +1,9 @@
 import type { INestApplication } from '@nestjs/common';
 import type { Server } from 'node:http';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/config/app.module.js';
+import { configureHttp } from '../src/config/http.js';
 import { setupOpenApi } from '../src/config/openapi.js';
 import { requireTestDatabaseUrl } from './db/fixture.js';
 
@@ -25,12 +27,27 @@ function useTestDatabase(): void {
  * `getHttpServer()`가 `any`를 흘려 호출하는 쪽마다 `strictTypeChecked`의
  * `no-unsafe-argument`를 피하려 캐스트를 반복해야 한다. 서버 타입을 아는 것은
  * 조립 지점의 책임이므로 여기서 `Server`로 고정해 돌려준다.
+ *
+ * 조립 안에서만 `NestExpressApplication`으로 다룬다. `configureHttp`가 Express
+ * 고유의 설정(본문 파서, 질의 파서)을 만지므로 그 타입이 필요하지만, 그것은 조립
+ * 지점의 사정이지 호출하는 쪽이 알아야 할 것이 아니다.
+ *
+ * `beforeInit`은 `app.init()` **전에** Express 인스턴스를 만질 유일한 자리다. Nest는
+ * 라우트를 모두 붙인 뒤 catch-all not-found 핸들러를 등록하므로(`routes-resolver.ts`의
+ * `registerNotFoundHandler`), `init()` 뒤에 얹은 라우트는 그 핸들러에 가려 404가 된다.
+ * 미들웨어 계층 자체를 실제 요청으로 확인하려면 이 자리가 필요하다
+ * (`test/config/http.spec.ts`가 본문 파서에 쓴다). 애플리케이션 라우트를 여기서
+ * 늘리지 않는다 — 라우트의 등록 지점은 `RoutesModule` 하나다.
  */
-export async function createTestApp(): Promise<INestApplication<Server>> {
+export async function createTestApp(
+  beforeInit?: (app: NestExpressApplication) => void,
+): Promise<INestApplication<Server>> {
   useTestDatabase();
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
-  const app = moduleRef.createNestApplication<INestApplication<Server>>();
+  const app = moduleRef.createNestApplication<NestExpressApplication>();
+  configureHttp(app);
   setupOpenApi(app);
+  beforeInit?.(app);
   await app.init();
   return app;
 }
