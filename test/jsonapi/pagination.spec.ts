@@ -129,6 +129,15 @@ describe('parsePage 거부', () => {
   it('같은 page 파라미터가 두 번 오면 거부한다', () => {
     expect(caught(() => parsePage({ 'page[size]': ['1', '2'] }, POLICY)).code).toBe('INVALID_PAGE');
   });
+
+  it('정책의 defaultPageSize가 범위를 벗어나면 TypeError다', () => {
+    // `page[size]`만 검사하면 500을 선언한 정책이 크기를 생략한 모든 요청에서 상한을
+    // 조용히 넘긴다. 사용자 입력이 아니라 선언이 틀린 것이므로 400이 아니라 TypeError다 —
+    // 클라이언트가 고칠 수 없는 것을 클라이언트 탓으로 돌리지 않는다.
+    expect(() => parsePage({}, { ...POLICY, defaultPageSize: 500 })).toThrow(TypeError);
+    expect(() => parsePage({}, { ...POLICY, defaultPageSize: 0 })).toThrow(TypeError);
+    expect(() => parsePage({}, { ...POLICY, defaultPageSize: 2.5 })).toThrow(TypeError);
+  });
 });
 
 describe('probeLimit / sliceProbe', () => {
@@ -286,6 +295,21 @@ describe('buildCursorLinks', () => {
     expect(links.last).toContain('page[totals]=true');
     expect(links.prev).toContain('page[totals]=true');
     expect(links.next).toContain('page[totals]=true');
+  });
+
+  it('page[before]로 읽을 때 hasMore가 가르는 것은 next가 아니라 prev다', () => {
+    // 뒤쪽으로 읽었으므로 probe가 본 것은 prev 방향이다. 이 둘을 바꿔 달면 거꾸로
+    // 맨 앞까지 올라간 페이지가 next를 잃고, 마지막 페이지가 빈 prev를 광고한다.
+    const query = { 'page[before]': 'MID' };
+    const page = parsePage(query, POLICY);
+
+    const atStart = buildCursorLinks(base, query, page, 'AAA', 'ZZZ', false);
+    expect(atStart.prev).toBeUndefined();
+    expect(atStart.next).toBe('/api/v1/examples?page[after]=ZZZ&page[size]=25');
+
+    const midway = buildCursorLinks(base, query, page, 'AAA', 'ZZZ', true);
+    expect(midway.prev).toBe('/api/v1/examples?page[before]=AAA&page[size]=25');
+    expect(midway.next).toBe('/api/v1/examples?page[after]=ZZZ&page[size]=25');
   });
 
   it('page[before]로 들어온 요청의 self는 before를 그대로 쓴다', () => {

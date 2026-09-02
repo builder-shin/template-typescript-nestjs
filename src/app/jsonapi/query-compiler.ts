@@ -1,6 +1,6 @@
 import type { ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 import type { ResourceSerializer } from '../serializers/serializer.js';
-import { assertCursorSortable, decodeCursor, encodeCursor, keysetPredicate } from './cursor.js';
+import { decodeCursor, encodeCursor, keysetPredicate } from './cursor.js';
 import type { FilterCondition } from './filter.js';
 import { probeLimit, sliceProbe } from './pagination.js';
 import type { PageRequest } from './pagination.js';
@@ -30,7 +30,7 @@ export interface ListResult<T> {
 }
 
 /** 검증된 필터 조건을 WHERE로 옮긴다. */
-export function applyFilters<T extends ObjectLiteral>(
+function applyFilters<T extends ObjectLiteral>(
   builder: SelectQueryBuilder<T>,
   alias: string,
   conditions: readonly FilterCondition[],
@@ -76,7 +76,7 @@ function escapeLike(value: string): string {
 }
 
 /** 정렬을 ORDER BY로 옮긴다. `reversed`는 `page[before]`가 뒤에서부터 읽을 때 쓴다. */
-export function applySort<T extends ObjectLiteral>(
+function applySort<T extends ObjectLiteral>(
   builder: SelectQueryBuilder<T>,
   alias: string,
   sort: readonly ResolvedSort[],
@@ -178,7 +178,7 @@ export async function executeList<T extends ObjectLiteral & { id: string }>(
   if (page.mode === 'offset') {
     builder.skip(((page.number ?? 1) - 1) * page.size);
   } else {
-    assertCursorSortable(parsed.sort);
+    // 커서를 쓸 수 있는 정렬인지는 `parseQuery`가 이미 봤다. 여기서는 옮기기만 한다.
     const raw = page.after ?? page.before ?? '';
     if (raw !== '') {
       const values = decodeCursor(raw, sortSignature(parsed.sort), parsed.sort.length);

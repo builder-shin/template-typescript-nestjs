@@ -1,4 +1,5 @@
 import type { QueryPolicy } from '../schemas/query-policy.js';
+import { assertCursorSortable } from './cursor.js';
 import { JsonApiError } from './errors.js';
 import { isFilterKey, parseFilters } from './filter.js';
 import type { FilterCondition } from './filter.js';
@@ -42,7 +43,13 @@ function assertKnownKeys(
   }
 }
 
-/** 컬렉션 조회 질의를 해석한다. */
+/**
+ * 컬렉션 조회 질의를 해석한다.
+ *
+ * 커서와 nullable 정렬의 조합도 여기서 거부한다. 컴파일러는 판단하지 않고 옮기기만
+ * 하므로 검증이 그쪽에 남으면 `page[totals]=true`인 요청이 COUNT를 한 번 돌고 나서
+ * 400을 받는다 — 어차피 거부할 요청에 질의를 쓰지 않는다.
+ */
 export function parseQuery(
   query: Readonly<Record<string, string | readonly string[] | undefined>>,
   policy: QueryPolicy,
@@ -50,12 +57,16 @@ export function parseQuery(
 ): ParsedQuery {
   assertKnownKeys(query);
 
-  return {
-    filters: parseFilters(query, policy),
-    sort: parseSort(query, policy),
-    include: parseInclude(query, policy, declaredRelationships),
-    page: parsePage(query, policy),
-  };
+  const filters = parseFilters(query, policy);
+  const sort = parseSort(query, policy);
+  const include = parseInclude(query, policy, declaredRelationships);
+  const page = parsePage(query, policy);
+
+  if (page.mode === 'cursor') {
+    assertCursorSortable(sort);
+  }
+
+  return { filters, sort, include, page };
 }
 
 /**

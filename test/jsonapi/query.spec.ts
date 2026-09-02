@@ -10,6 +10,7 @@ const POLICY: QueryPolicy = {
   filters: { status: { property: 'status', type: 'string', operators: ['exact'] } },
   sorts: {
     createdAt: { property: 'createdAt', nullable: false },
+    publishedAt: { property: 'publishedAt', nullable: true },
     id: { property: 'id', nullable: false },
   },
   includes: ['category'],
@@ -56,6 +57,13 @@ describe('parseQuery', () => {
     expect(parsed.include).toEqual(['category']);
     expect(parsed.page.size).toBe(5);
   });
+
+  it('offset 모드에서는 nullable 정렬을 그대로 받는다', () => {
+    // keyset 비교를 쓰는 것은 커서뿐이다. OFFSET은 NULL이 섞여도 행을 건너뛰지 않으므로
+    // 거절할 이유가 없다 — 가드가 넓게 잡히면 멀쩡한 정렬이 통째로 막힌다.
+    const parsed = parseQuery({ sort: 'publishedAt' }, POLICY, DECLARED);
+    expect(parsed.sort.map((term) => term.field)).toEqual(['publishedAt', 'id']);
+  });
 });
 
 describe('parseQuery 거부', () => {
@@ -99,6 +107,23 @@ describe('parseQuery 거부', () => {
     expect(caught(() => parseQuery({ 'page[size]': '0' }, POLICY, DECLARED)).code).toBe(
       'INVALID_PAGE',
     );
+  });
+
+  it('커서와 nullable 정렬을 함께 쓰면 INVALID_PAGE다', () => {
+    // 거부는 컴파일러가 아니라 여기서 한다. 컴파일러까지 내려가면 page[totals]=true인
+    // 요청이 COUNT를 한 번 돌고 나서 400을 받는다 — 어차피 거부할 요청에 질의를 쓰지
+    // 않는다. NULL이 섞인 keyset 비교는 unknown이 되어 그 행을 조용히 건너뛴다.
+    const error = caught(() =>
+      parseQuery({ 'page[after]': '', sort: 'publishedAt' }, POLICY, DECLARED),
+    );
+    expect(error.code).toBe('INVALID_PAGE');
+    expect(error.detail).toMatch(/nullable sort/);
+  });
+
+  it('page[before]로 온 커서도 같은 규칙으로 거부한다', () => {
+    expect(
+      caught(() => parseQuery({ 'page[before]': '', sort: '-publishedAt' }, POLICY, DECLARED)).code,
+    ).toBe('INVALID_PAGE');
   });
 });
 

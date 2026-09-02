@@ -61,6 +61,22 @@ function invalidPage(parameter: string, detail: string): JsonApiError {
   return new JsonApiError('INVALID_PAGE', { source: { parameter }, detail });
 }
 
+/**
+ * 정책이 선언한 기본 페이지 크기가 `page[size]`와 같은 범위에 있는지 본다.
+ *
+ * `page[size]`만 검사하면 `defaultPageSize: 500`을 선언한 정책이 크기를 생략한 모든
+ * 요청에서 상한을 조용히 넘긴다. 사용자가 보낸 값이 아니라 선언이 틀린 것이므로
+ * `JsonApiError`가 아니라 `TypeError`다 — 클라이언트가 고칠 수 없는 것을 400으로
+ * 돌려주면 진단이 엉뚱한 데로 간다.
+ */
+function assertDeclaredPageSize(size: number): void {
+  if (!Number.isInteger(size) || size < 1 || size > MAX_PAGE_SIZE) {
+    throw new TypeError(
+      `정책의 defaultPageSize는 1 이상 ${String(MAX_PAGE_SIZE)} 이하의 정수여야 한다: ${String(size)}`,
+    );
+  }
+}
+
 function single(
   query: Readonly<Record<string, string | readonly string[] | undefined>>,
   key: string,
@@ -89,6 +105,8 @@ export function parsePage(
   const rawTotals = single(query, 'page[totals]');
   const after = single(query, 'page[after]');
   const before = single(query, 'page[before]');
+
+  assertDeclaredPageSize(policy.defaultPageSize);
 
   let size = policy.defaultPageSize;
   if (rawSize !== undefined) {
@@ -244,6 +262,13 @@ export function buildOffsetLinks(
  *
  * `prev`/`next`는 이번 페이지의 첫 행과 마지막 행에서 만든 커서다. 페이지가 비었으면
  * 만들 커서가 없으므로 둘 다 내지 않는다.
+ *
+ * `hasMore`는 "읽은 방향으로 더 있는가"다. `page[after]`로 읽으면 그 방향은 앞쪽이라
+ * `next`를 가르고, `page[before]`로 읽으면 뒤쪽이라 `prev`를 가른다. 두 모드에 같은
+ * 규칙을 쓰면 거꾸로 맨 앞까지 올라간 페이지가 `next`를 잃는다.
+ *
+ * 반대 방향은 이번 조회가 들여다보지 않은 쪽이라 있는지 알 수 없다. 모르면서 링크를
+ * 빼면 갈 수 있는 곳을 막고, 넣으면 빈 페이지로 이어질 수 있다 — 후자를 고른다.
  */
 export function buildCursorLinks(
   basePath: string,
@@ -282,10 +307,14 @@ export function buildCursorLinks(
     last: link([['page[before]', '']]),
   };
 
-  if (firstCursor !== undefined) {
+  const backward = page.before !== undefined;
+  const hasPrev = backward ? hasMore : true;
+  const hasNext = backward ? true : hasMore;
+
+  if (hasPrev && firstCursor !== undefined) {
     links.prev = link([['page[before]', firstCursor]]);
   }
-  if (hasMore && lastCursor !== undefined) {
+  if (hasNext && lastCursor !== undefined) {
     links.next = link([['page[after]', lastCursor]]);
   }
 

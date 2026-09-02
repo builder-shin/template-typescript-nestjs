@@ -121,6 +121,14 @@ function conditionFor(
   if (!isFilterOperator(operatorName) || !field.operators.includes(operatorName)) {
     throw invalidFilter(parameter, `"${operatorName}" is not allowed on "${fieldName}"`);
   }
+  if (operatorName === 'contains' && field.type !== 'string') {
+    // 컴파일러는 `contains`를 `ILIKE`로 옮긴다. 텍스트가 아닌 컬럼(enum 포함)에 걸면
+    // PostgreSQL이 거절해 500이 된다. 정책 선언이 틀린 것이지 요청이 틀린 것이 아니므로
+    // `JsonApiError`가 아니라 `TypeError`다.
+    throw new TypeError(
+      `"${fieldName}"은 type이 "${field.type}"이라 contains를 선언할 수 없다 — contains는 string 필드에만 쓴다`,
+    );
+  }
 
   const value = readSingle(raw, parameter);
 

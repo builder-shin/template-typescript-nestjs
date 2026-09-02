@@ -261,6 +261,25 @@ describe('executeList — 정렬과 include', () => {
     });
   });
 
+  it('include한 to-one 관계가 비어 있으면 null로 온다', async () => {
+    // 시리얼라이저는 undefined(미로드)와 null(없음)을 갈라 쓴다. 조인했는데 대상이
+    // 없을 때 undefined가 오면 응답에서 linkage가 통째로 사라진다.
+    await withRollback(dataSource, async (manager) => {
+      await seedExamples(manager);
+      const parsed = parseQuery(
+        { include: 'category', 'filter[category][isNull]': 'true' },
+        EXAMPLE_QUERY_POLICY,
+        DECLARED,
+      );
+      const result = await executeList(list(manager), 'e', parsed, EXAMPLE_SERIALIZER);
+      expect(result.items).toHaveLength(2);
+      for (const item of result.items) {
+        // `toBeNull`은 undefined를 통과시키지 않는다 — 이 테스트가 지키는 경계가 그것이다.
+        expect(item.category).toBeNull();
+      }
+    });
+  });
+
   it('include가 to-many 관계를 함께 읽는다', async () => {
     await withRollback(dataSource, async (manager) => {
       await seedExamples(manager);
@@ -463,18 +482,13 @@ describe('executeList — cursor 페이지네이션', () => {
     });
   });
 
-  it('nullable 정렬과 커서를 함께 쓰면 INVALID_PAGE다', async () => {
-    await withRollback(dataSource, async (manager) => {
-      await seedExamples(manager);
-      const parsed = parseQuery(
-        { 'page[after]': '', sort: 'publishedAt' },
-        EXAMPLE_QUERY_POLICY,
-        DECLARED,
-      );
-      const error = await caught(() => executeList(list(manager), 'e', parsed, EXAMPLE_SERIALIZER));
-      expect(error.code).toBe('INVALID_PAGE');
-      expect(error.detail).toMatch(/nullable sort/);
-    });
+  it('nullable 정렬과 커서를 함께 쓰면 질의를 돌리기 전에 거부한다', () => {
+    // 거부하는 곳은 `parseQuery`다. `executeList`까지 내려가면 page[totals]=true인 요청이
+    // COUNT를 한 번 돌고 나서 400을 받는다. 여기서 보는 것은 실제 정책의 nullable 표시가
+    // 그 경로에 닿는다는 것이고, 오류의 code·detail은 test/jsonapi/query.spec.ts가 고정한다.
+    expect(() =>
+      parseQuery({ 'page[after]': '', sort: 'publishedAt' }, EXAMPLE_QUERY_POLICY, DECLARED),
+    ).toThrow(JsonApiError);
   });
 
   it('정렬을 바꾼 뒤 예전 커서를 쓰면 INVALID_PAGE다', async () => {

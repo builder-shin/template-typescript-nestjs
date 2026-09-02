@@ -1,6 +1,6 @@
 import { JsonApiError } from '../../src/app/jsonapi/errors.js';
 import { isFilterKey, parseFilters } from '../../src/app/jsonapi/filter.js';
-import type { QueryPolicy } from '../../src/app/schemas/query-policy.js';
+import type { FilterFieldPolicy, QueryPolicy } from '../../src/app/schemas/query-policy.js';
 
 const POLICY: QueryPolicy = {
   filters: {
@@ -204,6 +204,49 @@ describe('parseFilters 거부', () => {
 
   it('isNull에 참거짓이 아닌 값을 거부한다', () => {
     expect(caught(() => parseFilters({ 'filter[category][isNull]': 'yes' }, POLICY)).code).toBe(
+      'INVALID_FILTER',
+    );
+  });
+});
+
+describe('parseFilters 정책 선언 오류', () => {
+  it('string이 아닌 필드에 contains를 선언하면 TypeError다', () => {
+    // 컴파일러는 contains를 ILIKE로 옮긴다. 텍스트가 아닌 컬럼에 걸면 PostgreSQL이
+    // 거절해 500이 되는데, 사용자가 고칠 수 없는 것을 400으로 돌려주면 진단이 엉뚱한
+    // 데로 간다. enum도 텍스트가 아니다 — PostgreSQL enum 컬럼에 ILIKE는 실패한다.
+    const declare = (field: FilterFieldPolicy): QueryPolicy => ({
+      ...POLICY,
+      filters: { ...POLICY.filters, broken: field },
+    });
+    const cases: readonly FilterFieldPolicy[] = [
+      { property: 'createdAt', type: 'timestamp', operators: ['contains'] },
+      { property: 'size', type: 'number', operators: ['contains'] },
+      { property: 'categoryId', type: 'uuid', operators: ['contains'] },
+      { property: 'status', type: 'enum', operators: ['contains'], values: ['draft'] },
+    ];
+    for (const field of cases) {
+      expect(() => parseFilters({ 'filter[broken][contains]': 'x' }, declare(field))).toThrow(
+        TypeError,
+      );
+    }
+  });
+
+  it('string 필드의 contains는 그대로 통과한다', () => {
+    // 가드가 너무 넓게 잡히면 정상 경로가 통째로 막힌다.
+    expect(parseFilters({ 'filter[title][contains]': '가' }, POLICY)).toEqual([
+      {
+        parameter: 'filter[title][contains]',
+        property: 'title',
+        operator: 'contains',
+        value: '가',
+      },
+    ]);
+  });
+
+  it('정책이 열지 않은 contains는 여전히 INVALID_FILTER다', () => {
+    // 선언 오류(TypeError)와 요청 오류(JsonApiError)를 갈라야 한다. size는 contains를
+    // 선언하지 않았으므로 이것은 사용자가 잘못 보낸 요청이다.
+    expect(caught(() => parseFilters({ 'filter[size][contains]': '1' }, POLICY)).code).toBe(
       'INVALID_FILTER',
     );
   });
