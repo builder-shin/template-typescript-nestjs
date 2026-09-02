@@ -66,7 +66,11 @@ export interface CrudDeclaration<
    * 쓰기 메서드에만 붙는 가드.
    *
    * 읽기는 공개이고 쓰기는 인증을 요구한다는 스펙 16장의 구분이 여기서 갈린다.
-   * Phase 6이 `JwtActiveUserGuard`를 여기에 넣는다.
+   * `ExamplesController`가 `JwtActiveUserGuard`를 여기에 넣는다.
+   *
+   * `route-registrar.ts`가 이 가드를 `create`·`update`·`destroy`·`replace`와 관계 쓰기
+   * 라우트에만 메서드 단위로 붙인다. `index`·`show`와 관계 읽기 라우트는 이 목록을
+   * 아예 지나지 않으므로, 여기에 무엇을 넣어도 읽기는 공개로 남는다.
    */
   readonly writeGuards?: readonly Type<CanActivate>[];
 }
