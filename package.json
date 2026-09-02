@@ -27,6 +27,7 @@
     "migrate": "typeorm migration:run -d dist/config/data-source.js",
     "seed": "node dist/db/seeds.js",
     "db:up": "docker compose up -d --wait db",
+    "compose:verify": "docker compose config --quiet",
     "prepare": "husky"
   },
   "devDependencies": {

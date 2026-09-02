@@ -272,6 +272,7 @@ pnpm check            # ./scripts/check.sh 전체 게이트
 pnpm migrate          # typeorm migration:run -d dist/config/data-source.js
 pnpm seed             # node dist/db/seeds.js
 pnpm db:up            # docker compose up -d --wait db
+pnpm compose:verify   # docker compose config --quiet
 ```
 
 `check`를 제외한 모든 태스크는 bash 없이 Windows에서 동작합니다. `check`는 bash 스크립트이므로 Git Bash 또는 WSL이 필요합니다.
