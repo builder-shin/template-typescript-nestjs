@@ -47,6 +47,26 @@ services:
     ports:
       - '${PORT:-4000}:${PORT:-4000}'
 
+  worker:
+    build: .
+    # 같은 이미지를 쓰되 CMD를 워커 진입점으로 바꾼다 — Dockerfile의 기본 CMD는 API를
+    # 띄운다(`node dist/config/main.js`).
+    command: ['node', 'dist/app/jobs/worker.js']
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-nestjs}:${POSTGRES_PASSWORD:-nestjs}@db:5432/${POSTGRES_DB:-nestjs_template}
+      REDIS_URL: redis://redis:6379
+    # 워커는 HTTP를 듣지 않는다 — 포트를 게시하지 않는다. Dockerfile의 HEALTHCHECK는
+    # API의 /health/ready를 확인하는데 워커 컨테이너엔 그 엔드포인트가 없어 그대로
+    # 두면 항상 실패한다 — 꺼두지 않으면 `docker compose up --wait`가 워커를 영원히
+    # unhealthy로 보고 멈춘다.
+    healthcheck:
+      disable: true
+
 volumes:
   postgres_data:
   redis_data:

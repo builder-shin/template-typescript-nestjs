@@ -1,6 +1,6 @@
 # TypeScript NestJS Template
 
-NestJS 12, TypeORM, PostgreSQL로 구성한 JSON:API 1.1 템플릿입니다. 현재 Phase 0-6(기반, JSON:API 프로토콜, 영속성 계층, 시리얼라이저와 조회 정책, 선언형 CRUD, `PUT` 업서트, 인증)까지 구현되어 있습니다.
+NestJS 12, TypeORM, PostgreSQL로 구성한 JSON:API 1.1 템플릿입니다. 현재 Phase 0-7(기반, JSON:API 프로토콜, 영속성 계층, 시리얼라이저와 조회 정책, 선언형 CRUD, `PUT` 업서트, 인증, 비동기 작업)까지 구현되어 있습니다.
 
 ## 요구 사항
 
@@ -12,19 +12,21 @@ NestJS 12, TypeORM, PostgreSQL로 구성한 JSON:API 1.1 템플릿입니다. 현
 
 애플리케이션 코드에 암묵적 기본값을 두지 않습니다. 필수 값이 없으면 변수 이름이 담긴 오류로 프로세스가 시작되지 않습니다.
 
-| 변수                            | 필요한 프로세스         | 기본값                       | 비고                                |
-| ------------------------------- | ----------------------- | ---------------------------- | ----------------------------------- |
-| `DATABASE_URL`                  | API, 마이그레이션, 시드 | 없음(필수)                   | `postgres://user:pass@host:5432/db` |
-| `JWT_SECRET_KEY`                | API                     | 없음(필수)                   | UTF-8 최소 32바이트                 |
-| `PORT`                          | API                     | `4000`                       |                                     |
-| `DB_POOL_MAX`                   | DB 접속 프로세스        | `10`                         | 1 이상                              |
-| `DB_POOL_IDLE_TIMEOUT_MS`       | DB 접속 프로세스        | `30000`                      |                                     |
-| `DB_POOL_CONNECTION_TIMEOUT_MS` | DB 접속 프로세스        | `30000`                      |                                     |
-| `JWT_ISSUER` / `JWT_AUDIENCE`   | API                     | `template-typescript-nestjs` |                                     |
-| `JWT_ACCESS_EXPIRES_SECONDS`    | API                     | `900`                        | access token 수명(초)               |
-| `JWT_REFRESH_EXPIRES_SECONDS`   | API                     | `2592000`                    | refresh token 수명(초)              |
-| `JWT_LEEWAY_SECONDS`            | API                     | `0`                          | token 만료 판정의 시계 오차 허용치  |
-| `TEST_DATABASE_URL`             | 테스트                  | 없음(`check.sh`가 만듭니다)  | DB 이름이 `_test`로 끝나야 합니다   |
+| 변수                                | 필요한 프로세스         | 기본값                       | 비고                                                                           |
+| ----------------------------------- | ----------------------- | ---------------------------- | ------------------------------------------------------------------------------ |
+| `DATABASE_URL`                      | API, 마이그레이션, 시드 | 없음(필수)                   | `postgres://user:pass@host:5432/db`                                            |
+| `REDIS_URL`                         | 워커                    | 없음(필수)                   | API는 이 값을 읽지 않습니다 — broker를 import하지 않으므로 Redis 없이도 뜹니다 |
+| `JWT_SECRET_KEY`                    | API                     | 없음(필수)                   | UTF-8 최소 32바이트                                                            |
+| `PORT`                              | API                     | `4000`                       |                                                                                |
+| `DB_POOL_MAX`                       | DB 접속 프로세스        | `10`                         | 1 이상                                                                         |
+| `DB_POOL_IDLE_TIMEOUT_MS`           | DB 접속 프로세스        | `30000`                      |                                                                                |
+| `DB_POOL_CONNECTION_TIMEOUT_MS`     | DB 접속 프로세스        | `30000`                      |                                                                                |
+| `JWT_ISSUER` / `JWT_AUDIENCE`       | API                     | `template-typescript-nestjs` |                                                                                |
+| `JWT_ACCESS_EXPIRES_SECONDS`        | API                     | `900`                        | access token 수명(초)                                                          |
+| `JWT_REFRESH_EXPIRES_SECONDS`       | API                     | `2592000`                    | refresh token 수명(초)                                                         |
+| `JWT_LEEWAY_SECONDS`                | API                     | `0`                          | token 만료 판정의 시계 오차 허용치                                             |
+| `REFRESH_SESSION_RETENTION_SECONDS` | 워커                    | `604800`                     | 음수 거부. 이보다 오래 지난 refresh session만 정리 대상입니다                  |
+| `TEST_DATABASE_URL`                 | 테스트                  | 없음(`check.sh`가 만듭니다)  | DB 이름이 `_test`로 끝나야 합니다                                              |
 
 `TEST_DATABASE_URL`의 `_test` 접미사 검사는 사고 방지 장치입니다. 테스트는 `TRUNCATE`를 실행하므로 이 변수를 개발 DB로 두면 데이터가 사라집니다.
 
@@ -48,6 +50,7 @@ src/app/                # 컨트롤러와 JSON:API 미디어 타입 상수
 src/app/auth/           # 비밀번호 해시(argon2)·JWT 발급/검증·refresh session 회전
 src/app/controllers/concerns/  # CrudActions mixin과 하위 책임 분할
 src/app/controllers/api/v1/    # 리소스 선언
+src/app/jobs/            # BullMQ 잡 핸들러(processExample·purgeExpiredRefreshSessions)와 독립 워커 진입점
 src/app/jsonapi/        # JSON:API 프로토콜 — 오류·언어·문서·협상·필터·응답
 src/app/models/         # TypeORM 엔티티
 src/app/schemas/        # 조회 정책 (filter·sort·include allowlist)
@@ -60,7 +63,7 @@ test/                   # 단위 테스트
 scripts/check.sh        # 단일 검증 게이트
 ```
 
-Phase 0-6까지 구현되어 있습니다: 기반과 검증 게이트, JSON:API 프로토콜 계층(협상·문서·오류·언어), 영속성 계층(TypeORM 엔티티·마이그레이션·시드), 시리얼라이저와 조회 정책, 선언형 CRUD(`CrudActions`), `PUT` 업서트(동일 id 동시 요청을 advisory 잠금으로 직렬화하는 생성/교체), 그리고 인증(argon2 비밀번호, JWT access/refresh, refresh session 회전, `GET /api/v1/users/me`, Example 쓰기 보호)입니다. `scripts/check.sh`가 실제 PostgreSQL 테스트 DB에 연결해 확인합니다. 아직 구현되지 않은 것은 비동기 작업과 `AGENTS.md` 문서군입니다. 전체 설계는 `docs/superpowers/specs/`를 참고하세요.
+Phase 0-7까지 구현되어 있습니다: 기반과 검증 게이트, JSON:API 프로토콜 계층(협상·문서·오류·언어), 영속성 계층(TypeORM 엔티티·마이그레이션·시드), 시리얼라이저와 조회 정책, 선언형 CRUD(`CrudActions`), `PUT` 업서트(동일 id 동시 요청을 advisory 잠금으로 직렬화하는 생성/교체), 인증(argon2 비밀번호, JWT access/refresh, refresh session 회전, `GET /api/v1/users/me`, Example 쓰기 보호), 그리고 비동기 작업(BullMQ 큐, `processExample`, `purgeExpiredRefreshSessions`, 독립 워커 진입점)입니다. `scripts/check.sh`가 실제 PostgreSQL과 실제 Redis에 연결해 확인합니다. 아직 구현되지 않은 것은 Docker/Compose/CI 마감과 `AGENTS.md` 문서군입니다. 전체 설계는 `docs/superpowers/specs/`를 참고하세요.
 
 ## ESM 제약
 
@@ -91,6 +94,21 @@ pnpm start
 - OpenAPI 문서: `http://localhost:4000/api-docs`
 - OpenAPI 스키마: `http://localhost:4000/api/schema`
 - 상태 확인: `http://localhost:4000/health/live`, `http://localhost:4000/health/ready`
+
+## 백그라운드 작업
+
+BullMQ 큐(`jobs`) 하나에 잡 두 개가 올라갑니다. **CRUD는 이 잡들을 자동으로 enqueue하지 않습니다** — 쓰기 한 번을 잡 하나에 묶으면 대량 갱신 한 번이 큐를 채우게 되므로, enqueue는 항상 도메인 지점에서 명시적으로 호출합니다.
+
+- `processExample` — Example 하나를 조회해 로그만 남기고 아무것도 쓰지 않습니다(공개 필드 불변). 가리킬 수 없는 id나 이미 지워진 행은 경고 후 정상 종료하고, 일시적 DB 오류는 최대 3회 재시도합니다.
+- `purgeExpiredRefreshSessions` — `REFRESH_SESSION_RETENTION_SECONDS`보다 오래 지난 refresh session을 오래된 순서로, 배치마다 commit하며 삭제합니다. **이 저장소는 반복 잡을 스케줄링하지 않습니다** — 이 잡을 주기적으로 enqueue하는 것은 외부 cron의 몫입니다.
+
+워커는 API와 분리된 프로세스입니다. Nest 애플리케이션을 부팅하지 않고 `DataSource`만 직접 만들어 큐에 붙습니다. `pnpm build`로 만든 `dist/`를 그대로 씁니다(위 로컬 실행 절과 같습니다).
+
+```bash
+pnpm worker    # node dist/app/jobs/worker.js
+```
+
+`REDIS_URL`(필수)과 `REFRESH_SESSION_RETENTION_SECONDS`(선택, 기본 604800초)는 워커 전용입니다. API 프로세스는 이 값을 읽지 않고 broker를 import하지도 않으므로, API만 띄운다면 Redis가 없어도 됩니다. 기본값은 위 환경 변수 표를 참고하세요.
 
 ## 공개 API 표면
 
@@ -215,6 +233,8 @@ curl -s http://localhost:4000/health/ready
 docker compose down -v
 ```
 
+`worker` 서비스도 같이 뜹니다. 포트를 게시하지 않으므로(HTTP를 듣지 않습니다) 확인할 엔드포인트가 없습니다 — 동작은 `docker compose logs -f worker`로 봅니다.
+
 ## Docker Compose 환경 변수
 
 Compose 스택(`docker-compose.yml`)이 셸 기본값 문법(`${VAR:-default}`)으로 자체 처리하는 변수입니다. 위 애플리케이션 환경 변수와는 별개입니다.
@@ -232,6 +252,7 @@ Compose 스택(`docker-compose.yml`)이 셸 기본값 문법(`${VAR:-default}`)�
 ```bash
 pnpm build            # tsc -p tsconfig.build.json
 pnpm start            # node dist/config/main.js
+pnpm worker           # node dist/app/jobs/worker.js
 pnpm lint             # eslint .
 pnpm format           # prettier --write .
 pnpm format:check     # prettier --check .
@@ -252,7 +273,7 @@ pnpm db:up            # docker compose up -d --wait db
 
 ## 검증
 
-전체 검사는 격리된 실제 PostgreSQL 테스트 DB를 자동으로 실행하고 정리합니다.
+전체 검사는 격리된 실제 PostgreSQL과 실제 Redis 테스트 인스턴스를 자동으로 실행하고 정리합니다. 인프라를 목킹하지 않습니다.
 
 ```bash
 pnpm install --frozen-lockfile
