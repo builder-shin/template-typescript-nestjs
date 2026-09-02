@@ -200,9 +200,18 @@ describe('PUT /api/v1/examples/{id}', () => {
   });
 
   it('같은 id로 동시에 들어온 두 요청이 섞이지 않는다', async () => {
-    // 이 테스트가 advisory 잠금의 존재 이유다. 두 요청은 attribute와 관계를 모두
-    // 다르게 보낸다. 직렬화되지 않으면 한쪽의 제목과 다른 쪽의 관계가 섞인 상태가
-    // 남을 수 있다 — 두 요청 중 어느 것도 보낸 적 없는 상태다.
+    // 이 테스트가 잡는 것은 같은 id 동시 요청에서 섞인 상태가 나오지 않는다는 것이고,
+    // 지금 그것을 보장하는 것은 upsertRow의 `ON CONFLICT` 문장이 잡는 PostgreSQL의 행
+    // 잠금이다 — 그 문장이 트랜잭션의 첫 DB 접근이라 나머지 전부(관계 해석·저장)가 그
+    // 잠금 안에서 일어난다. advisory 잠금은 이 보장을 대체하는 게 아니라, 언젠가
+    // upsert *앞에* DB 접근이 생겨도(훅, 사전 확인 등) 계속 성립하게 만드는 보강이다 —
+    // 그래서 이 테스트를 통과시키는 힘은 지금 advisory 잠금에서 나오지 않는다. 실측:
+    // upsertRow의 advisory 잠금 줄을 비활성화한 채 이 테스트를 2-way 8회·4-way 15회
+    // 돌려도 전부 통과했다. 잠금 자체의 계약(삽입 전에 걸린다, 트랜잭션 스코프다)은
+    // test/integration/upsert-executor.spec.ts가 pg_locks로 직접 검증한다.
+    //
+    // 두 요청은 attribute와 관계를 모두 다르게 보낸다. 직렬화되지 않으면 한쪽의 제목과
+    // 다른 쪽의 관계가 섞인 상태가 남을 수 있다 — 두 요청 중 어느 것도 보낸 적 없는 상태다.
     const tags = await dataSource.query<{ id: string }[]>(
       `INSERT INTO tags (name) VALUES ('put-동시') RETURNING id`,
     );
