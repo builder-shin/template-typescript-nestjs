@@ -128,26 +128,18 @@ export function keysetPredicate(
   });
 
   const branches: string[] = [];
-  for (let index = 0; index < sort.length; index += 1) {
-    const term = sort[index];
-    if (term === undefined) {
-      continue;
-    }
+  sort.forEach((term, index) => {
     const ascending = term.direction === 'ASC';
     const forward = direction === 'after' ? ascending : !ascending;
     const comparison = forward ? '>' : '<';
 
-    const equalities: string[] = [];
-    for (let previous = 0; previous < index; previous += 1) {
-      const earlier = sort[previous];
-      if (earlier === undefined) {
-        continue;
-      }
-      equalities.push(`${alias}.${earlier.property} = :cursor${String(previous)}`);
-    }
+    // 앞선 항목들이 모두 같을 때만 이 항목의 부등호를 본다. 이것이 사전식 비교다.
+    const equalities = sort
+      .slice(0, index)
+      .map((earlier, previous) => `${alias}.${earlier.property} = :cursor${String(previous)}`);
     equalities.push(`${alias}.${term.property} ${comparison} :cursor${String(index)}`);
     branches.push(`(${equalities.join(' AND ')})`);
-  }
+  });
 
   return { clause: `(${branches.join(' OR ')})`, parameters };
 }

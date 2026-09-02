@@ -75,6 +75,20 @@ describe('encodeCursor / decodeCursor', () => {
   it('빈 커서를 거부한다', () => {
     expect(caught(() => decodeCursor('', SIGNATURE, 2)).code).toBe('INVALID_PAGE');
   });
+
+  it('sort가 문자열이 아닌 커서를 거부한다', () => {
+    const broken = Buffer.from(JSON.stringify({ sort: 42, values: [] }), 'utf8').toString(
+      'base64url',
+    );
+    expect(caught(() => decodeCursor(broken, SIGNATURE, 2)).code).toBe('INVALID_PAGE');
+  });
+
+  it('values가 배열이 아닌 커서를 거부한다', () => {
+    const broken = Buffer.from(JSON.stringify({ sort: SIGNATURE, values: 'e1' }), 'utf8').toString(
+      'base64url',
+    );
+    expect(caught(() => decodeCursor(broken, SIGNATURE, 2)).code).toBe('INVALID_PAGE');
+  });
 });
 
 describe('assertCursorSortable', () => {

@@ -277,4 +277,20 @@ describe('buildCursorLinks', () => {
     const links = buildCursorLinks(base, query, parsePage(query, POLICY), undefined, 'Z', true);
     expect(links.next).toContain('filter[status]=draft');
   });
+
+  it('totals를 요청하면 모든 커서 링크가 그 값을 유지한다', () => {
+    const query = { 'page[after]': '', 'page[totals]': 'true' };
+    const links = buildCursorLinks(base, query, parsePage(query, POLICY), 'AAA', 'ZZZ', true);
+    expect(links.self).toContain('page[totals]=true');
+    expect(links.first).toContain('page[totals]=true');
+    expect(links.last).toContain('page[totals]=true');
+    expect(links.prev).toContain('page[totals]=true');
+    expect(links.next).toContain('page[totals]=true');
+  });
+
+  it('page[before]로 들어온 요청의 self는 before를 그대로 쓴다', () => {
+    const query = { 'page[before]': 'ZZZ' };
+    const links = buildCursorLinks(base, query, parsePage(query, POLICY), 'AAA', 'BBB', true);
+    expect(links.self).toBe('/api/v1/examples?page[before]=ZZZ&page[size]=25');
+  });
 });
