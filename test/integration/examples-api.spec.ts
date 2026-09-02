@@ -410,6 +410,7 @@ describe('Examples API', () => {
         .set('Content-Type', VENDOR)
         .send(JSON.stringify({ data: [{ type: 'tags', id: first }] }));
       expect(added.status).toBe(204);
+      expect(added.text).toBe('');
 
       const between = await api()
         .get(`/api/v1/examples/${id}/relationships/tags`)
@@ -422,6 +423,7 @@ describe('Examples API', () => {
         .set('Content-Type', VENDOR)
         .send(JSON.stringify({ data: [{ type: 'tags', id: first }] }));
       expect(removed.status).toBe(204);
+      expect(removed.text).toBe('');
 
       const after = await api()
         .get(`/api/v1/examples/${id}/relationships/tags`)
@@ -440,6 +442,7 @@ describe('Examples API', () => {
         .set('Content-Type', VENDOR)
         .send(JSON.stringify({ data: { type: 'categories', id: categoryId } }));
       expect(replaced.status).toBe(204);
+      expect(replaced.text).toBe('');
 
       const between = await api()
         .get(`/api/v1/examples/${id}/relationships/category`)
@@ -455,6 +458,7 @@ describe('Examples API', () => {
         .set('Content-Type', VENDOR)
         .send(JSON.stringify({ data: null }));
       expect(cleared.status).toBe(204);
+      expect(cleared.text).toBe('');
 
       const after = await api()
         .get(`/api/v1/examples/${id}/relationships/category`)
