@@ -1,3 +1,4 @@
+export { AuthCredentials, RefreshTokenInput, UserRegister } from './auth.schemas.js';
 export { EXAMPLE_QUERY_POLICY } from './example.query-policy.js';
 export {
   EXAMPLE_RELATIONSHIPS,

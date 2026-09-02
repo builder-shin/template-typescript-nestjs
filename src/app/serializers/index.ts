@@ -3,9 +3,12 @@ import { ERASED_EXAMPLE_SERIALIZER } from './example.serializer.js';
 import type { ErasedSerializer } from './serializer.js';
 import { ERASED_TAG_SERIALIZER } from './tag.serializer.js';
 
+export { AUTH_TOKENS_SERIALIZER } from './auth-tokens.serializer.js';
+export type { AuthTokens } from './auth-tokens.serializer.js';
 export { CATEGORY_SERIALIZER, ERASED_CATEGORY_SERIALIZER } from './category.serializer.js';
 export { EXAMPLE_SERIALIZER, ERASED_EXAMPLE_SERIALIZER } from './example.serializer.js';
 export { TAG_SERIALIZER, ERASED_TAG_SERIALIZER } from './tag.serializer.js';
+export { USER_SERIALIZER } from './user.serializer.js';
 export { collectIncluded, serializeResource } from './serializer.js';
 export type {
   ErasedSerializer,
