@@ -254,7 +254,7 @@ Compose 스택(`docker-compose.yml`)이 셸 기본값 문법(`${VAR:-default}`)�
 
 ## 새 리소스 추가
 
-새 자원(예: `Article`) 하나를 추가하려면 아래 순서로 파일을 만듭니다. 이 저장소는 glob 탐색을 하지 않으므로, 파일을 만들고 나서 **레지스트리 등록을 잊으면 그 파일은 존재하지 않는 것과 같습니다** — 이 저장소에서 실제로 가장 자주 나온 실수입니다. `Example` 자원이 이 여섯 단계를 그대로 거쳐 만들어졌으므로(`src/app/models/example.entity.ts` 등), 새 자원을 만들 때 파일 하나하나를 그대로 본떠 쓸 수 있습니다.
+새 자원(예: `Article`) 하나를 추가하려면 아래 순서로 파일을 만듭니다. 이 저장소는 glob 탐색을 하지 않으므로, 파일을 만들고 나서 **레지스트리 등록을 잊으면 그 파일은 존재하지 않는 것과 같습니다** — 이 저장소가 되풀이해 겪은 실수입니다. `Example` 자원이 이 여섯 단계를 그대로 거쳐 만들어졌으므로(`src/app/models/example.entity.ts` 등), 새 자원을 만들 때 파일 하나하나를 그대로 본떠 쓸 수 있습니다.
 
 1. **엔티티** — `src/app/models/<name>.entity.ts`에 컬럼·관계·제약·인덱스를 선언하고, **`src/app/models/index.ts`의 `ENTITIES` 배열에 등록**합니다.
 2. **마이그레이션** — `src/db/migrations/`에 엔티티가 선언한 테이블·제약·인덱스를 SQL로 짓는 파일을 추가하고, **`src/db/migrations/index.ts`의 `MIGRATIONS` 배열에 등록**합니다. 파일명·클래스명 규약은 `src/db/migrations/AGENTS.md`를 따릅니다.
