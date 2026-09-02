@@ -11,10 +11,6 @@ function absolute(relativePath: string): string {
 /**
  * 스펙 14장의 문서 구조 표가 요구하는 아홉 개 `AGENTS.md`. 표에서 그대로 옮긴다
  * (README.md는 표에 있지만 `AGENTS.md`가 아니므로 뺀다).
- *
- * Phase 8은 이 중 루트 `AGENTS.md` 하나만 만든다 — 나머지 여덟은 이어지는 태스크의
- * 몫이다. 그 여덟이 아직 없는 채로 이 테스트를 커밋하는 판단은
- * `.superpowers/sdd/2026-09-03-phase8-docs-ci/task-12-report.md`에 적는다.
  */
 const REQUIRED_AGENTS_MD_PATHS = [
   'AGENTS.md',
@@ -95,24 +91,19 @@ describe('AGENTS.md 문서군', () => {
     expectVerificationCommandsInOrder(extractSection(agents, '## 검증 명령'));
   });
 
-  it('각 AGENTS.md가 본문에서 가리키는 저장소 경로가 실재한다 (존재하는 문서만)', () => {
-    // 아직 없는 여덟 문서는 여기서 건너뛴다 — 그 부재는 위 "아홉 개가 전부 있다"
-    // 테스트가 잡는다. 이 테스트는 내용을 확인할 수 있는 문서만 본다.
-    let checkedAtLeastOnePath = false;
+  it('각 AGENTS.md가 본문에서 가리키는 저장소 경로가 실재한다', () => {
     for (const relativePath of REQUIRED_AGENTS_MD_PATHS) {
-      const path = absolute(relativePath);
-      if (!existsSync(path)) {
-        continue;
-      }
-      const content = readFileSync(path, 'utf8');
-      for (const referenced of referencedPaths(content)) {
-        checkedAtLeastOnePath = true;
-        expect(existsSync(absolute(referenced))).toBe(true);
+      const content = readFileSync(absolute(relativePath), 'utf8');
+      const referenced = referencedPaths(content);
+      // 문서 하나가 아무 경로도 참조하지 않으면 "통과"가 "그 문서를 확인함"을
+      // 뜻하지 않게 된다 — 아홉 개를 합쳐 하나만 찾으면 통과하는 집계였다면,
+      // 여덟 개가 채워 주는 참조 뒤에서 나머지 하나가 통째로 비어도(또는 경로
+      // 참조가 하나도 없는 산문으로 바뀌어도) 조용히 통과한다. 문서마다 따로
+      // 확인해 그 구멍을 막는다.
+      expect(referenced.length).toBeGreaterThan(0);
+      for (const path of referenced) {
+        expect(existsSync(absolute(path))).toBe(true);
       }
     }
-    // 위 루프가 아무 경로도 못 찾으면 "통과"가 "확인함"을 뜻하지 않게 된다 —
-    // 최소 하나는 실제로 검사했는지를 별도로 확인해 이 테스트가 조용히 무력해지는
-    // 것을 막는다.
-    expect(checkedAtLeastOnePath).toBe(true);
   });
 });
