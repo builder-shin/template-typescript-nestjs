@@ -1,6 +1,7 @@
 import type { DataSource, EntityManager, SelectQueryBuilder } from 'typeorm';
 import { JsonApiError } from '../../src/app/jsonapi/errors.js';
 import { executeList } from '../../src/app/jsonapi/query-compiler.js';
+import type { ListResult } from '../../src/app/jsonapi/query-compiler.js';
 import { parseQuery } from '../../src/app/jsonapi/query.js';
 import { Category } from '../../src/app/models/category.entity.js';
 import { Example } from '../../src/app/models/example.entity.js';
@@ -103,6 +104,29 @@ describe('executeList — 필터', () => {
     });
   });
 
+  it('contains는 와일드카드 문자를 리터럴로 찾는다', async () => {
+    // "0행"만 단언하면 이중 이스케이프처럼 잘못된 구현도 통과한다. 실제로 그 글자를
+    // 가진 행이 찾아지는지, 그리고 그것만 찾아지는지 함께 본다.
+    await withRollback(dataSource, async (manager) => {
+      await seedExamples(manager);
+      await manager.save(manager.create(Example, { title: '할인 50% 적용' }));
+      await manager.save(manager.create(Example, { title: 'snake_case 규칙' }));
+
+      const titles = async (value: string): Promise<string[]> => {
+        const parsed = parseQuery(
+          { 'filter[title][contains]': value },
+          EXAMPLE_QUERY_POLICY,
+          DECLARED,
+        );
+        const result = await executeList(list(manager), 'e', parsed, EXAMPLE_SERIALIZER);
+        return result.items.map((item) => item.title);
+      };
+
+      expect(await titles('%')).toEqual(['할인 50% 적용']);
+      expect(await titles('_')).toEqual(['snake_case 규칙']);
+    });
+  });
+
   it('in 필터로 거른다', async () => {
     await withRollback(dataSource, async (manager) => {
       await seedExamples(manager);
@@ -141,14 +165,14 @@ describe('executeList — 필터', () => {
   it('gt/gte/lt/lte 필터로 거른다', async () => {
     await withRollback(dataSource, async (manager) => {
       await seedExamples(manager);
-      const parsed = parseQuery(
-        { 'filter[createdAt][gte]': at(3).toISOString() },
-        EXAMPLE_QUERY_POLICY,
-        DECLARED,
-      );
-      expect(
-        (await executeList(list(manager), 'e', parsed, EXAMPLE_SERIALIZER)).items,
-      ).toHaveLength(2);
+      const count = async (query: Record<string, string>): Promise<number> => {
+        const parsed = parseQuery(query, EXAMPLE_QUERY_POLICY, DECLARED);
+        return (await executeList(list(manager), 'e', parsed, EXAMPLE_SERIALIZER)).items.length;
+      };
+      expect(await count({ 'filter[createdAt][gte]': at(3).toISOString() })).toBe(2);
+      expect(await count({ 'filter[createdAt][gt]': at(3).toISOString() })).toBe(1);
+      expect(await count({ 'filter[createdAt][lt]': at(2).toISOString() })).toBe(2);
+      expect(await count({ 'filter[createdAt][lte]': at(2).toISOString() })).toBe(3);
     });
   });
 
@@ -481,6 +505,35 @@ describe('executeList — cursor 페이지네이션', () => {
       const error = await caught(() => executeList(list(manager), 'e', parsed, EXAMPLE_SERIALIZER));
       expect(error.code).toBe('INVALID_PAGE');
       expect(error.detail).toMatch(/malformed/);
+    });
+  });
+
+  it('page[before] 커서가 그 앞쪽 페이지를 정렬 순서 그대로 돌려준다', async () => {
+    // Phase 4의 prev 링크가 내보내는 요청이다. 앞선 테스트들은 after 쪽만 지나므로
+    // 역방향 keyset 비교식은 이 테스트가 없으면 한 번도 실행되지 않는다.
+    await withRollback(dataSource, async (manager) => {
+      await seedExamples(manager);
+      const page = async (params: Record<string, string>): Promise<ListResult<Example>> => {
+        const parsed = parseQuery(params, EXAMPLE_QUERY_POLICY, DECLARED);
+        return executeList(list(manager), 'e', parsed, EXAMPLE_SERIALIZER);
+      };
+
+      const first = await page({ 'page[after]': '', 'page[size]': '2' });
+      const firstLast = first.lastCursor;
+      if (firstLast === undefined) {
+        throw new Error('첫 페이지의 커서가 없다');
+      }
+
+      const second = await page({ 'page[after]': firstLast, 'page[size]': '2' });
+      expect(second.items.map((item) => item.title)).toEqual(['제목 2', '제목 1']);
+      const secondFirst = second.firstCursor;
+      if (secondFirst === undefined) {
+        throw new Error('둘째 페이지의 첫 커서가 없다');
+      }
+
+      // 둘째 페이지의 첫 행보다 앞선 것들. 정렬은 createdAt DESC이므로 4, 3이다.
+      const back = await page({ 'page[before]': secondFirst, 'page[size]': '2' });
+      expect(back.items.map((item) => item.title)).toEqual(['제목 4', '제목 3']);
     });
   });
 });
