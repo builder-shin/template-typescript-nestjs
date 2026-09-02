@@ -26,18 +26,25 @@ describe('마이그레이션 적용', () => {
   });
 
   it('example_status enum을 만든다', async () => {
+    // 스키마로 한정한다. `migration-revert.spec.ts`가 전용 스키마에서 같은 `up()`을
+    // 돌리는 동안에는 이름이 같은 enum 타입이 데이터베이스에 둘 있고, 한정하지 않으면
+    // 두 타입의 레이블이 함께 잡혀 6개가 된다. 이 테스트가 고정하려는 것은 "공개
+    // 스키마에 이 enum이 이 레이블로 있는가"이므로 한정하는 편이 원래 의도에 맞다.
     const rows = await dataSource.query<{ enumlabel: string }[]>(
       `SELECT enumlabel FROM pg_enum
        JOIN pg_type ON pg_type.oid = pg_enum.enumtypid
-       WHERE pg_type.typname = 'example_status'
+       JOIN pg_namespace ON pg_namespace.oid = pg_type.typnamespace
+       WHERE pg_type.typname = 'example_status' AND pg_namespace.nspname = 'public'
        ORDER BY enumlabel`,
     );
     expect(rows.map((row) => row.enumlabel)).toEqual(['archived', 'draft', 'published']);
   });
 
   it('정책이 여는 정렬마다 (컬럼, id) 인덱스를 만든다', async () => {
+    // 위와 같은 이유로 스키마를 한정한다. 지금은 `toContain`이라 다른 스키마의 동명
+    // 인덱스가 섞여도 통과하지만, 한정하지 않은 카탈로그 조회는 같은 함정을 남긴다.
     const rows = await dataSource.query<{ indexname: string }[]>(
-      `SELECT indexname FROM pg_indexes WHERE tablename = 'examples'`,
+      `SELECT indexname FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'examples'`,
     );
     const names = rows.map((row) => row.indexname);
     expect(names).toContain('IDX_examples_created_at_id');
