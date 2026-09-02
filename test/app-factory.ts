@@ -8,13 +8,17 @@ import { setupOpenApi } from '../src/config/openapi.js';
 import { requireTestDatabaseUrl } from './db/fixture.js';
 
 /**
- * 테스트 앱은 `TEST_DATABASE_URL`이 가리키는 DB에 붙는다.
+ * 테스트 앱이 붙을 곳과 서명할 키를 정한다.
  *
- * `AppModule`이 `DATABASE_URL`을 읽으므로 조립 전에 옮겨 담는다. 테스트가 운영 변수
- * 이름을 직접 세팅하면 실수로 개발 DB에 붙을 수 있으므로, 여기 한 곳에서만 변환한다.
+ * `AppModule`이 조립 시점에 `DATABASE_URL`과 `JWT_SECRET_KEY`를 읽으므로 조립 전에
+ * 옮겨 담는다. 테스트가 운영 변수 이름을 직접 세팅하면 실수로 개발 DB에 붙을 수
+ * 있으므로, 여기 한 곳에서만 변환한다.
+ *
+ * 비밀 키는 이미 있으면 덮지 않는다 — CI가 다른 값을 주는 것을 막지 않기 위해서다.
  */
-function useTestDatabase(): void {
+function useTestEnvironment(): void {
   process.env.DATABASE_URL = requireTestDatabaseUrl();
+  process.env.JWT_SECRET_KEY ??= 'test-only-jwt-secret-key-32-bytes-minimum';
 }
 
 /**
@@ -42,7 +46,7 @@ function useTestDatabase(): void {
 export async function createTestApp(
   beforeInit?: (app: NestExpressApplication) => void,
 ): Promise<INestApplication<Server>> {
-  useTestDatabase();
+  useTestEnvironment();
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   const app = moduleRef.createNestApplication<NestExpressApplication>();
   configureHttp(app);
