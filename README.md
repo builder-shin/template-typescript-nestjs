@@ -117,7 +117,7 @@ curl -sg -H 'Accept: application/vnd.api+json' \
   'http://localhost:4000/api/v1/examples/{id}?include=category,tags'
 ```
 
-부분 수정 — 보낸 필드만 바뀝니다. `null`을 보내면 비우고, 아예 보내지 않은 필드는 그대로 둡니다.
+부분 수정 — 보낸 필드만 바뀝니다. 아예 보내지 않은 필드는 그대로 두고, `null`을 보내면 비웁니다. 비우기는 그 컬럼이 nullable일 때만 성립합니다 — `body`·`publishedAt`은 비워지지만 NOT NULL인 `title`·`status`에 `null`을 보내면 `422 VALIDATION_ERROR`입니다.
 
 ```bash
 curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}' \

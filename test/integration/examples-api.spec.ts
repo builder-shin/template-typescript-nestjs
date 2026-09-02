@@ -333,6 +333,25 @@ describe('Examples API', () => {
       expect((response.body as ResourceBody).data.attributes.body).toBeNull();
     });
 
+    it('NOT NULL 컬럼을 null로 보내면 500이 아니라 422다', async () => {
+      // `null`을 비우기로 읽는 것은 nullable 컬럼에서만 성립한다. title은 NOT NULL이라
+      // 검증을 통과시키면 PostgreSQL이 거절해 사용자 입력 오류가 500으로 나간다.
+      const created = await createExample({ title: '제목' });
+      const id = (created.body as ResourceBody).data.id;
+
+      const response = await api()
+        .patch(`/api/v1/examples/${id}`)
+        .set('Accept', VENDOR)
+        .set('Content-Type', VENDOR)
+        .send(JSON.stringify({ data: { type: 'examples', id, attributes: { title: null } } }));
+
+      expect(response.status).toBe(422);
+      expect((response.body as ErrorBody).errors[0]?.code).toBe('VALIDATION_ERROR');
+      expect((response.body as ErrorBody).errors[0]?.source?.pointer).toBe(
+        '/data/attributes/title',
+      );
+    });
+
     it('경로와 문서의 id가 다르면 409 ID_MISMATCH다', async () => {
       const created = await createExample({ title: '제목' });
       const id = (created.body as ResourceBody).data.id;

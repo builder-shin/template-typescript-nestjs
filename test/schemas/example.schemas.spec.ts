@@ -75,6 +75,15 @@ describe('ExampleCreate', () => {
     expect(dto.publishedAt).toBeNull();
   });
 
+  it('NOT NULL 컬럼인 status에 null을 거부한다', async () => {
+    // `@IsOptional()`이면 null이 검증을 전부 건너뛰어 DB까지 내려가고 500이 된다.
+    // 사용자 입력 오류이므로 여기서 422로 끝나야 한다.
+    const errors = await caught(() =>
+      validateAttributes(ExampleCreate, { title: '제목', status: null }),
+    );
+    expect(errors.errors[0]?.source).toEqual({ pointer: '/data/attributes/status' });
+  });
+
   it('내부 FK를 입력으로 받지 않는다', async () => {
     // 스펙 7.3: 내부 FK를 공개 입력으로 만들지 않는다. 관계는 relationships로만 바꾼다.
     await expect(
@@ -91,6 +100,29 @@ describe('ExampleUpdate', () => {
 
   it('보낸 필드는 여전히 검증한다', async () => {
     await expect(validateAttributes(ExampleUpdate, { title: '' })).rejects.toThrow(JsonApiErrors);
+  });
+
+  it('NOT NULL 컬럼에 null을 거부한다', async () => {
+    // 컬럼이 NOT NULL이므로 "비운다"가 성립하지 않는다. 통과시키면 PostgreSQL이
+    // 거절해 422여야 할 것이 500으로 나간다.
+    const title = await caught(() => validateAttributes(ExampleUpdate, { title: null }));
+    expect(title.errors[0]?.source).toEqual({ pointer: '/data/attributes/title' });
+    const status = await caught(() => validateAttributes(ExampleUpdate, { status: null }));
+    expect(status.errors[0]?.source).toEqual({ pointer: '/data/attributes/status' });
+  });
+
+  it('nullable 컬럼에는 null을 허용한다', async () => {
+    // body와 published_at은 nullable이다. 여기서 null은 "비운다"는 뜻이고,
+    // README가 안내하는 부분 수정 방식이 이것이다.
+    const dto = await validateAttributes(ExampleUpdate, { body: null, publishedAt: null });
+    expect(dto.body).toBeNull();
+    expect(dto.publishedAt).toBeNull();
+  });
+
+  it('보내지 않은 title은 그대로 통과한다', async () => {
+    // null 거부가 "title을 언제나 요구한다"로 번지면 부분 갱신이 깨진다.
+    const dto = await validateAttributes(ExampleUpdate, { body: '본문' });
+    expect(dto.title).toBeUndefined();
   });
 });
 
