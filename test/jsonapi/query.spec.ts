@@ -3,6 +3,7 @@ import {
   assertNoQueryParameters,
   parseQuery,
   parseRelatedCollectionQuery,
+  parseSingleResourceQuery,
 } from '../../src/app/jsonapi/query.js';
 import type { QueryPolicy } from '../../src/app/schemas/query-policy.js';
 
@@ -180,5 +181,32 @@ describe('assertNoQueryParameters', () => {
     });
     expect(error.code).toBe('INVALID_QUERY_PARAMETER');
     expect(error.source).toEqual({ parameter: 'include' });
+  });
+});
+
+describe('parseSingleResourceQuery', () => {
+  it('질의가 없으면 빈 include다', () => {
+    expect(parseSingleResourceQuery({}, POLICY, DECLARED)).toEqual([]);
+  });
+
+  it('include를 해석한다', () => {
+    expect(parseSingleResourceQuery({ include: 'category' }, POLICY, DECLARED)).toEqual([
+      'category',
+    ]);
+  });
+
+  it('include 외의 파라미터를 거부한다', () => {
+    // 단건 조회에 filter·sort·page는 뜻이 없다.
+    for (const key of ['filter[status]', 'sort', 'page[size]', 'q']) {
+      const error = caught(() => parseSingleResourceQuery({ [key]: 'x' }, POLICY, DECLARED));
+      expect(error.code).toBe('INVALID_QUERY_PARAMETER');
+      expect(error.source).toEqual({ parameter: key });
+    }
+  });
+
+  it('허용되지 않은 include는 INVALID_INCLUDE다', () => {
+    expect(
+      caught(() => parseSingleResourceQuery({ include: 'secret' }, POLICY, DECLARED)).code,
+    ).toBe('INVALID_INCLUDE');
   });
 });

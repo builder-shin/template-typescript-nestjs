@@ -104,3 +104,23 @@ export function assertNoQueryParameters(
     throw invalidParameter(key, 'this endpoint does not accept query parameters');
   }
 }
+
+/**
+ * 단건 조회(`GET /{id}`)의 질의를 해석한다.
+ *
+ * `include`만 받는다. 자원 하나를 가리키는 경로에서 `filter`·`sort`·`page`는 뜻이
+ * 없고, 받아 주면 클라이언트가 뜻이 있다고 오해한다 — 스펙 8.2가 to-one 관계 URL에
+ * 같은 규칙을 정하는 것과 같은 이유다.
+ */
+export function parseSingleResourceQuery(
+  query: Readonly<Record<string, string | readonly string[] | undefined>>,
+  policy: QueryPolicy,
+  declaredRelationships: readonly string[],
+): readonly string[] {
+  for (const key of Object.keys(query)) {
+    if (key !== 'include') {
+      throw invalidParameter(key, 'a single resource endpoint only supports include');
+    }
+  }
+  return parseInclude(query, policy, declaredRelationships);
+}
