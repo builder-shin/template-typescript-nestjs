@@ -2,6 +2,7 @@ import {
   ERROR_CATALOG,
   ERROR_CODES,
   JsonApiError,
+  JsonApiErrors,
   catalogEntry,
 } from '../../src/app/jsonapi/errors.js';
 
@@ -126,5 +127,34 @@ describe('JsonApiError', () => {
   it('meta를 보존한다', () => {
     const error = new JsonApiError('RESOURCE_CONFLICT', { meta: { conflictingId: 'abc' } });
     expect(error.meta).toEqual({ conflictingId: 'abc' });
+  });
+});
+
+describe('JsonApiErrors', () => {
+  it('여러 오류를 담는다', () => {
+    const aggregate = new JsonApiErrors([
+      new JsonApiError('VALIDATION_ERROR', { source: { pointer: '/data/attributes/a' } }),
+      new JsonApiError('VALIDATION_ERROR', { source: { pointer: '/data/attributes/b' } }),
+    ]);
+    expect(aggregate.errors).toHaveLength(2);
+  });
+
+  it('Error를 상속한다', () => {
+    // 예외 필터가 `instanceof`로 갈라내고, 잡히지 않았을 때 스택이 남아야 한다.
+    expect(new JsonApiErrors([new JsonApiError('VALIDATION_ERROR')])).toBeInstanceOf(Error);
+  });
+
+  it('비어 있는 목록을 거부한다', () => {
+    // 오류가 없는 오류는 없다. 빈 문서(`{"errors": []}`)가 나가면 클라이언트는
+    // 무엇이 잘못됐는지 알 수 없고 성공으로 오해할 수도 있다.
+    expect(() => new JsonApiErrors([])).toThrow(TypeError);
+  });
+
+  it('첫 오류의 status를 대표 status로 쓴다', () => {
+    const aggregate = new JsonApiErrors([
+      new JsonApiError('VALIDATION_ERROR'),
+      new JsonApiError('VALIDATION_ERROR'),
+    ]);
+    expect(aggregate.status).toBe(422);
   });
 });

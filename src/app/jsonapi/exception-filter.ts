@@ -1,6 +1,6 @@
 import { Catch, HttpException, Logger } from '@nestjs/common';
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
-import { ERROR_CATALOG, JsonApiError } from './errors.js';
+import { ERROR_CATALOG, JsonApiError, JsonApiErrors } from './errors.js';
 import type { JsonApiErrorSource } from './errors.js';
 import type { SupportedLanguage } from './language.js';
 import { resolveLanguage } from './language.js';
@@ -88,15 +88,18 @@ interface JsonApiResponse extends HeaderWritableResponse {
   json(body: unknown): unknown;
 }
 
-/** 던져진 값을 `JsonApiError`로 정규화한다. */
-function normalize(exception: unknown): JsonApiError {
+/** 던져진 값을 오류 객체 목록으로 정규화한다. */
+function normalize(exception: unknown): readonly JsonApiError[] {
+  if (exception instanceof JsonApiErrors) {
+    return exception.errors;
+  }
   if (exception instanceof JsonApiError) {
-    return exception;
+    return [exception];
   }
   if (exception instanceof HttpException) {
-    return new JsonApiError('HTTP_ERROR', { status: exception.getStatus() });
+    return [new JsonApiError('HTTP_ERROR', { status: exception.getStatus() })];
   }
-  return new JsonApiError('INTERNAL_SERVER_ERROR');
+  return [new JsonApiError('INTERNAL_SERVER_ERROR')];
 }
 
 /**
@@ -118,7 +121,7 @@ function normalize(exception: unknown): JsonApiError {
  * - 나머지(예상 못 한 throw)는 모두 남긴다. 이것이 이 함수의 존재 이유다.
  */
 function shouldLog(exception: unknown, status: number): boolean {
-  if (exception instanceof JsonApiError) {
+  if (exception instanceof JsonApiError || exception instanceof JsonApiErrors) {
     return false;
   }
   if (exception instanceof HttpException) {
@@ -140,21 +143,21 @@ export class JsonApiExceptionFilter implements ExceptionFilter {
     const header = Array.isArray(raw) ? raw[0] : raw;
     const language = resolveLanguage(header);
 
-    const error = normalize(exception);
+    const errors = normalize(exception);
+    const [first] = errors;
+    if (first === undefined) {
+      throw new TypeError('정규화 결과가 비어 있다');
+    }
 
-    if (shouldLog(exception, error.status)) {
-      // 요청 식별자를 함께 남긴다 — 코드만으로는 어떤 라우트가 터졌는지 알 수 없다.
-      // 스택은 두 번째 인자로 넘긴다(Nest `Logger`의 관례).
+    if (shouldLog(exception, first.status)) {
       this.logger.error(
-        `${request.method} ${request.url} -> ${error.code}`,
+        `${request.method} ${request.url} -> ${first.code}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
     }
 
-    // 헤더를 세팅하기 전에 고정한다. Express가 본문을 보내며 덧붙이는 `charset=utf-8`이
-    // vendor 타입에 붙지 않게 한다 — 근거는 `pinJsonApiContentType` 주석 참고.
     pinJsonApiContentType(response);
     response.setHeader('Content-Type', JSONAPI_MEDIA_TYPE);
-    response.status(error.status).json(buildErrorDocument([error], language));
+    response.status(first.status).json(buildErrorDocument(errors, language));
   }
 }

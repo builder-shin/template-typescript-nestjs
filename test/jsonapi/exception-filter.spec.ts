@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import type { ArgumentsHost } from '@nestjs/common';
-import { ERROR_CATALOG, JsonApiError } from '../../src/app/jsonapi/errors.js';
+import { ERROR_CATALOG, JsonApiError, JsonApiErrors } from '../../src/app/jsonapi/errors.js';
 import {
   JsonApiExceptionFilter,
   buildErrorDocument,
@@ -312,5 +312,30 @@ describe('JsonApiExceptionFilter', () => {
     const { host } = hostFor();
     filter.catch(new HttpException('gateway', HttpStatus.BAD_GATEWAY), host);
     expect(String(firstOf(logged).message)).toBe('GET /api/v1/examples -> HTTP_ERROR');
+  });
+
+  it('집합 오류를 여러 오류 객체로 펼친다', () => {
+    const { host, captured } = hostFor();
+    filter.catch(
+      new JsonApiErrors([
+        new JsonApiError('VALIDATION_ERROR', { source: { pointer: '/data/attributes/title' } }),
+        new JsonApiError('VALIDATION_ERROR', { source: { pointer: '/data/attributes/status' } }),
+      ]),
+      host,
+    );
+    expect(captured.status).toBe(422);
+    const body = captured.body as { errors: { source: { pointer: string } }[] };
+    expect(body.errors.map((error) => error.source.pointer)).toEqual([
+      '/data/attributes/title',
+      '/data/attributes/status',
+    ]);
+  });
+
+  it('집합 오류도 로그에 남기지 않는다', () => {
+    // `JsonApiError`와 같은 이유다 — 카탈로그에 있는 의도된 결과이므로
+    // 헬스체크나 검증 실패가 로그를 채우지 않는다.
+    const { host } = hostFor();
+    filter.catch(new JsonApiErrors([new JsonApiError('VALIDATION_ERROR')]), host);
+    expect(logged).toHaveLength(0);
   });
 });
