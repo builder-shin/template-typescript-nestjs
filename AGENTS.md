@@ -40,13 +40,22 @@ service 계층을 끼워 넣으면 계층이 하나 늘면서 "컨트롤러 선�
   된다. Phase 7이 이 규칙에 실제로 기댔다 — 대량 삭제가 유발하는 cascade에 인덱스
   하나가 빠진 것을 뒤늦게 발견했을 때, 이미 배포된 마이그레이션을 고치지 않고 새
   마이그레이션으로 인덱스를 추가했다.
-- **엔티티·마이그레이션·컨트롤러·시리얼라이저는 손으로 등록한다 — glob 탐색이
-  없다.** `src/app/models/index.ts`의 `ENTITIES`, `src/db/migrations/index.ts`의
-  `MIGRATIONS`, `src/config/routes.module.ts`의 `controllers`,
-  `src/app/serializers/index.ts`의 `SERIALIZERS`는 전부 손으로 채우는 배열이다 —
-  이 배열에 없으면 그 엔티티·마이그레이션·라우트·시리얼라이저는 존재하지 않는
-  것과 같다. 자동 탐색을 두지 않는 것은 참조 구현의 명시적 계약이고, ESM + tsc
-  빌드에서 glob 경로는 `src/`와 `dist/`가 갈라지는 흔한 실패원이기도 하다.
+- **엔티티·마이그레이션·컨트롤러는 손으로 등록한다 — glob 탐색이 없다.**
+  `src/app/models/index.ts`의 `ENTITIES`, `src/db/migrations/index.ts`의
+  `MIGRATIONS`, `src/config/routes.module.ts`의 `controllers`는 전부 손으로
+  채우는 배열이고, 셋 다 `src/config/database.ts`(앞 둘)와 `RoutesModule`(뒤
+  하나)이 그대로 소비한다 — 이 배열에 없으면 그 엔티티·마이그레이션·라우트는
+  존재하지 않는 것과 같다. 자동 탐색을 두지 않는 것은 참조 구현의 명시적
+  계약이고, ESM + tsc 빌드에서 glob 경로는 `src/`와 `dist/`가 갈라지는 흔한
+  실패원이기도 하다.
+- **`src/app/serializers/index.ts`의 `SERIALIZERS`는 같은 모양이지만 성격이
+  다르다 — 런타임이 소비하지 않는다.** 관계 대상은 각 시리얼라이저가 자기
+  `relationships`에 적어 둔 `target()` 클로저가 정하고, `included`는
+  `collectIncluded`가 소유 시리얼라이저의 `relationships`를 따라가며 조립한다 —
+  둘 다 이 배열을 거치지 않는다. 이 배열을 읽는 것은 그 구성을 고정하는 테스트
+  하나뿐이다(`test/serializers/example.serializer.spec.ts`). 그래서 등록을
+  잊어도 관계 해석이나 `included` 조립 자체는 깨지지 않는다 — 다만 그 테스트가
+  실패로 잡아 준다. 자세한 이유는 `src/app/serializers/AGENTS.md`를 따른다.
 - **정렬을 여는 변경과 그로 인해 필요해진 인덱스를 만드는 변경은 같은 커밋에
   둔다.** `QueryPolicy`에 filter·sort를 추가하거나 `defaultSort`·`tieBreaker`를
   바꿀 때마다 해당 컬럼 조합의 인덱스 필요 여부를 판단하고, 필요하면 엔티티의
@@ -94,10 +103,11 @@ docker compose down -v
    엔티티 데코레이터가 명시한 이름과 글자까지 같게 쓴다. 파일명·클래스명 규약은
    `src/db/migrations/index.ts`의 주석을 따른다. `src/db/migrations/index.ts`의
    `MIGRATIONS`에 등록한다.
-3. **쓰기 스키마와 조회 정책.** `src/app/schemas/`에 Create/Update/Replace
-   DTO와 관계 쓰기 스키마(`example.schemas.ts` 참고), filter·sort·include
+3. **쓰기 스키마와 조회 정책.** `src/app/schemas/`에 Create/Update DTO와 관계
+   쓰기 스키마(`example.schemas.ts` 참고), filter·sort·include
    allowlist(`example.query-policy.ts` 참고)를 만들고 `src/app/schemas/index.ts`에서
-   export한다.
+   export한다. `PUT`(upsert)까지 지원할 자원이면 Replace DTO도 이때 함께
+   만든다 — 5번의 `replaceSchema`가 이것을 가리킨다.
 4. **시리얼라이저.** `src/app/serializers/`에 공개 표현과 `resourcePath`, 관계
    대상·`included`용 Erased 버전을 만든다(`example.serializer.ts` 참고).
    `resourcePath`는 5번의 컨트롤러 경로와 문자열까지 같아야 한다.
@@ -106,7 +116,15 @@ docker compose down -v
 5. **컨트롤러.** `src/app/controllers/api/v1/`에 `CrudActions`로 위 산출물을
    선언만으로 잇는 파일을 만든다(`examples.controller.ts` 참고). `@Controller`
    경로가 시리얼라이저의 `resourcePath`와 다르면 조립 시점(부트스트랩)에 즉시
-   던진다 — 잘못된 링크가 조용히 나가지 않는다.
+   던진다 — 잘못된 링크가 조용히 나가지 않는다. 이 선언이 쓰기 인증과 upsert
+   지원 여부를 함께 정한다. `writeGuards`는 기본값이 빈 배열이고
+   `route-registrar.ts`는 빈 배열을 "가드 없음"으로 그대로 적용하므로, 적지
+   않으면 그 자원의 쓰기와 관계 변경은 공개로 열린다 — 스펙 16장의 "읽기는
+   공개, 쓰기는 인증"을 따르려면 `ExamplesController`처럼
+   `writeGuards: [JwtActiveUserGuard]`를 명시한다. `enableUpsert`를 켜면 3번에서
+   만든 Replace DTO를 `replaceSchema`로 함께 넘겨야 한다 — 빠뜨리면
+   `CrudActions`가 조립 시점에 던진다. 이 세 옵션이 정확히 어느 라우트에 닿고
+   닿지 않는지는 `src/app/controllers/concerns/AGENTS.md`가 다룬다.
 6. **라우트 등록.** `src/config/routes.module.ts`의 `controllers`에 추가한다.
    여기 없으면 앞의 다섯 단계를 다 밟아도 라우트는 존재하지 않는다.
 
@@ -115,5 +133,9 @@ docker compose down -v
 문자열, 그리고 정해 둔 필수 환경 변수 이름만 본다. 새 자원의 공개 라우트를
 README의 `## 공개 API 표면` 표에 손으로 추가하는 것은 이 테스트로 잡히지 않는다.
 같은 종류의 README 드리프트가 실제로 있었다 — Phase 4는 README 갱신 자체를
-빠뜨렸고, Phase 7은 README의 필수 환경 변수 목록이 넷으로 얼어붙은 채 다섯 번째가
-늘어난 것을 몰랐다. 둘 다 게이트가 아니라 다음 리뷰에서 사람이 잡았다.
+빠뜨렸고, Phase 7은 README의 환경 변수 표에서 `TEST_REDIS_URL` 한 줄을
+빠뜨렸다. 넷으로 얼어붙어 있던 것은 README가 아니라 그것을 잡아야 할 시험
+(`test/docs/readme.spec.ts`의 "필수 환경 변수를 모두 문서화한다")이었다 —
+Phase 2 때 고정한 네 개짜리 검사 목록이 그대로 남은 사이 `JWT_SECRET_KEY`·
+`REDIS_URL`·`TEST_REDIS_URL` 세 개가 늘어 실제 필수 목록이 일곱이 됐는데도
+검사는 넷만 보고 있었다. 둘 다 게이트가 아니라 다음 리뷰에서 사람이 잡았다.
