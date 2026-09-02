@@ -7,8 +7,8 @@ import { createTestDataSource, withRollback } from '../db/fixture.js';
 
 const TTL = 3600;
 
-async function makeUser(manager: EntityManager, email: string): Promise<User> {
-  return manager.save(User, { email, passwordHash: 'x', isActive: true });
+async function makeUser(manager: EntityManager, email: string, isActive = true): Promise<User> {
+  return manager.save(User, { email, passwordHash: 'x', isActive });
 }
 
 /** 던진 오류의 JSON:API 코드를 꺼낸다. */
@@ -99,6 +99,18 @@ describe('refresh session', () => {
       });
 
       expect(await codeOf(() => rotateSession(manager, expired.id, TTL))).toBe('TOKEN_EXPIRED');
+    });
+  });
+
+  it('비활성 사용자의 세션을 회전하면 USER_INACTIVE다', async () => {
+    // login과 Bearer 가드는 둘 다 isActive를 보는데 회전만 안 보면, 운영자가 계정을
+    // 비활성화해도 이미 발급된 refresh token은 계속 회전할 수 있고 issueSession이
+    // 회전마다 만료를 새로 미뤄 주므로 그 체인이 무한히 앞으로 미끄러진다.
+    await withRollback(dataSource, async (manager) => {
+      const user = await makeUser(manager, 'ㅍ@example.test', false);
+      const issued = await issueSession(manager, user.id, TTL);
+
+      expect(await codeOf(() => rotateSession(manager, issued.id, TTL))).toBe('USER_INACTIVE');
     });
   });
 

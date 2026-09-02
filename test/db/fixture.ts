@@ -166,8 +166,17 @@ export async function createTestDataSource(): Promise<DataSource> {
  * 콜백을 트랜잭션 안에서 실행하고 **항상** 롤백한다.
  *
  * 테스트끼리 상태를 남기지 않는 기본 격리 수단이다. 콜백이 성공해도 커밋하지 않으므로,
- * commit 이후를 관찰해야 하는 테스트(동시성, `ON CONFLICT` 경합)는 이 함수를 쓰지 않고
- * `truncateAll`로 정리한다.
+ * commit 이후를 관찰해야 하는 테스트(`examples-put.spec.ts`의 동일 id 동시 요청,
+ * `refresh-session-concurrency.spec.ts`의 동시 회전 등)는 이 함수를 쓰지 않고, 자기가
+ * 만든 행만 id나 이메일 접두사로 좁혀 `afterEach`/`afterAll`에서 직접 지운다.
+ *
+ * 예전에는 이 자리에 `TRUNCATE TABLE ... RESTART IDENTITY CASCADE`로 한꺼번에 비우는
+ * `truncateAll`이 있었다. 다른 스펙이 실제 HTTP로 행을 커밋하기 시작하면서 그 편의가
+ * 위험이 됐다 — `TRUNCATE`는 워커 경계를 넘어 남의 커밋 행까지 지우고
+ * `ACCESS EXCLUSIVE` 잠금으로 다른 워커의 읽기까지 막는다(Phase 4에서 겪은 사고,
+ * `migrations.spec.ts`의 "스키마 제약" `describe`가 그 결정을 기록한다). 부르는 자리가
+ * 하나도 남지 않아(`grep -rn "truncateAll(" test/ src/`로 확인) 지웠다 — 남겨 두면
+ * 다음에 급하게 정리 수단을 찾는 사람이 이 함수를 다시 부르고 같은 사고를 반복한다.
  */
 export async function withRollback<T>(
   dataSource: DataSource,
@@ -189,18 +198,4 @@ export async function withRollback<T>(
       await queryRunner.release();
     }
   }
-}
-
-/**
- * 모든 테이블을 비운다.
- *
- * commit을 관찰하는 테스트의 정리 수단이다. `migrations` 테이블은 남긴다 — 지우면
- * 다음 `createTestDataSource()`가 마이그레이션을 처음부터 다시 돌린다.
- */
-export async function truncateAll(dataSource: DataSource): Promise<void> {
-  const tables = dataSource.entityMetadatas.map((metadata) => `"${metadata.tableName}"`);
-  if (tables.length === 0) {
-    return;
-  }
-  await dataSource.query(`TRUNCATE TABLE ${tables.join(', ')} RESTART IDENTITY CASCADE`);
 }

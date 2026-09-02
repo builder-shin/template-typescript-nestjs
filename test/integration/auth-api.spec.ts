@@ -12,19 +12,25 @@ import { createTestApp } from '../app-factory.js';
  * 행을 커밋하고, `TRUNCATE`도 조건 없는 `DELETE`도 쓰지 않는다. 이 스위트가 만든
  * 이메일 접두사(`auth-`)만 지운다.
  *
- * `acquireCommitLock`을 잡지 않는다. 이 스위트가 만지는 테이블(`users`,
- * `refresh_sessions`)에 실제로 커밋하는 다른 스위트는 `refresh-session-concurrency.spec.ts`
- * 하나뿐이고, 그 스위트는 고정된 이메일(`refresh-concurrency@example.test`) 하나만
- * 쓰고 그것만 지운다 — 이 스위트의 `auth-` 접두사와 절대 겹치지 않는다. 두 스위트 모두
- * "테이블 전체"를 단언하지 않고 각자 자기 행만 보므로, 잠금이 막아 줄 간섭이 애초에
- * 없다. 불필요하게 잡으면 병렬성만 잃는다.
+ * `acquireCommitLock`을 잡지 않는다. `users`/`refresh_sessions`에 실제로 커밋하는
+ * 스위트는 이 파일을 포함해 다섯이다 — `refresh-session-concurrency.spec.ts`,
+ * `users-me.spec.ts`, `examples-api.spec.ts`, `examples-put.spec.ts`가 나머지 넷이고,
+ * 넷 다 `POST /api/v1/auth/login`을 한 번 이상 불러 `users`뿐 아니라
+ * `refresh_sessions`에도 커밋한다(소스에 `save(User`/`save(RefreshSession` 리터럴이
+ * 없어 그 문자열로 `grep`해도 이 넷은 잡히지 않는다 — HTTP 경유로 커밋하기 때문이다).
+ * 그래도 잠금이 필요 없는 이유는 다섯 스위트가 쓰는 이메일(`auth-`,
+ * `refresh-concurrency@example.test`, `me-`, `examples-api-`, `examples-put-`
+ * 접두사)이 서로 겹치지 않고, 다섯 중 어디도 "테이블 전체"를 단언하지 않기
+ * 때문이다 — `users`/`refresh_sessions`를 컬렉션으로 노출하는 라우트 자체가 없다
+ * (`GET /users/me`만 있고 `GET /users`는 없다). 잠금이 막아 줄 간섭이 애초에 없으므로
+ * 불필요하게 잡으면 병렬성만 잃는다.
  */
 
 const VENDOR = 'application/vnd.api+json';
 const PASSWORD = '충분히-긴-비밀번호-1234';
 
 interface ErrorBody {
-  errors: { code: string; status: string }[];
+  errors: { code: string; status: string; source?: { pointer?: string } }[];
 }
 interface TokensBody {
   data: { type: string; id: string; attributes: Record<string, unknown> };
@@ -148,11 +154,19 @@ describe('인증 API', () => {
     // 비밀번호" 경로와 같이 argon2를 한 번 치르므로 비율이 1에 가깝다. 없으면
     // "없는 계정" 경로는 조회+직렬화만 남아 훨씬 짧아진다.
     //
-    // 임계값 0.3은 실측 위에 놓았다. 호출을 지우고 재면 비율이 0.12였고(없는 계정
+    // 하한 0.3은 실측 위에 놓았다. 호출을 지우고 재면 비율이 0.12였고(없는 계정
     // 4ms 대 틀린 비밀번호 33ms), 호출이 있는 상태로 다섯 번 재면 0.65~1.00이었다.
     // 0.3은 실패 쪽 값의 약 2.5배 위, 통과 쪽 최솟값의 약 2.2배 아래라 양쪽에서
     // 비슷한 여유를 갖는다. 0.5로 두면 통과 쪽 여유가 1.3배까지 좁아져, 언젠가
     // 흔들리는 테스트가 되고 그러면 누군가 지운다.
+    //
+    // 상한도 마찬가지로 실측 위에 놓았다 — 하한만 있으면 "없는 계정" 경로가 "틀린
+    // 비밀번호" 경로보다 **느려지는** 방향의 오라클(예: 더미 해시 캐시가 깨져 매번
+    // 새로 argon2.hash를 만드는 회귀)은 그대로 통과시킨다. 같은 상태에서 15번 재니
+    // 비율이 0.886~1.125였다(절대 시간은 이 기계의 부하에 따라 30ms대와 80ms대를
+    // 오갔지만 비율은 그 변동과 무관하게 안정적이었다). 상한 2.0은 관측 최댓값의 약
+    // 1.8배 위다 — 더미 해시 캐시가 완전히 깨져 매 요청마다 해시를 새로 만드는
+    // 회귀(약 2배)는 잡으면서, 이 정도 여유로는 정상 지터로 흔들리지 않는다.
     await register('auth-타이밍@example.test').expect(201);
 
     const unknownAccountMs = await medianDurationMs(
@@ -165,6 +179,7 @@ describe('인증 API', () => {
     );
 
     expect(unknownAccountMs).toBeGreaterThan(wrongPasswordMs * 0.3);
+    expect(unknownAccountMs).toBeLessThan(wrongPasswordMs * 2);
   });
 
   it('비활성 사용자는 비밀번호가 맞아야 USER_INACTIVE를 본다', async () => {
@@ -181,6 +196,22 @@ describe('인증 API', () => {
 
     expect((wrongPassword.body as ErrorBody).errors[0]?.code).toBe('INVALID_CREDENTIALS');
     expect((rightPassword.body as ErrorBody).errors[0]?.code).toBe('USER_INACTIVE');
+  });
+
+  it('로그인 뒤 비활성화되면 갱신도 403 USER_INACTIVE다', async () => {
+    // rotateSession이 회전 결정과 같은 트랜잭션에서 isActive를 다시 보는지를 wire에서
+    // 고정한다. 여기서 빠지면 운영자가 계정을 비활성화해도 이미 발급된 refresh token은
+    // 계속 회전할 수 있고, 회전마다 만료가 새로 미뤄지므로 그 체인이 끊기지 않는다.
+    await register('auth-회전비활성@example.test').expect(201);
+    const tokens = (await login('auth-회전비활성@example.test').expect(200)).body as TokensBody;
+    const refreshToken = String(tokens.data.attributes.refreshToken);
+
+    await dataSource.query(`UPDATE users SET is_active = false WHERE email = $1`, [
+      'auth-회전비활성@example.test',
+    ]);
+
+    const response = await refresh(refreshToken).expect(403);
+    expect((response.body as ErrorBody).errors[0]?.code).toBe('USER_INACTIVE');
   });
 
   it('갱신하면 새 토큰이 나오고 옛 refresh 토큰은 죽는다', async () => {
@@ -237,5 +268,77 @@ describe('인증 API', () => {
       password: PASSWORD,
     }).expect(409);
     expect((response.body as ErrorBody).errors[0]?.code).toBe('TYPE_MISMATCH');
+  });
+
+  describe('관계 거부', () => {
+    // 이 네 라우트의 자원 타입(users/authCredentials/refreshTokens)은 관계 스키마가
+    // 아예 없다. POST /api/v1/examples에 같은 실수(스키마에 없는 관계 이름)를 보내면
+    // 400 INVALID_JSONAPI_DOCUMENT인데, 여기서 조용히 무시되면 같은 API 안에서 같은
+    // 실수가 자원마다 다르게 취급된다. 세 호출 지점(register/login/readRefreshToken,
+    // refresh와 logout이 readRefreshToken을 공유한다)마다 하나씩 확인한다.
+
+    it('가입에 관계를 실으면 거부한다', async () => {
+      const response = await api()
+        .post('/api/v1/auth/register')
+        .set('Accept', VENDOR)
+        .set('Content-Type', VENDOR)
+        .send(
+          JSON.stringify({
+            data: {
+              type: 'users',
+              attributes: { email: 'auth-관계가입@example.test', password: PASSWORD },
+              relationships: { anything: { data: null } },
+            },
+          }),
+        );
+      expect(response.status).toBe(400);
+      const error = (response.body as ErrorBody).errors[0];
+      expect(error?.code).toBe('INVALID_JSONAPI_DOCUMENT');
+      expect(error?.source?.pointer).toBe('/data/relationships/anything');
+    });
+
+    it('로그인에 관계를 실으면 거부한다', async () => {
+      await register('auth-관계로그인@example.test').expect(201);
+
+      const response = await api()
+        .post('/api/v1/auth/login')
+        .set('Accept', VENDOR)
+        .set('Content-Type', VENDOR)
+        .send(
+          JSON.stringify({
+            data: {
+              type: 'authCredentials',
+              attributes: { email: 'auth-관계로그인@example.test', password: PASSWORD },
+              relationships: { anything: { data: null } },
+            },
+          }),
+        );
+      expect(response.status).toBe(400);
+      expect((response.body as ErrorBody).errors[0]?.code).toBe('INVALID_JSONAPI_DOCUMENT');
+    });
+
+    it('갱신에 관계를 실으면 거부한다', async () => {
+      // refresh와 logout은 같은 private 메서드(readRefreshToken)를 공유하므로 하나만
+      // 확인해도 둘 다 같은 경로를 탄다는 것을 증명한다.
+      await register('auth-관계갱신@example.test').expect(201);
+      const tokens = (await login('auth-관계갱신@example.test').expect(200)).body as TokensBody;
+      const refreshToken = String(tokens.data.attributes.refreshToken);
+
+      const response = await api()
+        .post('/api/v1/auth/refresh')
+        .set('Accept', VENDOR)
+        .set('Content-Type', VENDOR)
+        .send(
+          JSON.stringify({
+            data: {
+              type: 'refreshTokens',
+              attributes: { refreshToken },
+              relationships: { anything: { data: null } },
+            },
+          }),
+        );
+      expect(response.status).toBe(400);
+      expect((response.body as ErrorBody).errors[0]?.code).toBe('INVALID_JSONAPI_DOCUMENT');
+    });
   });
 });

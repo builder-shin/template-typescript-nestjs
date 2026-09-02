@@ -48,6 +48,21 @@ export function canIdentify(
   return primary?.type !== 'uuid' || UUID_PATTERN.test(id);
 }
 
+/**
+ * "이 이름은 쓸 수 있는 관계가 아니다" 오류를 만든다.
+ *
+ * `resolveRelationships`가 스키마에 없는 관계 이름을 만났을 때 쓰고, 관계 스키마가
+ * 아예 없는 자원(`auth.controller.ts`의 네 라우트)이 관계를 통째로 거부할 때도 같은
+ * 함수를 쓴다 — 두 자리가 각자 오류를 만들면 문자열이 갈릴 수 있고, 그러면 같은
+ * 실수가 자원마다 다른 오류로 보인다.
+ */
+export function unwritableRelationshipError(name: string): JsonApiError {
+  return new JsonApiError('INVALID_JSONAPI_DOCUMENT', {
+    source: { pointer: `/data/relationships/${name}` },
+    detail: `"${name}" is not a writable relationship`,
+  });
+}
+
 /** 식별자 목록을 행으로 바꾸고, 없는 것이 있으면 던진다. */
 async function loadAll(
   manager: EntityManager,
@@ -122,10 +137,7 @@ export async function resolveRelationships(
   for (const [name, input] of Object.entries(inputs)) {
     const rule = schema[name];
     if (rule === undefined) {
-      throw new JsonApiError('INVALID_JSONAPI_DOCUMENT', {
-        source: { pointer: `/data/relationships/${name}` },
-        detail: `"${name}" is not a writable relationship`,
-      });
+      throw unwritableRelationshipError(name);
     }
 
     const resolved = await resolveOne(manager, rule, input, `/data/relationships/${name}/data`);

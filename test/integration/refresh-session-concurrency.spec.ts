@@ -32,12 +32,22 @@ async function codeOf(run: () => Promise<unknown>): Promise<string> {
  * `withRollback`의 단일 매니저·단일 트랜잭션 안에서 **순차** 호출한다 — 두 번째 호출이
  * 첫 번째가 같은 트랜잭션 안에서 이미 써 둔 값을 그대로 읽으므로, `FOR UPDATE`를
  * 지워도 통과한다(실측: 아래 "레드 실측"). 진짜 경합은 서로 다른 두 커넥션이 같은
- * 행을 **동시에** 봐야 성립하므로, 이 파일만 행을 실제로 커밋한다.
+ * 행을 **동시에** 봐야 성립하므로, 이 파일은 (아래에서 설명하는 이유로 다른 스위트도
+ * 그렇듯) `withRollback`을 쓰지 않고 행을 실제로 커밋한다.
  *
- * `acquireCommitLock`은 잡지 않는다. 그 잠금은 같은 테이블에 커밋하는 스위트끼리만
- * 필요한데(`fixture.ts`의 문서 주석 참고), `users`/`refresh_sessions`에 실제로
- * 커밋하는 통합 스펙은 이 파일 하나뿐이다(`grep -rl "save(User\|save(RefreshSession"
- * test/`로 확인 — 나머지는 전부 `withRollback`).
+ * `acquireCommitLock`은 잡지 않는다. `users`/`refresh_sessions`에 실제로 커밋하는
+ * 통합 스펙은 이 파일 하나가 아니라 다섯이다 — 이 파일, `auth-api.spec.ts`,
+ * `users-me.spec.ts`, `examples-api.spec.ts`, `examples-put.spec.ts`. 다섯 모두
+ * `refresh_sessions`에도 커밋한다(이 파일은 `issueSession`/`rotateSession`을 직접
+ * 부르고, 나머지 넷은 `POST /api/v1/auth/login`을 한 번 이상 호출해 그 안에서
+ * `issueSession`이 행을 만든다). `grep -rl "save(User\|save(RefreshSession"
+ * test/`로는 이 다섯 중 이 파일만 잡힌다 — 나머지 넷은 저장을 HTTP 경유로 하므로
+ * 소스에 `save(...)` 리터럴이 없다. 그런데도 이 잠금이 필요 없는 진짜 근거는 별개다:
+ * 다섯 스위트가 쓰는 이메일(`refresh-concurrency@example.test`, `auth-`, `me-`,
+ * `examples-api-`, `examples-put-` 접두사)이 서로 겹치지 않고, 다섯 중 어디도
+ * `users`/`refresh_sessions`를 "테이블 전체"로 단언하지 않는다 — 그런 컬렉션 라우트
+ * 자체가 없다(`GET /users`가 없고 `GET /users/me`만 있다). 잠금이 막아 줄 간섭이
+ * 애초에 없으므로 잡으면 병렬성만 잃는다.
  */
 describe('refresh session 회전 동시성', () => {
   let dataSource: DataSource;

@@ -10,11 +10,13 @@ import { User } from '../../../models/user.entity.js';
 import { AUTH_TOKENS_SERIALIZER, USER_SERIALIZER } from '../../../serializers/index.js';
 import { AuthCredentials, RefreshTokenInput, UserRegister } from '../../../schemas/index.js';
 import { parseWriteDocument } from '../../concerns/document-parsing.js';
+import { unwritableRelationshipError } from '../../concerns/relationship-resolver.js';
 import { serializeResource } from '../../../serializers/serializer.js';
 import { singleDocument } from '../../concerns/documents.js';
 import type { AuthTokens } from '../../../serializers/index.js';
 import type { EntityManager } from 'typeorm';
 import type { JwtSettings } from '../../../../config/settings.js';
+import type { RelationshipInput } from '../../../jsonapi/document.js';
 import type { ResourceObject } from '../../../serializers/serializer.js';
 import type { SingleDocument } from '../../concerns/documents.js';
 
@@ -44,6 +46,7 @@ export class AuthController {
   @Post('register')
   async register(@Body() body: unknown): Promise<SingleDocument> {
     const parsed = await parseWriteDocument(body, UserRegister, { expectedType: 'users' });
+    rejectRelationships(parsed.relationships);
     const passwordHash = await hashPassword(parsed.attributes.password);
 
     try {
@@ -77,6 +80,7 @@ export class AuthController {
     const parsed = await parseWriteDocument(body, AuthCredentials, {
       expectedType: 'authCredentials',
     });
+    rejectRelationships(parsed.relationships);
     const { email, password } = parsed.attributes;
 
     const user = await this.dataSource.getRepository(User).findOneBy({ email });
@@ -138,6 +142,7 @@ export class AuthController {
     const parsed = await parseWriteDocument(body, RefreshTokenInput, {
       expectedType: 'refreshTokens',
     });
+    rejectRelationships(parsed.relationships);
     return parsed.attributes.refreshToken;
   }
 
@@ -159,6 +164,24 @@ export class AuthController {
       refreshTokenExpiresAt,
     };
     return serializeResource(AUTH_TOKENS_SERIALIZER, tokens);
+  }
+}
+
+/**
+ * 이 네 라우트는 관계를 하나도 갖지 않는다는 것을 강제한다.
+ *
+ * `users`·`authCredentials`·`refreshTokens`는 관계 스키마 자체가 없다. `CrudActions`가
+ * 만드는 라우트(예: `POST /api/v1/examples`)는 스키마에 없는 관계 이름을 보내면
+ * `relationship-resolver.ts`의 `resolveRelationships`가 400으로 거절하는데, 이 라우트들이
+ * `parsed.relationships`를 그냥 읽지 않고 넘어가면 같은 실수가 여기서는 조용히
+ * 무시된다 — 같은 API 안에서 같은 실수가 자원마다 다르게 취급되면 이 템플릿을 베껴
+ * 쓰는 사람이 어느 쪽이 규칙인지 알 수 없다. `unwritableRelationshipError`를 그대로
+ * 써서 오류 코드·pointer·detail까지 그 경로와 완전히 같게 맞춘다.
+ */
+function rejectRelationships(relationships: Readonly<Record<string, RelationshipInput>>): void {
+  const [name] = Object.keys(relationships);
+  if (name !== undefined) {
+    throw unwritableRelationshipError(name);
   }
 }
 
