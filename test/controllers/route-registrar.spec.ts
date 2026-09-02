@@ -37,6 +37,8 @@ function hostFor(
     update(): void {}
     // eslint-disable-next-line @typescript-eslint/no-empty-function
     destroy(): void {}
+    // eslint-disable-next-line @typescript-eslint/no-empty-function
+    replace(): void {}
   }
   const declaration = {
     model: Example,
@@ -147,6 +149,24 @@ describe('registerRoutes가 만드는 라우트', () => {
 
   it('enableUpsert가 아니면 PUT을 만들지 않는다', () => {
     expect(registeredRoutes(app)).not.toContain('PUT /api/v1/examples/:id');
+  });
+});
+
+describe('enableUpsert', () => {
+  let app: INestApplication<Server>;
+  let upsertRoutes: string[];
+
+  beforeAll(async () => {
+    ({ app, routes: upsertRoutes } = await probeRoutes(hostFor({ enableUpsert: true })));
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('enableUpsert를 켜면 PUT이 생긴다', () => {
+    // 켜지 않은 기존 프로브에는 없다는 단언이 이미 있다. 두 방향을 함께 고정한다.
+    expect(upsertRoutes).toContain('PUT /api/v1/examples/:id');
   });
 });
 

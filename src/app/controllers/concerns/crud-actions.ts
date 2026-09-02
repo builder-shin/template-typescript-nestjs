@@ -24,6 +24,8 @@ import { canIdentify, resolveOne, resolveRelationships } from './relationship-re
 import type { ResolvedLinkage } from './relationship-resolver.js';
 import { RESOURCE_ALIAS, registerRoutes } from './route-registrar.js';
 import type { RelationshipDelegates } from './route-registrar.js';
+import { replacementValues, upsertRow } from './upsert-executor.js';
+import { schemaProperties } from '../../schemas/write-schema.js';
 
 /**
  * 선언만으로 CRUD와 관계 라우트를 만드는 mixin 팩토리.
@@ -235,6 +237,79 @@ export function CrudActions<
         await declaration.beforeDestroy?.(entity, manager);
         await manager.getRepository(model).remove(entity);
       });
+    }
+
+    /**
+     * 자원을 통째로 교체하거나 만든다.
+     *
+     * 스펙 7.2: 같은 ID로 동시에 들어온 요청은 advisory 트랜잭션 잠금으로 직렬화되고,
+     * 생성/교체 판정은 `INSERT ... ON CONFLICT`가 같은 문장에서 한다. 생성은 201 +
+     * `Location`, 교체는 200이다.
+     */
+    async replace(
+      id: string,
+      body: unknown,
+      response: HeaderWritableResponse & { status(code: number): unknown },
+    ): Promise<SingleDocument> {
+      const schema = declaration.replaceSchema;
+      if (schema === undefined) {
+        throw new TypeError('replaceSchema 없이 replace가 호출됐다');
+      }
+
+      const parsed = await parseWriteDocument(body, schema, {
+        expectedType: serializer.type,
+        expectedId: id,
+      });
+
+      const outcome = await this.dataSource.transaction(async (manager) => {
+        this.assertIdShape(manager, id);
+
+        const values = replacementValues(
+          manager,
+          model,
+          parsed.attributes,
+          schemaProperties(schema),
+        );
+        const { created } = await upsertRow(manager, model, id, values);
+
+        const entity = await this.findOne(manager, id, []);
+        const linkage = await resolveRelationships(
+          manager,
+          relationshipsSchema,
+          parsed.relationships,
+        );
+
+        // 전체 교체이므로 보내지 않은 관계는 비운다. `PATCH`가 건드리지 않는 것과
+        // 갈리는 지점이고, 스펙 15장이 "관계 reset"을 회귀 대상으로 지목한 곳이다.
+        for (const [name, rule] of Object.entries(relationshipsSchema)) {
+          if (name in linkage.toOne || name in linkage.toMany) {
+            continue;
+          }
+          Reflect.set(entity, name, rule.cardinality === 'many' ? [] : null);
+        }
+        this.applyLinkage(entity, linkage);
+
+        await declaration.beforeSave?.(entity, manager);
+        const stored = await manager.getRepository(model).save(entity);
+        await declaration.afterSave?.(stored, manager);
+
+        // `create`/`update`와 달리 재조회도 이 트랜잭션 안에서 한다(의도적인 차이이니
+        // "일관성 있게" 커밋 뒤로 옮기지 말 것). `pg_advisory_xact_lock`은 트랜잭션
+        // 스코프라 커밋과 함께 풀린다 — 밖에서 읽으면 그 읽기는 잠금이 이미 풀린 다른
+        // 커넥션에서 일어나고, "동일 ID 동시 요청을 직렬화한다"는 약속이 응답 본문까지는
+        // 미치지 못하게 된다.
+        const reloaded = await this.findOne(manager, id, Object.keys(parsed.relationships));
+        return {
+          created,
+          document: singleDocument(serializeResource(serializer, reloaded), []),
+        };
+      });
+
+      if (outcome.created) {
+        response.setHeader('Location', `${this.basePath}/${id}`);
+        response.status(201);
+      }
+      return outcome.document;
     }
 
     /**

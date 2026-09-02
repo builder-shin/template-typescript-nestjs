@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Res,
   UseGuards,
@@ -123,6 +124,19 @@ export function registerRoutes<
     HttpCode(204)(proto, 'destroy', descriptor);
     Param('id')(proto, 'destroy', 0);
   });
+
+  // `PUT`은 선언이 켠 자원에만 생긴다. 켜지 않은 자원에서 `PUT`을 부르면 라우트가 없어
+  // 404가 나가고, 그것이 "이 자원은 upsert를 지원하지 않는다"의 정확한 답이다.
+  if (declaration.enableUpsert === true) {
+    decorate(proto, 'replace', (descriptor) => {
+      Put(':id')(proto, 'replace', descriptor);
+      Param('id')(proto, 'replace', 0);
+      Body()(proto, 'replace', 1);
+      // 생성이면 `Location`을 붙이고 201로 바꾼다. 교체는 기본값 200 그대로다.
+      Res({ passthrough: true })(proto, 'replace', 2);
+    });
+    writeMethods.push('replace');
+  }
 
   // 규칙이 없는 관계(= 쓰기 스키마에 없는 관계)는 읽기 라우트만 받는다.
   for (const name of Object.keys(declaration.serializer.relationships)) {

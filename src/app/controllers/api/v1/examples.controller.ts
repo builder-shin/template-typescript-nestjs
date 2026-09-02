@@ -5,6 +5,7 @@ import { EXAMPLE_QUERY_POLICY } from '../../../schemas/example.query-policy.js';
 import {
   EXAMPLE_RELATIONSHIPS,
   ExampleCreate,
+  ExampleReplace,
   ExampleUpdate,
 } from '../../../schemas/example.schemas.js';
 import { EXAMPLE_SERIALIZER } from '../../../serializers/example.serializer.js';
@@ -31,4 +32,6 @@ export class ExamplesController extends CrudActions({
   updateSchema: ExampleUpdate,
   relationshipsSchema: EXAMPLE_RELATIONSHIPS,
   queryPolicy: EXAMPLE_QUERY_POLICY,
+  replaceSchema: ExampleReplace,
+  enableUpsert: true,
 }) {}

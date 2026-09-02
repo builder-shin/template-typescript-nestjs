@@ -29,6 +29,7 @@ describe('명시적 라우트 조립', () => {
       'PATCH /api/v1/examples/:id/relationships/tags',
       'POST /api/v1/examples',
       'POST /api/v1/examples/:id/relationships/tags',
+      'PUT /api/v1/examples/:id',
     ]);
   });
 });
