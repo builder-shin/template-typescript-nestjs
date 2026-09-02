@@ -15,10 +15,25 @@ import { requireTestDatabaseUrl } from './db/fixture.js';
  * 있으므로, 여기 한 곳에서만 변환한다.
  *
  * 비밀 키는 이미 있으면 덮지 않는다 — CI가 다른 값을 주는 것을 막지 않기 위해서다.
+ *
+ * **`JWT_REFRESH_EXPIRES_SECONDS`는 반대로 무조건 덮어쓴다(`??=`가 아니다).** 이 값은
+ * `POST /api/v1/auth/login`이 커밋하는 `refresh_sessions.expires_at`을 정하고,
+ * `purgeExpiredRefreshSessions`의 통합 스펙(`purge-refresh-sessions.spec.ts`·
+ * `purge-refresh-sessions-contention.spec.ts`)은 그 만료 행을 실제로 지운다. 두 종류의
+ * 스펙이 Jest 워커로 병렬 실행되며 같은 테스트 DB를 공유하므로(`test/db/fixture.ts`),
+ * `auth-api`/`users-me`/`examples-api`/`examples-put` 네 스위트가 로그인으로 커밋하는
+ * 세션은 이 값이 클 때만 "아직 만료되지 않음"이 보장된다 — 근거는
+ * `purge-refresh-sessions-contention.spec.ts` 상단 주석. `JWT_SECRET_KEY`와 달리
+ * 앰비언트 셸 값을 존중하면 안 되는 이유가 바로 이것이다: `JWT_SECRET_KEY`는 어떤
+ * 값이든 애플리케이션 동작에 안전하지만, 이 값은 **작으면 다른 스위트의 격리를
+ * 깨는 안전 조건 자체**라 호출자가 임의로 줄일 수 있는 자리가 아니다(실측:
+ * `JWT_REFRESH_EXPIRES_SECONDS=1 ./scripts/check.sh`로 재현). 값은 프로덕션 기본값과
+ * 같은 2,592,000초(30일)로 고정한다 — 테스트 실행 시간(수 분)에 비해 압도적으로 크다.
  */
 function useTestEnvironment(): void {
   process.env.DATABASE_URL = requireTestDatabaseUrl();
   process.env.JWT_SECRET_KEY ??= 'test-only-jwt-secret-key-32-bytes-minimum';
+  process.env.JWT_REFRESH_EXPIRES_SECONDS = '2592000';
 }
 
 /**

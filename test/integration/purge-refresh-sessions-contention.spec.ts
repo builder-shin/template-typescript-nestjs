@@ -26,12 +26,17 @@ import type { CommitLockHandle } from '../db/fixture.js';
  * `POST /api/v1/auth/login`을 한 번 이상 거쳐서만 세션을 커밋하고, 그 경로는
  * `auth.controller.ts`의 `issue()` → `issueSession(manager, userId,
  * this.settings.refreshExpiresSeconds)`로 이어진다. `refreshExpiresSeconds`는
- * `loadJwtSettings`(`settings.ts`)가 `JWT_REFRESH_EXPIRES_SECONDS`에서 읽고 기본값은
- * 2,592,000초(30일)다 — 이 저장소의 테스트 환경 어디에서도 이 값을 재정의하지 않는다
- * (`.env.example`은 주석 처리된 예시일 뿐이고, `docker-compose.test.yml`과
- * `scripts/check.sh`에는 `JWT_REFRESH_EXPIRES_SECONDS`/`JWT_`로 시작하는 재정의가
- * 전혀 없다 — 직접 grep으로 확인했다). 나머지 하나(`refresh-session-concurrency
- * .spec.ts`)는 `issueSession`을 직접 부르되 로컬 상수 `TTL = 3600`(1시간)을 쓴다.
+ * `loadJwtSettings`(`settings.ts`)가 `JWT_REFRESH_EXPIRES_SECONDS`에서 읽는다.
+ * **이전에는 "이 저장소의 어떤 파일도 이 값을 재정의하지 않는다"만 근거로 삼았는데,
+ * 그 grep은 저장소 파일만 봤을 뿐 실행자의 셸이 직접 export한 값은 볼 수 없다** —
+ * `JWT_REFRESH_EXPIRES_SECONDS=1 ./scripts/check.sh`로 실행하면 네 스위트 모두
+ * 1초 뒤 만료되는 세션을 커밋하고, 이 파일의 purge 호출이 그것을 지워 버리는 것을
+ * 실측으로 재현했다. 그래서 `test/app-factory.ts`의 `useTestEnvironment()`가 이 값을
+ * `'2592000'`(프로덕션 기본값과 같은 30일)으로 **무조건** 덮어쓴다(`??=`가 아니다 —
+ * 앰비언트 값이 있어도 이긴다). 이 스위트가 실제로 기대는 안전 조건은 그 대입이지,
+ * "아무도 재정의하지 않는다"는 관찰이 아니다. 나머지 하나(`refresh-session-concurrency
+ * .spec.ts`)는 `issueSession`을 직접 부르되 로컬 상수 `TTL = 3600`(1시간)을 쓴다 —
+ * `JWT_REFRESH_EXPIRES_SECONDS`와 무관하므로 이 위험에서 애초에 벗어나 있다.
  * `issueSession` 자신은 `expiresAt`을 언제나 `new Date(Date.now() + ttlSeconds *
  * 1000)`로만 계산한다(`refresh-session.ts`) — 과거를 넣는 호출 경로가 없다.
  *
@@ -48,7 +53,7 @@ import type { CommitLockHandle } from '../db/fixture.js';
  * `withRollback`으로만 감싸고 절대 커밋하지 않는다(`grep -rl "withRollback"
  * test/integration/`로 확인, 그리고 그 파일에 `acquireCommitLock`/커밋 경로가 없다).
  * 그래서 다섯 스위트에 대해서는 이 잠금이 필요 없다 — 이메일 접두사가 겹치지 않기
- * 때문이 아니라(이 잡은애초에 이메일로 스코프되지 않는다), 그 스위트들이 커밋하는
+ * 때문이 아니라(이 잡은 애초에 이메일로 스코프되지 않는다), 그 스위트들이 커밋하는
  * 행의 `expires_at`이 시간 산술적으로 이 잡의 대상 범위 안에 들어올 수 없기 때문이다.
  *
  * 그런데 **이 잡은 이메일/사용자로 스코프할 수 없다** — `DELETE FROM refresh_sessions
