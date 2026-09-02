@@ -1227,7 +1227,8 @@ describe('EXAMPLE_QUERY_POLICY filter', () => {
   it('enum이 아닌 필드는 values를 선언하지 않는다', () => {
     for (const [name, field] of Object.entries(EXAMPLE_QUERY_POLICY.filters)) {
       if (field.type !== 'enum') {
-        expect(`${name}:${String(field.values)}`).toBe(`${name}:undefined`);
+        // 실패했을 때 어느 필드인지 알 수 있도록 이름을 함께 단언한다.
+        expect({ name, values: field.values }).toEqual({ name, values: undefined });
       }
     }
   });
