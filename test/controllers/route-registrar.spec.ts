@@ -1,7 +1,8 @@
-import { Controller } from '@nestjs/common';
+import { Controller, Injectable } from '@nestjs/common';
 import type { CanActivate, INestApplication, Type } from '@nestjs/common';
 import type { Server } from 'node:http';
 import { Test } from '@nestjs/testing';
+import request from 'supertest';
 import {
   RESOURCE_ALIAS,
   registerRoutes,
@@ -133,5 +134,51 @@ describe('registerRoutes가 만드는 라우트', () => {
 
   it('enableUpsert가 아니면 PUT을 만들지 않는다', () => {
     expect(registeredRoutes(app)).not.toContain('PUT /api/v1/examples/:id');
+  });
+});
+
+describe('writeGuards', () => {
+  let guarded: INestApplication<Server>;
+
+  @Injectable()
+  class DenyGuard implements CanActivate {
+    canActivate(): boolean {
+      return false;
+    }
+  }
+
+  beforeAll(async () => {
+    const { Host } = hostFor({ writeGuards: [DenyGuard] });
+
+    @Controller('api/v1/examples')
+    class GuardedProbe extends Host {}
+
+    const moduleRef = await Test.createTestingModule({
+      controllers: [GuardedProbe],
+      providers: [DenyGuard],
+    }).compile();
+    guarded = moduleRef.createNestApplication<INestApplication<Server>>();
+    await guarded.init();
+  });
+
+  afterAll(async () => {
+    await guarded.close();
+  });
+
+  it('쓰기 메서드를 가드가 막는다', async () => {
+    await request(guarded.getHttpServer()).post('/api/v1/examples').expect(403);
+  });
+
+  it('관계 mutation도 가드가 막는다', async () => {
+    // 스펙 16장은 "쓰기와 관계 변경"을 함께 묶는다. 관계 라우트가 가드 목록에
+    // 들어가지 않으면 인증을 우회하는 문이 하나 열린 채로 남는다.
+    await request(guarded.getHttpServer())
+      .patch('/api/v1/examples/e1/relationships/tags')
+      .expect(403);
+  });
+
+  it('읽기는 막지 않는다', async () => {
+    // 읽기가 함께 막히면 공개 조회가 사라진다. 가드가 쓰기에만 붙는지가 계약이다.
+    await request(guarded.getHttpServer()).get('/api/v1/examples').expect(200);
   });
 });

@@ -55,4 +55,11 @@ describe('collectionDocument', () => {
     // `0`을 falsy로 흘리면 "0건"이 "모른다"로 바뀐다.
     expect(collectionDocument([], [], LINKS, 0).meta).toEqual({ totalCount: 0 });
   });
+
+  it('included가 있으면 담는다', () => {
+    // singleDocument와 같은 규칙을 따라야 한다 — 두 문서 조립기가 갈리면
+    // 목록 응답과 단건 응답의 모양이 달라진다.
+    const document = collectionDocument([RESOURCE], [RESOURCE], LINKS, undefined);
+    expect(document.included).toHaveLength(1);
+  });
 });
