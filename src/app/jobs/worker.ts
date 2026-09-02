@@ -4,11 +4,8 @@ import { DataSource } from 'typeorm';
 import { brokerConnection, JOBS_QUEUE_NAME } from '../../config/broker.js';
 import { buildDataSourceOptions } from '../../config/database.js';
 import { loadDatabaseSettings, loadWorkerSettings } from '../../config/settings.js';
-import { processExample } from './process-example.js';
-import { purgeExpiredRefreshSessions } from './purge-expired-refresh-sessions.js';
-import { JOB_NAMES } from './queue.js';
+import { dispatchJob } from './dispatch.js';
 import type { Job } from 'bullmq';
-import type { ProcessExamplePayload } from './process-example.js';
 
 /**
  * 독립 워커 진입점 (스펙 3장 `src/app/jobs/worker.ts`).
@@ -17,38 +14,23 @@ import type { ProcessExamplePayload } from './process-example.js';
  * `AppModule`을 부팅하면 API 전용 설정 요구(`JWT_SECRET_KEY` 등)까지 워커가 떠안는다.
  * `src/config/data-source.ts`가 이미 보여 주는 방식대로 `DataSource`만 직접 만든다.
  *
+ * **잡 이름 → 핸들러 분배 로직은 `dispatch.ts`에 있다, 여기 없다.** 그 함수가
+ * 테스트 가능해야 "모르는 잡 이름은 던진다"는 계약을 실제로 붙잡을 수 있는데, 이
+ * 파일은 아래 이유로 테스트가 import할 수 없기 때문이다. 이 파일은 설정을 읽고
+ * `DataSource`·`Worker`를 만들어 `dispatchJob`을 배선하는 것만 한다.
+ *
  * **`main.ts`와 같은 모양이다** — 무조건 실행되는 top-level 스크립트이고, 어떤
  * 테스트도 이 파일을 import하지 않는다(import하는 순간 실제 `REDIS_URL`/
  * `DATABASE_URL`을 읽고 커넥션을 맺고 `SIGTERM`/`SIGINT`를 등록해 버린다 — 테스트가
- * 통제할 수 없는 부수 효과다). `jest.config.js`의 `collectCoverageFrom`에서
- * `main.ts`와 같은 이유로 제외한다. 큐·워커의 실제 동작 계약(잡 옵션, 실제 처리,
- * 재시도 횟수)은 `test/integration/jobs-queue.spec.ts`가 bullmq API를 직접 써서
- * 고정한다.
+ * 통제할 수 없는 부수 효과다). 그래서 `main.ts`와 같은 이유로 `jest.config.js`의
+ * `collectCoverageFrom`에서 실제로 제외돼 있다(`!src/app/jobs/worker.ts`) — 이
+ * 파일 자체는 커버리지에 안 잡히고, 여기가 배선하는 계약들은 각자의 자리에서
+ * 고정된다: 분배·"모르는 이름은 던진다"는 `test/integration/job-dispatch.spec.ts`,
+ * 잡 옵션·실제 처리·재시도 횟수는 `test/integration/jobs-queue.spec.ts`가 bullmq
+ * API를 직접 써서 고정한다.
  */
 
 const logger = new Logger('worker');
-
-/**
- * `purgeExpiredRefreshSessions`에 넘기는 배치 크기.
- *
- * 스펙 12장의 환경 변수 표에 이 값을 위한 변수가 없다 — 새로 만들지 않고 이 파일의
- * 상수로 둔다(브리프 지시). `purge-expired-refresh-sessions.ts`의 `MAX_BATCHES`
- * 주석이 실제 운영 배치 크기로 "수백~수천"을 전제하므로 그 자릿수 안에서 고른다.
- * 너무 작으면(예: 1) 지운 행 수만큼 SQL 왕복이 늘어 비효율적이고, 너무 크면 배치 하나의
- * `DELETE`·cascade 잠금이 오래 걸려 다른 트랜잭션과 부딪힐 창이 넓어진다. 500은 그
- * 중간값이다.
- */
-const PURGE_BATCH_SIZE = 500;
-
-/**
- * `purgeExpiredRefreshSessions`에 넘기는 `lock_timeout`(ms).
- *
- * 프로브가 실측한 500ms를 그대로 쓴다(`purge-expired-refresh-sessions.ts`의
- * `purgeExpiredRefreshSessions` docstring 참고) — cascade 잠금 경합에서 55P03을
- * 유도하기에 충분히 짧으면서도, 정상적인 배치 하나가 끝나는 데 걸리는 시간보다는
- * 넉넉하다.
- */
-const PURGE_LOCK_TIMEOUT_MS = 500;
 
 async function bootstrap(): Promise<void> {
   const workerSettings = loadWorkerSettings();
@@ -59,26 +41,7 @@ async function bootstrap(): Promise<void> {
 
   const worker = new Worker(
     JOBS_QUEUE_NAME,
-    async (job: Job): Promise<void> => {
-      switch (job.name) {
-        case JOB_NAMES.processExample:
-          // 이 큐에 이 이름으로 들어오는 데이터는 오직 `enqueueProcessExample`이
-          // 실은 것뿐이다(`queue.ts`) — 그 계약을 여기서 캐스트로 표현한다.
-          await processExample(dataSource.manager, job.data as ProcessExamplePayload);
-          return;
-        case JOB_NAMES.purgeExpiredRefreshSessions:
-          await purgeExpiredRefreshSessions(dataSource, {
-            retentionSeconds: workerSettings.refreshSessionRetentionSeconds,
-            batchSize: PURGE_BATCH_SIZE,
-            lockTimeoutMs: PURGE_LOCK_TIMEOUT_MS,
-          });
-          return;
-        default:
-          // 모르는 잡 이름을 조용히 성공시키면 잘못 들어간 잡이 사라지고 아무도
-          // 모른다 — 던져서 실패·재시도(그리고 결국 failed 목록)로 드러낸다.
-          throw new Error(`알 수 없는 잡 이름이다: ${job.name}`);
-      }
-    },
+    (job: Job): Promise<void> => dispatchJob(dataSource, job, workerSettings),
     { connection: brokerConnection(workerSettings.redisUrl) },
   );
 

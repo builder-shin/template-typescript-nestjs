@@ -97,6 +97,7 @@ describe('큐(queue.ts)와 워커 진입점의 통합 계약', () => {
       let worker: Worker | undefined;
       // try 밖(finally)에서도 정리에 써야 하므로 try 스코프 밖에 둔다.
       let createdId: string | undefined;
+      let jobToRemove: Job | undefined;
       try {
         const created = await dataSource.manager.save(Example, {
           title: '잡 큐 통합 테스트',
@@ -135,23 +136,28 @@ describe('큐(queue.ts)와 워커 진입점의 통합 계약', () => {
         // 리스너는 이미 등록됐고, 이 job은 지금 막 만들어지므로 그 이전에 완료 이벤트가
         // 왔을 수는 없다 — 그래서 id를 지금 알려줘도 놓치는 경합이 없다.
         const job = await enqueueProcessExample(queue, { exampleId: created.id });
+        // 단언이 던져도 이 잡을 실제 프로덕션 큐에 남기지 않도록, 정리 대상으로
+        // 등록하는 시점을 단언보다 먼저 둔다 — 실제 제거는 finally에서 한다.
+        jobToRemove = job;
         target.jobId = job.id;
         await finished;
 
         const after = await dataSource.manager.findOneByOrFail(Example, { id: created.id });
         expect(after).toEqual(before);
-
-        await job.remove();
       } finally {
         try {
           await worker?.close();
         } finally {
           try {
-            if (createdId !== undefined) {
-              await dataSource.manager.delete(Example, { id: createdId });
-            }
+            await jobToRemove?.remove();
           } finally {
-            await commitLock.release();
+            try {
+              if (createdId !== undefined) {
+                await dataSource.manager.delete(Example, { id: createdId });
+              }
+            } finally {
+              await commitLock.release();
+            }
           }
         }
       }
