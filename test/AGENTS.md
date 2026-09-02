@@ -10,8 +10,8 @@ fixture(`test/db/fixture.ts`)가 왜 이런 모양인지, 그리고 여기서 �
 
 `test/controllers/`와 `test/integration/`은 둘 다 `src/app/controllers/concerns/`를
 검증하지만 기준이 다르다. `test/controllers/crud-actions.spec.ts`의 머리말이 그
-기준을 그대로 적어 둔다 — "조립 시점 검사만 확인한다. DB가 필요 없는 것은 이
-검사들이 모두 팩토리 호출 자체에서 끝나기 때문이다." `CrudActions(declaration)`
+기준을 그대로 적어 둔다 — "조립 시점 검사만 확인한다. […]
+DB가 필요 없는 것은 이 검사들이 모두 팩토리 호출 자체에서 끝나기 때문이다." `CrudActions(declaration)`
 호출만으로 판정되는 것(cardinality 불일치, `resourcePath` 불일치, 라우트 등록
 자체)은 `test/controllers/`가 DB 없이 본다. 실제 요청이 오가야만, 또는 실제
 트랜잭션·커넥션이 있어야만 참인지 알 수 있는 것은 `test/integration/`이 진짜
