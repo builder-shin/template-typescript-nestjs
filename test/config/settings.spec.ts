@@ -3,6 +3,7 @@ import {
   loadDatabaseSettings,
   loadJwtSettings,
   loadServerSettings,
+  loadWorkerSettings,
   optionalInteger,
   optionalNonNegativeInteger,
   optionalString,
@@ -320,5 +321,37 @@ describe('loadJwtSettings', () => {
     });
     expect(settings.issuer).toBe('발급자');
     expect(settings.audience).toBe('대상');
+  });
+});
+
+describe('loadWorkerSettings', () => {
+  const redisUrl = 'redis://127.0.0.1:6379';
+
+  it('기본값은 스펙 12장의 표와 같다', () => {
+    expect(loadWorkerSettings({ REDIS_URL: redisUrl })).toEqual({
+      redisUrl,
+      refreshSessionRetentionSeconds: 604800,
+    });
+  });
+
+  it('REDIS_URL이 없으면 워커가 시작하지 않는다', () => {
+    // 스펙 12장: 암묵적 기본값을 두지 않는다. 잘못된 Redis에 조용히 붙는 것보다
+    // 시작 실패가 낫다.
+    expect(() => loadWorkerSettings({})).toThrow('REDIS_URL is required');
+  });
+
+  it('보존 기간이 음수면 거절한다', () => {
+    // 음수 보존 기간은 "미래의 행도 지운다"는 뜻이 되어 아직 유효한 세션을 지운다.
+    expect(() =>
+      loadWorkerSettings({ REDIS_URL: redisUrl, REFRESH_SESSION_RETENTION_SECONDS: '-1' }),
+    ).toThrow('REFRESH_SESSION_RETENTION_SECONDS must be non-negative');
+  });
+
+  it('보존 기간 0은 허용한다', () => {
+    // 0은 "만료되는 즉시 지운다"는 정상 설정이다.
+    expect(
+      loadWorkerSettings({ REDIS_URL: redisUrl, REFRESH_SESSION_RETENTION_SECONDS: '0' })
+        .refreshSessionRetentionSeconds,
+    ).toBe(0);
   });
 });

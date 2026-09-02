@@ -169,3 +169,29 @@ export function loadJwtSettings(env: NodeJS.ProcessEnv = process.env): JwtSettin
     leewaySeconds: optionalNonNegativeInteger('JWT_LEEWAY_SECONDS', 0, env),
   };
 }
+
+/** 워커 프로세스 설정. API는 이 값을 읽지 않는다. */
+export interface WorkerSettings {
+  readonly redisUrl: string;
+  readonly refreshSessionRetentionSeconds: number;
+}
+
+/**
+ * 워커 설정을 환경에서 읽는다.
+ *
+ * `REDIS_URL`은 워커에만 필수다(스펙 12장). API 프로세스는 이 함수를 부르지 않으므로
+ * Redis 없이도 뜬다 — 그 분리가 "API는 broker를 import하지 않는다"는 계약의 절반이다.
+ *
+ * 보존 기간이 0인 것은 "만료되는 즉시 지운다"는 정상 설정이라 허용하고, 음수는
+ * "미래의 행도 지운다"는 뜻이 되어 아직 유효한 세션을 지우므로 거절한다.
+ */
+export function loadWorkerSettings(env: NodeJS.ProcessEnv = process.env): WorkerSettings {
+  return {
+    redisUrl: requireEnv('REDIS_URL', env),
+    refreshSessionRetentionSeconds: optionalNonNegativeInteger(
+      'REFRESH_SESSION_RETENTION_SECONDS',
+      604800,
+      env,
+    ),
+  };
+}
