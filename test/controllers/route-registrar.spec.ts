@@ -7,22 +7,25 @@ import {
   RESOURCE_ALIAS,
   registerRoutes,
 } from '../../src/app/controllers/concerns/route-registrar.js';
-import type { RegisteredRoutes } from '../../src/app/controllers/concerns/route-registrar.js';
 import {
   EXAMPLE_RELATIONSHIPS,
   ExampleCreate,
   ExampleUpdate,
 } from '../../src/app/schemas/example.schemas.js';
+import type { RelationshipWriteSchema } from '../../src/app/schemas/write-schema.js';
 import { EXAMPLE_QUERY_POLICY } from '../../src/app/schemas/example.query-policy.js';
 import { EXAMPLE_SERIALIZER } from '../../src/app/serializers/example.serializer.js';
 import { Example } from '../../src/app/models/example.entity.js';
 import { registeredRoutes } from '../app-factory.js';
 
 /** 라우트 등록만 확인하는 최소 호스트. 액션 본문은 이 태스크의 관심사가 아니다. */
-function hostFor(overrides: { enableUpsert?: boolean; writeGuards?: Type<CanActivate>[] } = {}): {
-  Host: Type<object>;
-  registered: RegisteredRoutes;
-} {
+function hostFor(
+  overrides: {
+    enableUpsert?: boolean;
+    writeGuards?: Type<CanActivate>[];
+    relationshipsSchema?: RelationshipWriteSchema;
+  } = {},
+): Type<object> {
   class Host {
     // eslint-disable-next-line @typescript-eslint/no-empty-function
     index(): void {}
@@ -44,8 +47,22 @@ function hostFor(overrides: { enableUpsert?: boolean; writeGuards?: Type<CanActi
     queryPolicy: EXAMPLE_QUERY_POLICY,
     ...overrides,
   };
-  const registered = registerRoutes(Host, declaration);
-  return { Host, registered };
+  registerRoutes(Host, declaration);
+  return Host;
+}
+
+/** 프로브 앱 하나를 띄우고 라우트 목록을 재는 자리. */
+async function probeRoutes(Host: Type<object>): Promise<{
+  app: INestApplication<Server>;
+  routes: string[];
+}> {
+  @Controller('api/v1/examples')
+  class Probe extends Host {}
+
+  const moduleRef = await Test.createTestingModule({ controllers: [Probe] }).compile();
+  const app = moduleRef.createNestApplication<INestApplication<Server>>();
+  await app.init();
+  return { app, routes: registeredRoutes(app) };
 }
 
 describe('RESOURCE_ALIAS', () => {
@@ -54,38 +71,41 @@ describe('RESOURCE_ALIAS', () => {
   });
 });
 
-describe('registerRoutes 등록 대상', () => {
-  it('시리얼라이저와 관계 스키마의 교집합만 등록한다', () => {
-    const { registered } = hostFor();
-    expect([...registered.relationshipNames].sort()).toEqual(['category', 'tags']);
-  });
+describe('쓰기 스키마에 없는 관계', () => {
+  let app: INestApplication<Server>;
+  let routes: string[];
 
-  it('관계 스키마에 없는 관계는 등록하지 않는다', () => {
-    class Host {
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      index(): void {}
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      show(): void {}
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      create(): void {}
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      update(): void {}
-      // eslint-disable-next-line @typescript-eslint/no-empty-function
-      destroy(): void {}
-    }
+  beforeAll(async () => {
     const categoryRule = EXAMPLE_RELATIONSHIPS.category;
     if (categoryRule === undefined) {
       throw new Error('EXAMPLE_RELATIONSHIPS에 category가 없다');
     }
-    const registered = registerRoutes(Host, {
-      model: Example,
-      serializer: EXAMPLE_SERIALIZER,
-      createSchema: ExampleCreate,
-      updateSchema: ExampleUpdate,
-      relationshipsSchema: { category: categoryRule },
-      queryPolicy: EXAMPLE_QUERY_POLICY,
-    });
-    expect(registered.relationshipNames).toEqual(['category']);
+    // tags를 쓰기에서 뺀다. 시리얼라이저는 여전히 tags를 선언하므로 응답에는
+    // `self`/`related` 링크가 나간다.
+    ({ app, routes } = await probeRoutes(
+      hostFor({ relationshipsSchema: { category: categoryRule } }),
+    ));
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  it('읽기 라우트 두 개는 그대로 연다', () => {
+    // 링크만 내고 라우트가 없으면 응답이 404로 가는 URL을 광고하게 된다.
+    expect(routes).toContain('GET /api/v1/examples/:id/relationships/tags');
+    expect(routes).toContain('GET /api/v1/examples/:id/tags');
+  });
+
+  it('쓰기 라우트는 하나도 열지 않는다', () => {
+    // 스펙 6.3의 교집합 규칙이 지배하는 것은 쓰기 쪽이다.
+    expect(routes).not.toContain('PATCH /api/v1/examples/:id/relationships/tags');
+    expect(routes).not.toContain('POST /api/v1/examples/:id/relationships/tags');
+    expect(routes).not.toContain('DELETE /api/v1/examples/:id/relationships/tags');
+  });
+
+  it('쓰기로 연 관계는 영향을 받지 않는다', () => {
+    expect(routes).toContain('PATCH /api/v1/examples/:id/relationships/category');
   });
 });
 
@@ -93,14 +113,7 @@ describe('registerRoutes가 만드는 라우트', () => {
   let app: INestApplication<Server>;
 
   beforeAll(async () => {
-    const { Host } = hostFor();
-
-    @Controller('api/v1/examples')
-    class ExamplesProbe extends Host {}
-
-    const moduleRef = await Test.createTestingModule({ controllers: [ExamplesProbe] }).compile();
-    app = moduleRef.createNestApplication<INestApplication<Server>>();
-    await app.init();
+    ({ app } = await probeRoutes(hostFor()));
   });
 
   afterAll(async () => {
@@ -148,10 +161,8 @@ describe('writeGuards', () => {
   }
 
   beforeAll(async () => {
-    const { Host } = hostFor({ writeGuards: [DenyGuard] });
-
     @Controller('api/v1/examples')
-    class GuardedProbe extends Host {}
+    class GuardedProbe extends hostFor({ writeGuards: [DenyGuard] }) {}
 
     const moduleRef = await Test.createTestingModule({
       controllers: [GuardedProbe],

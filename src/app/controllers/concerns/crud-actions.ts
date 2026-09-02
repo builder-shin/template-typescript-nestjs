@@ -52,9 +52,16 @@ export function CrudActions<
 
   // 같은 관계를 두 곳이 선언한다. 어긋나면 라우트는 to-many로 열리는데 해석은
   // to-one으로 도는 식이 되고, 그 사고는 요청이 들어와야 드러난다.
+  //
+  // 시리얼라이저에 없는 이름을 쓰기 스키마가 들고 있는 반대 방향도 여기서 잡는다.
+  // 그 이름은 라우트를 얻지 못하지만 `POST` 본문의 `relationships`로는 들어올 수 있고,
+  // 그러면 행을 **커밋한 뒤** 응답을 되읽는 단계에서 터져 성공한 쓰기가 500으로 나간다.
   for (const [name, rule] of Object.entries(declaration.relationshipsSchema)) {
     const declared = serializer.relationships[name];
-    if (declared !== undefined && declared.cardinality !== rule.cardinality) {
+    if (declared === undefined) {
+      throw new TypeError(`쓰기 스키마의 관계 "${name}"을 시리얼라이저가 선언하지 않았다`);
+    }
+    if (declared.cardinality !== rule.cardinality) {
       throw new TypeError(
         `관계 "${name}"의 cardinality가 시리얼라이저(${declared.cardinality})와 쓰기 스키마(${rule.cardinality})에서 다르다`,
       );
@@ -230,7 +237,12 @@ export function CrudActions<
       });
     }
 
-    /** 관계 규칙을 꺼낸다. 라우트가 있는 관계는 반드시 규칙이 있다. */
+    /**
+     * 관계의 쓰기 규칙을 꺼낸다. 쓰기 델리게이트만 이것을 지난다.
+     *
+     * 읽기 라우트는 쓰기 스키마에 없는 관계에도 생기므로 여기를 부르지 않는다 —
+     * 부르면 읽기 전용 관계가 500이 된다.
+     */
     private ruleFor(name: string): (typeof relationshipsSchema)[string] {
       const rule = relationshipsSchema[name];
       if (rule === undefined) {
@@ -309,8 +321,10 @@ export function CrudActions<
     }
 
     async showRelatedFor(name: string, id: string, query: QueryRecord): Promise<unknown> {
-      const rule = this.ruleFor(name);
       const entity = await this.findOne(this.dataSource.manager, id, [name]);
+      // cardinality를 쓰기 규칙이 아니라 시리얼라이저에서 읽는다. 이 라우트는 쓰기로
+      // 열리지 않은 관계에도 생기므로(`route-registrar.ts` 참고) 쓰기 규칙을 요구하면
+      // 읽기 전용 관계가 500이 된다.
       const definition = serializer.relationships[name];
       if (definition === undefined) {
         throw new TypeError(`시리얼라이저가 선언하지 않은 관계다: ${name}`);
@@ -318,7 +332,7 @@ export function CrudActions<
       const target = definition.target();
       const value: unknown = definition.read(entity);
 
-      if (rule.cardinality === 'one') {
+      if (definition.cardinality === 'one') {
         // 스펙 8.2: to-one 관계 URL은 모든 조회 파라미터를 거부한다.
         assertNoQueryParameters(query);
         if (value === null || value === undefined) {

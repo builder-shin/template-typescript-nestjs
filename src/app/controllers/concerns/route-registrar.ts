@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import type { CanActivate, Type } from '@nestjs/common';
 import type { ObjectLiteral } from 'typeorm';
+import type { RelationshipWriteRule } from '../../schemas/write-schema.js';
 import type { CrudDeclaration } from './crud-base.js';
 
 /**
@@ -22,18 +23,21 @@ import type { CrudDeclaration } from './crud-base.js';
  * 거기에 적용한다 — 스펙 6.3이 검증한 방식이고, 이래야 OpenAPI에 관계마다 개별
  * 경로가 노출된다.
  *
- * 등록 대상은 **시리얼라이저 `relationships` 키와 `relationshipsSchema` 필드의
- * 교집합**이다. 이름이 어긋나면 쓰기 관계 라우트가 조용히 사라지므로, 이 규칙은
- * 라우트 조립 테스트가 고정한다.
+ * 등록 대상이 읽기와 쓰기에서 갈린다.
+ *
+ * - **읽기**(`GET :id/relationships/<rel>`, `GET :id/<rel>`)는 시리얼라이저가 선언한
+ *   모든 관계에 만든다. `serializeResource`가 선언한 관계마다 `self`/`related` 링크를
+ *   내보내므로, 여기서 교집합만 열면 응답이 404로 가는 링크를 광고하게 된다.
+ * - **쓰기**(`PATCH`, to-many의 `POST`/`DELETE`)는 `relationshipsSchema`에도 있는
+ *   관계에만 만든다. 스펙 6.3의 교집합 규칙이 지배하는 것은 이쪽이다 — "이름이
+ *   어긋나면 쓰기 관계 라우트가 조용히 사라진다"가 그 근거 문장이다.
+ *
+ * 그래서 쓰기 스키마에 없는 관계는 **읽기 전용**이 된다. 두 규칙 모두 라우트 조립
+ * 테스트가 고정한다.
  */
 
 /** 질의 빌더의 별칭. 정책의 property가 이 별칭 뒤에 붙는다. */
 export const RESOURCE_ALIAS = 'resource';
-
-/** 등록 결과. 액션이 관계 이름 목록을 다시 계산하지 않게 돌려준다. */
-export interface RegisteredRoutes {
-  readonly relationshipNames: readonly string[];
-}
 
 /**
  * 값이 동적 메서드를 얹을 수 있는 객체인지 본다.
@@ -80,7 +84,7 @@ export function registerRoutes<
   T extends ObjectLiteral & { id: string },
   C extends object,
   U extends object,
->(host: Type<object>, declaration: CrudDeclaration<T, C, U>): RegisteredRoutes {
+>(host: Type<object>, declaration: CrudDeclaration<T, C, U>): void {
   const prototype: unknown = host.prototype;
   if (!isPrototypeObject(prototype)) {
     throw new TypeError(`${host.name}의 prototype이 객체가 아니다`);
@@ -120,28 +124,24 @@ export function registerRoutes<
     Param('id')(proto, 'destroy', 0);
   });
 
-  const declared = Object.keys(declaration.serializer.relationships);
-  const writable = Object.keys(declaration.relationshipsSchema);
-  const relationshipNames = declared.filter((name) => writable.includes(name));
-
-  for (const name of relationshipNames) {
-    const rule = declaration.relationshipsSchema[name];
-    if (rule === undefined) {
-      throw new TypeError(`관계 규칙이 없다: ${name}`);
-    }
-    registerRelationship(proto, name, rule.cardinality === 'many', writeMethods);
+  // 규칙이 없는 관계(= 쓰기 스키마에 없는 관계)는 읽기 라우트만 받는다.
+  for (const name of Object.keys(declaration.serializer.relationships)) {
+    registerRelationship(proto, name, declaration.relationshipsSchema[name], writeMethods);
   }
 
   guardWrites(proto, writeMethods, declaration.writeGuards ?? []);
-
-  return { relationshipNames };
 }
 
-/** 관계 하나의 라우트를 프로토타입에 만든다. */
+/**
+ * 관계 하나의 라우트를 프로토타입에 만든다.
+ *
+ * `rule`이 `undefined`면 쓰기 스키마에 없는 관계라는 뜻이고, 그때는 `GET` 두 개만
+ * 만든다.
+ */
 function registerRelationship(
   proto: Record<string, unknown>,
   name: string,
-  toMany: boolean,
+  rule: RelationshipWriteRule | undefined,
   writeMethods: string[],
 ): void {
   const showName = `showRelationship$${name}`;
@@ -152,6 +152,24 @@ function registerRelationship(
     Get(`:id/relationships/${name}`)(proto, showName, descriptor);
     Param('id')(proto, showName, 0);
   });
+
+  const relatedName = `showRelated$${name}`;
+  proto[relatedName] = function showRelated(
+    this: RelationshipDelegates,
+    id: string,
+    query: Readonly<Record<string, string | readonly string[] | undefined>>,
+  ) {
+    return this.showRelatedFor(name, id, query);
+  };
+  decorate(proto, relatedName, (descriptor) => {
+    Get(`:id/${name}`)(proto, relatedName, descriptor);
+    Param('id')(proto, relatedName, 0);
+    Query()(proto, relatedName, 1);
+  });
+
+  if (rule === undefined) {
+    return;
+  }
 
   const updateName = `updateRelationship$${name}`;
   proto[updateName] = function updateRelationship(
@@ -169,7 +187,7 @@ function registerRelationship(
   });
   writeMethods.push(updateName);
 
-  if (toMany) {
+  if (rule.cardinality === 'many') {
     const addName = `addRelationship$${name}`;
     proto[addName] = function addRelationship(
       this: RelationshipDelegates,
@@ -202,20 +220,6 @@ function registerRelationship(
     });
     writeMethods.push(removeName);
   }
-
-  const relatedName = `showRelated$${name}`;
-  proto[relatedName] = function showRelated(
-    this: RelationshipDelegates,
-    id: string,
-    query: Readonly<Record<string, string | readonly string[] | undefined>>,
-  ) {
-    return this.showRelatedFor(name, id, query);
-  };
-  decorate(proto, relatedName, (descriptor) => {
-    Get(`:id/${name}`)(proto, relatedName, descriptor);
-    Param('id')(proto, relatedName, 0);
-    Query()(proto, relatedName, 1);
-  });
 }
 
 /**

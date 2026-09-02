@@ -43,7 +43,13 @@ export interface CrudDeclaration<
    * 검증이 비는 상태가 조용히 만들어지는 것을 막는다.
    */
   readonly replaceSchema?: ClassConstructor<object>;
-  /** 쓰기로 여는 관계. 여기 없는 관계는 읽기 전용이 된다. */
+  /**
+   * 쓰기로 여는 관계.
+   *
+   * 여기 없는 관계는 읽기 전용이 된다 — 시리얼라이저가 선언했다면 `GET` 두 개는
+   * 그대로 열리고 `PATCH`/`POST`/`DELETE`만 생기지 않는다. 반대로 시리얼라이저가
+   * 선언하지 않은 이름을 여기 적으면 조립 시점에 던진다(`crud-actions.ts` 참고).
+   */
   readonly relationshipsSchema: RelationshipWriteSchema;
   readonly queryPolicy: QueryPolicy;
   /** `PUT` 라우트를 열지. 기본은 열지 않는다. */

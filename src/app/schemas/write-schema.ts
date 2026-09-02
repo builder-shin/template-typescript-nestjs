@@ -91,6 +91,8 @@ export interface RelationshipWriteRule {
  * 자원이 쓰기로 여는 관계 목록.
  *
  * 스펙 6.3의 "시리얼라이저 관계 키와 관계 스키마 필드의 교집합"에서 뒤쪽이 이것이다.
- * 여기 없는 관계는 읽기 전용이 되고 mutation 라우트가 생기지 않는다.
+ * 그 교집합이 지배하는 것은 **쓰기** 라우트다 — 여기 없는 관계는 mutation 라우트를
+ * 얻지 못하고 읽기 전용이 되지만, 시리얼라이저가 선언한 이상 `GET` 두 개는 열린다
+ * (`route-registrar.ts` 참고). 링크는 나가는데 라우트가 없으면 응답이 404를 광고한다.
  */
 export type RelationshipWriteSchema = Readonly<Record<string, RelationshipWriteRule>>;
