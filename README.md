@@ -29,7 +29,7 @@ NestJS 12, TypeORM, PostgreSQL로 구성한 JSON:API 1.1 템플릿입니다. 현
 | `TEST_DATABASE_URL`                 | 테스트                  | 없음(`check.sh`가 만듭니다)  | DB 이름이 `_test`로 끝나야 합니다                                              |
 | `TEST_REDIS_URL`                    | 테스트                  | 없음(`check.sh`가 만듭니다)  | `test/db/fixture.ts`가 요구합니다. URL 형식만 검사하고 이름 규칙은 없습니다    |
 
-`TEST_DATABASE_URL`의 `_test` 접미사 검사는 사고 방지 장치입니다. 테스트는 `TRUNCATE`를 실행하므로 이 변수를 개발 DB로 두면 데이터가 사라집니다. `TEST_REDIS_URL`에는 같은 이름 규칙을 걸 수 없습니다 — Redis 연결 URL은 호스트·포트뿐이라 "테스트 전용"을 값만 보고 판정할 방법이 없습니다.
+`TEST_DATABASE_URL`의 `_test` 접미사 검사는 사고 방지 장치입니다. 테스트는 `TRUNCATE`를 쓰지 않지만(예전에 있던 전체 비우기 헬퍼는 다른 스펙의 커밋 행까지 지우는 사고 때문에 제거됐습니다), `purgeExpiredRefreshSessions` 통합 스펙은 테스트 데이터로 좁혀지지 않는 `DELETE`를 실행합니다 — 이 변수를 개발 DB로 두면 만료된 진짜 세션이 지워질 수 있습니다. `TEST_REDIS_URL`에는 같은 이름 규칙을 걸 수 없습니다 — Redis 연결 URL은 호스트·포트뿐이라 "테스트 전용"을 값만 보고 판정할 방법이 없습니다.
 
 ## 데이터베이스
 

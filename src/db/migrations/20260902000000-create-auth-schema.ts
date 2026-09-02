@@ -52,10 +52,14 @@ export class CreateAuthSchema1788307200000 implements MigrationInterface {
       )
     `);
     // 갱신·로그아웃은 언제나 id로 한 행을 찾으므로 PK로 충분하다. 아래 `expires_at`
-    // 인덱스는 Phase 7의 `purgeExpiredRefreshSessions`가 만료된 행을 오래된 순서로
-    // 훑기 위한 것이다 — 잡을 배치를 찾느라 테이블을 통째로 읽지 않게 한다. 이름은
-    // `RefreshSession` 엔티티의 `@Index` 데코레이터가 선언하는 이름과 같아야
-    // 드리프트 검사가 조용하다.
+    // 인덱스는 Phase 7의 `purgeExpiredRefreshSessions`가 배치의 후보를 고르는 SELECT
+    // (`expires_at < $1 ORDER BY expires_at ... LIMIT $2`)가 테이블을 통째로 읽지
+    // 않게 한다 — **그 SELECT까지다.** 후보를 실제로 지우는 DELETE 자체가 촉발하는
+    // 참조 무결성 확인(다른 행이 `replaced_by_id`로 이 행을 가리키면 그 값을 NULL로
+    // 되돌리는 것)은 이 인덱스와 무관한 별개 컬럼·별개 스캔이다 — 그래서
+    // `20260902164541-add-refresh-sessions-replaced-by-index.ts`가 별도 인덱스를
+    // 추가한다. 이름은 `RefreshSession` 엔티티의 `@Index` 데코레이터가 선언하는
+    // 이름과 같아야 드리프트 검사가 조용하다.
     await queryRunner.query(`
       CREATE INDEX "IDX_refresh_sessions_expires_at" ON "refresh_sessions" ("expires_at")
     `);

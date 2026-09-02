@@ -8,7 +8,10 @@ import { dispatchJob } from './dispatch.js';
 import type { Job } from 'bullmq';
 
 /**
- * 독립 워커 진입점 (스펙 3장 `src/app/jobs/worker.ts`).
+ * 독립 워커 진입점.
+ *
+ * 스펙 3장은 `src/app/jobs/`를 `# BullMQ 프로세서` 한 줄로만 정할 뿐 이 파일 이름까지
+ * 정하지 않는다 — 생산자·워커·분배로 나누는 것은 Phase 7의 설계다(`queue.ts` 참고).
  *
  * **Nest 애플리케이션 컨텍스트를 만들지 않는다.** HTTP도 컨트롤러도 필요 없고,
  * `AppModule`을 부팅하면 API 전용 설정 요구(`JWT_SECRET_KEY` 등)까지 워커가 떠안는다.
@@ -51,9 +54,9 @@ async function bootstrap(): Promise<void> {
    * `console.error`로만 남기고 넘어간다(실측, `bullmq` 소스의 `emit('error', ...)`
    * 호출부). 그러면 Redis 연결 장애 같은 신호가 이 파일이 나머지 로그 전부를 보내는
    * Nest `Logger`를 완전히 우회해 `console.error`로만 나가고, Compose의 `worker`
-   * 서비스는 healthcheck를 꺼 뒀으므로(위 주석 참고) 아무것도 이 상태를 알아채지
-   * 못한다. 이것은 관찰 가능성 문제이지 안전성 문제가 아니다 — bullmq는 이 이벤트와
-   * 무관하게 스스로 재연결한다.
+   * 서비스는 healthcheck를 꺼 뒀으므로(`docker-compose.yml`의 `worker.healthcheck.disable`
+   * 주석 참고) 아무것도 이 상태를 알아채지 못한다. 이것은 관찰 가능성 문제이지
+   * 안전성 문제가 아니다 — bullmq는 이 이벤트와 무관하게 스스로 재연결한다.
    */
   worker.on('error', (error: Error) => {
     logger.error('워커에서 처리되지 않은 오류가 발생했다', error.stack);
@@ -67,17 +70,22 @@ async function bootstrap(): Promise<void> {
    *
    * **강제 종료 타임아웃을 두지 않는다(의도적 판단, 빠뜨린 것이 아니다).** 아주 긴
    * 잡이 `SIGTERM` 뒤에도 끝나지 않으면 이 핸들러는 무한정 기다린다는 한계가 있다.
-   * 그런데도 넣지 않은 이유:
-   * 1) 이 워커가 다루는 두 핸들러는 이미 자기 자신을 시간적으로 제한한다.
-   *    `purgeExpiredRefreshSessions`는 배치마다 `lockTimeoutMs`로 잠금 대기를 자르고
-   *    `MAX_BATCHES`로 배치 수 자체를 상한 두며(`purge-expired-refresh-sessions.ts`),
-   *    `processExample`은 단순한 단건 조회 하나뿐이다 — "영원히 안 끝나는 잡"은 이미
-   *    설계상 일어나기 어렵다.
-   * 2) 강제 타임아웃 값 자체를 정당화할 근거가 스펙에 없다. 짧게 잡으면 정상적으로
+   *
+   * **이 한계가 실제로 얼마나 좁은지부터 정확히 하자.** 이 워커가 다루는 두 핸들러 중
+   * `processExample`은 단순한 단건 조회 하나뿐이라 원천적으로 오래 걸리지 않는다.
+   * `purgeExpiredRefreshSessions`는 배치 **횟수**(`MAX_BATCHES`)와 잠금을 **기다리는**
+   * 시간(`lockTimeoutMs`)에는 상한이 있지만, 그 둘은 시간 상한이 아니다 —
+   * `lock_timeout`은 잠금을 얻기까지 기다리는 시간만 자를 뿐, 잠금을 얻은 뒤 문장이
+   * 실제로 실행되는 시간은 재지 않는다(인덱스 없는 cascade가 배치 하나를 몇 분씩
+   * 순차 스캔으로 돌게 만들 수 있었던 것과 같은 구분이다 — 지금은
+   * `20260902164541-add-refresh-sessions-replaced-by-index.ts`로 그 경로를 막았지만,
+   * 이 워커가 "영원히 안 끝나는 잡"에서 구조적으로 완전히 자유롭다고 말할 근거는
+   * 아니다). 그래서 넣지 않은 진짜 이유는 이것이다:
+   * 1) 강제 타임아웃 값 자체를 정당화할 근거가 스펙에 없다. 짧게 잡으면 정상적으로
    *    오래 걸리는 대량 정리 배치를 중간에 끊어 "진행 중인 잡을 기다린다"는
    *    `worker.close()`의 계약과 정면으로 부딪히고, 길게 잡으면 안전장치로서
    *    의미가 없다 — 둘 다 근거 없는 숫자를 하나 더 만드는 것이다.
-   * 3) 컨테이너·오케스트레이터(Docker/Kubernetes 등)는 어차피 자기 자신의 유예
+   * 2) 컨테이너·오케스트레이터(Docker/Kubernetes 등)는 어차피 자기 자신의 유예
    *    시간이 지나면 `SIGKILL`로 강제 종료한다 — 그 유예 시간은 배포 환경이 상황에
    *    맞게 정하는 값이고(`docker stop -t`, `terminationGracePeriodSeconds`), 이
    *    프로세스 안에 또 다른(환경마다 다시 튜닝할 수도 없는) 숫자를 박아 넣는 것보다

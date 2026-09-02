@@ -12,11 +12,15 @@ import { buildDataSourceOptions } from '../../src/config/database.js';
 /**
  * `TEST_DATABASE_URL`을 읽고 안전 조건을 확인한다.
  *
- * DB 이름이 `_test`로 끝나야 하고, 경로 세그먼트가 정확히 하나여야 한다. 이 fixture는
- * `TRUNCATE`를 실행하므로, 변수를 실수로 개발 DB나 운영 DB로 두면 데이터가 사라진다.
- * 세그먼트가 여럿이면(예: `/production/app_test`) 접미사 검사만으로는 걸러지지 않으므로
- * 두 조건을 함께 본다 — 이 검사들은 그 사고를 막는 값싼 방벽이다. 편의를 위해
- * 우회로를 만들지 않는다.
+ * DB 이름이 `_test`로 끝나야 하고, 경로 세그먼트가 정확히 하나여야 한다. **이 fixture는
+ * 더 이상 `TRUNCATE`를 실행하지 않는다** — 예전에는 `truncateAll`이 있었지만 다른
+ * 커밋 스위트의 행까지 지우는 사고 때문에 제거됐다(`withRollback` docstring 참고).
+ * 그래도 변수를 실수로 개발 DB나 운영 DB로 두면 위험한 것은 마찬가지다:
+ * `purgeExpiredRefreshSessions` 통합 스펙(`test/integration/purge-refresh-sessions*.spec.ts`)이
+ * 부르는 `DELETE FROM refresh_sessions WHERE expires_at < $1`은 테스트가 만든 행으로
+ * 좁혀지지 않는다 — 그 DB의 진짜 만료 세션도 그대로 지운다. 세그먼트가 여럿이면(예:
+ * `/production/app_test`) 접미사 검사만으로는 걸러지지 않으므로 두 조건을 함께 본다 —
+ * 이 검사들은 그 사고를 막는 값싼 방벽이다. 편의를 위해 우회로를 만들지 않는다.
  */
 export function requireTestDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string {
   const raw = env.TEST_DATABASE_URL;

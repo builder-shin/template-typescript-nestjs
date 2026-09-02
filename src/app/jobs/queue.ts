@@ -4,7 +4,11 @@ import type { ConnectionOptions, Job, JobsOptions } from 'bullmq';
 import type { ProcessExamplePayload } from './process-example.js';
 
 /**
- * 큐 정의와 enqueue 헬퍼 (스펙 3장 `src/app/jobs/queue.ts`).
+ * 큐 정의와 enqueue 헬퍼.
+ *
+ * 스펙 3장은 `src/app/jobs/`를 `# BullMQ 프로세서` 한 줄로만 정한다 — 그 디렉터리
+ * 안을 생산자(`queue.ts`)·워커(`worker.ts`)·분배(`dispatch.ts`)로 나누는 것은 스펙이
+ * 아니라 Phase 7이 정한 설계다.
  *
  * 생산자(이 파일)와 워커(`worker.ts`)가 정확히 같은 잡 이름·같은 잡 옵션을 봐야 한다.
  * 그 계약이 어긋나면 잡이 조용히 영원히 처리되지 않거나(이름이 다르면) 재시도 횟수가
@@ -41,8 +45,13 @@ export const JOB_ATTEMPTS = 3;
  * "일시적 DB 오류")는 보통 커넥션 반짝 장애·잠금 경합처럼 짧게 스스로 풀리는 종류라,
  * 즉시 재시도(0ms)보다는 약간의 여유를 주는 편이 재시도가 실제로 의미 있을 확률을
  * 높인다. 정확한 상한값이 스펙에 없으므로 bullmq 기본 전략(지수)에 통상적인 시작값을
- * 얹은 것이고, 세 번째 시도까지 걸리는 시간(1s+2s)이 워커를 오래 붙잡을 정도로 크지도
- * 않다.
+ * 얹었다.
+ *
+ * 세 번째 시도까지 걸리는 시간(1s+2s)이 워커를 붙잡아 두는 것은 아니다 — 실패한
+ * 잡은 `job.js`의 재시도 경로가 `moveToDelayed(...)`를 불러 delayed 집합으로 옮긴다
+ * (`node_modules/bullmq/dist/esm/classes/job.js`에서 직접 확인했다), 그동안 워커는
+ * 다른 잡을 계속 처리할 수 있다. 이 시간이 짧다는 것이 의미하는 바는 워커 처리량이
+ * 아니라 이 잡 하나의 최종 성패를 아는 데까지 걸리는 지연이 작다는 것뿐이다.
  */
 const DEFAULT_JOB_OPTIONS: JobsOptions = {
   attempts: JOB_ATTEMPTS,
