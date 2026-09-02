@@ -38,8 +38,16 @@ describe('비밀번호 해시', () => {
     await expect(verifyPassword('해시가-아니다', plain)).rejects.toThrow(TypeError);
   });
 
-  it('더미 검증은 아무 값이나 받고 조용히 끝난다', async () => {
+  it('더미 검증은 아무 값이나 받고 조용히 끝나며, 실제로 argon2 연산을 치른다', async () => {
     // 이메일이 없을 때도 같은 일을 시켜 응답 시간으로 계정 존재를 알아내지 못하게 한다.
+    // `resolves.toBeUndefined()`만으로는 본문을 통째로 비워도 통과한다 — 이 함수의
+    // 유일한 존재 이유인 "타이밍을 맞춘다"는 계약은 반환값에 드러나지 않는다.
+    // 이 기계에서 argon2 한 번은 약 28ms, 빈 함수는 1ms 미만이므로 5ms를 임계값으로
+    // 둔다 — 실측치의 1/5이라 여유가 크면서 빈 함수는 절대 넘지 못하는 값이다.
+    // 내부 함수를 export해서 직접 재는 방법도 있지만, 테스트를 위해 공개 표면을
+    // 늘리는 대가가 타이밍으로 재는 쪽보다 크다고 판단했다.
+    const start = performance.now();
     await expect(verifyDummyPassword('무엇이든')).resolves.toBeUndefined();
+    expect(performance.now() - start).toBeGreaterThan(5);
   });
 });

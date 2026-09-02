@@ -255,6 +255,15 @@ describe('requireEnvMinBytes', () => {
     );
   });
 
+  it('하한을 넘겨도 앞뒤 공백은 트림하지 않고 원본 그대로 돌려준다', () => {
+    // 재는 것과 돌려주는 것은 비대칭이다 — 트림한 값으로 재고, 트림하지 않은 원본을
+    // 돌려준다. `requireEnv`와 반환 규칙이 갈리면 안 되기 때문이다. 공백 없는 입력만
+    // 쓰면 `return value.trim();`으로 바꿔도 이 파일의 다른 케이스가 전부 통과해
+    // 이 비대칭이 고정되지 않는다.
+    const withSpaces = `  ${'a'.repeat(32)}  `;
+    expect(requireEnvMinBytes('SECRET', 32, { SECRET: withSpaces })).toBe(withSpaces);
+  });
+
   it('없으면 requireEnv의 오류를 그대로 낸다', () => {
     expect(() => requireEnvMinBytes('SECRET', 32, {})).toThrow('SECRET is required');
   });

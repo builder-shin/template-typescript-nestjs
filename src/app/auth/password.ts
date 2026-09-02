@@ -27,13 +27,20 @@ export function verifyPassword(hash: string, plain: string): Promise<boolean> {
  * 존재하지 않는 계정에 대해서도 검증 비용을 치른다.
  *
  * 이메일이 없을 때 곧바로 돌아오면 응답 시간이 "그 계정은 없다"를 알려 준다.
- * 모듈이 로드될 때 한 번 만든 더미 해시로 같은 일을 시켜 그 차이를 지운다.
+ * 첫 호출 때 만든 더미 해시를 캐시해 두고 같은 일을 시켜 그 차이를 지운다.
  *
  * 결과를 버리는 것이 요점이라 반환값이 없다. 시간을 완전히 같게 만들지는 못하지만
  * (해시 하나의 편차는 남는다), 계정 유무가 만드는 수십 밀리초의 계단은 사라진다.
+ *
+ * 더미 해시는 모듈 최상위가 아니라 첫 호출 시점에 만든다. 최상위에서 만들면
+ * `.catch()` 없는 promise가 곧바로 매달리는데, 이 함수를 한 번도 부르지 않는
+ * 프로세스(마이그레이션 러너 등)에서 `argon2.hash`가 실패라도 하면 아무도 원인을
+ * 모르는 unhandledRejection이 된다. 첫 호출 안에서 만들고 그 자리에서 바로
+ * `await`하면, 실패해도 이 함수를 부른 쪽의 실패로만 나타난다.
  */
-const DUMMY_HASH_PROMISE: Promise<string> = argon2.hash('존재하지 않는 계정을 위한 더미 값');
+let dummyHashPromise: Promise<string> | undefined;
 
 export async function verifyDummyPassword(plain: string): Promise<void> {
-  await argon2.verify(await DUMMY_HASH_PROMISE, plain);
+  dummyHashPromise ??= argon2.hash('존재하지 않는 계정을 위한 더미 값');
+  await argon2.verify(await dummyHashPromise, plain);
 }
