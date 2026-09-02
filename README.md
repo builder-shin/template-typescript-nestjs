@@ -86,6 +86,62 @@ pnpm start
 - OpenAPI 스키마: `http://localhost:4000/api/schema`
 - 상태 확인: `http://localhost:4000/health/live`, `http://localhost:4000/health/ready`
 
+## API 사용
+
+모든 `/api/v1` 요청에 `Accept: application/vnd.api+json`이 필요하고, 본문이 있는 요청에는 `Content-Type`도 같은 값이 필요합니다. **헤더를 빠뜨리는 것이 가장 흔한 첫 걸림돌입니다** — `Accept`가 없거나 다르면 `406 NOT_ACCEPTABLE`, `Content-Type`이 다르면 `415 UNSUPPORTED_MEDIA_TYPE`이 돌아옵니다. JSON:API 1.1은 이 미디어 타입에 파라미터를 금지하므로 `; charset=utf-8`을 붙이면 그것도 거부됩니다.
+
+`/health`는 JSON:API가 아니라 평문 JSON이므로 이 헤더를 쓰지 않습니다.
+
+아래 예시의 `-g`(`--globoff`)는 장식이 아닙니다. curl은 URL의 `[]`와 `{}`를 자기 글로빙 문법으로 먼저 해석합니다 — `page[size]`는 `curl: (3) bad range`로 요청 자체가 나가지 않고, 자리표시자 `{id}`는 **조용히** `id`로 바뀌어 엉뚱한 URL로 나갑니다. JSON:API의 질의 키가 대괄호를 쓰므로 이 플래그가 필요합니다. 따옴표로는 막을 수 없습니다.
+
+목록 — `filter`·`sort`·`page`는 자원의 조회 정책이 허용한 것만 받습니다. 허용 목록에 없으면 `400 INVALID_QUERY_PARAMETER`입니다. `sort`는 `-` 접두사가 내림차순이고 쉼표로 여러 개를 줍니다.
+
+```bash
+curl -sg -H 'Accept: application/vnd.api+json' \
+  'http://localhost:4000/api/v1/examples?filter[status]=published&sort=-createdAt&page[size]=10&page[totals]=true'
+```
+
+생성 — `201`과 `Location` 헤더를 돌려줍니다. 클라이언트가 만든 `id`는 `403`으로 거부합니다.
+
+```bash
+curl -s -X POST http://localhost:4000/api/v1/examples \
+  -H 'Accept: application/vnd.api+json' \
+  -H 'Content-Type: application/vnd.api+json' \
+  -d '{"data":{"type":"examples","attributes":{"title":"제목","body":"본문"}}}'
+```
+
+단건 — `include`로 관계 자원을 함께 받습니다.
+
+```bash
+curl -sg -H 'Accept: application/vnd.api+json' \
+  'http://localhost:4000/api/v1/examples/{id}?include=category,tags'
+```
+
+부분 수정 — 보낸 필드만 바뀝니다. `null`을 보내면 비우고, 아예 보내지 않은 필드는 그대로 둡니다.
+
+```bash
+curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}' \
+  -H 'Accept: application/vnd.api+json' \
+  -H 'Content-Type: application/vnd.api+json' \
+  -d '{"data":{"type":"examples","id":"{id}","attributes":{"title":"새 제목"}}}'
+```
+
+삭제 — `204`이고 본문이 없습니다.
+
+```bash
+curl -sg -X DELETE 'http://localhost:4000/api/v1/examples/{id}' \
+  -H 'Accept: application/vnd.api+json'
+```
+
+관계 교체 — 관계 라우트는 자원 문서가 아니라 linkage만 주고받고, 쓰기는 모두 `204`입니다. to-many는 `POST`로 더하고 `DELETE`로 뺍니다.
+
+```bash
+curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}/relationships/tags' \
+  -H 'Accept: application/vnd.api+json' \
+  -H 'Content-Type: application/vnd.api+json' \
+  -d '{"data":[{"type":"tags","id":"{tagId}"}]}'
+```
+
 ## Docker로 실행
 
 ```bash
