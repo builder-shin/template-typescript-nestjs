@@ -150,12 +150,16 @@ export class JsonApiExceptionFilter implements ExceptionFilter {
     }
 
     if (shouldLog(exception, first.status)) {
+      // 요청 식별자를 함께 남긴다 — 코드만으로는 어떤 라우트가 터졌는지 알 수 없다.
+      // 스택은 두 번째 인자로 넘긴다(Nest `Logger`의 관례).
       this.logger.error(
         `${request.method} ${request.url} -> ${first.code}`,
         exception instanceof Error ? exception.stack : String(exception),
       );
     }
 
+    // 헤더를 세팅하기 전에 고정한다. Express가 본문을 보내며 덧붙이는 `charset=utf-8`이
+    // vendor 타입에 붙지 않게 한다 — 근거는 `pinJsonApiContentType` 주석 참고.
     pinJsonApiContentType(response);
     response.setHeader('Content-Type', JSONAPI_MEDIA_TYPE);
     response.status(first.status).json(buildErrorDocument(errors, language));
