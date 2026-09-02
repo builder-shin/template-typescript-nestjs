@@ -44,15 +44,27 @@
 적혀 있다가 관계 대상이 아닌 새 시리얼라이저 둘이 추가되면서 사실보다 넓게
 말하게 된 적이 있다.
 
+이 배열 자체는 관계 해석 코드가 참조하지 않는다는 것도 함께 알아 둔다 —
+어떤 시리얼라이저가 관계 대상이 되는가는 `collectIncluded`가 이 배열을 보고
+정하는 것이 아니라, 소유 시리얼라이저의 `relationships.<name>.target()`
+클로저가 무엇을 가리키는가로 정해진다(`src/app/serializers/example.serializer.ts`가
+`ERASED_CATEGORY_SERIALIZER`를 직접 참조하는 것이 그 예다). `SERIALIZERS`는
+그 구성이 조용히 흔들리지 않도록
+`test/serializers/example.serializer.spec.ts`의 "SERIALIZERS 등록" 테스트가
+고정하는 목록일 뿐이다 — 여기 추가하는 것을 잊어도 관계 해석이나 `included`
+조립 자체는 깨지지 않는다.
+
 ## 함께 고쳐야 하는 파일
 
-- **새 자원의 시리얼라이저를 추가할 때.** `src/app/serializers/index.ts`에서
-  export하고, 그 자원이 다른 자원의 관계 대상이거나 `include`로 노출될
-  것이면 `ErasedSerializer` 짝을 만들어 `SERIALIZERS`에도 추가한다. 두
-  단계(export, `SERIALIZERS` 등록)는 별개다 — export만 하고 `SERIALIZERS`에
-  안 넣으면 그 자원은 `include` 대상도 관계 대상도 될 수 없다.
-- **`resourcePath`를 정하거나 바꿀 때.** 그 값을 쓰는 컨트롤러의
-  `@Controller` 경로(`src/app/controllers/api/v1/`)와 글자까지 같아야 한다 —
+- **새 자원의 시리얼라이저를 추가할 때.** export 위치와 `SERIALIZERS` 등록
+  여부를 가르는 기준(관계 대상인가, `include`로 노출되는가)은 루트
+  `AGENTS.md`의 "조립점과 변경 순서" 4번이 정한다. 이 디렉터리에서 실수가
+  나는 지점은 등록 그 자체가 아니라 무엇을 등록해야 하는가의 판단이다 —
+  `test/serializers/example.serializer.spec.ts`의 "SERIALIZERS 등록" 테스트가
+  배열의 정확한 구성을 고정하므로, 관계 대상이 아닌 시리얼라이저를 잘못
+  추가하거나 관계 대상인 시리얼라이저를 빠뜨리면 여기서 드러난다.
+- **`resourcePath`를 정하거나 바꿀 때.** 그 값이 컨트롤러 경로와 글자까지
+  같아야 한다는 규칙은 루트 `AGENTS.md`의 "조립점과 변경 순서" 4번이 정한다.
   `src/app/controllers/concerns/crud-actions.ts`의 `CrudActions`가 이 둘의
   불일치를 조립 시점에 잡아 주지만, 애초에 두 값을 한 커밋에서 함께 정하는
   편이 그 오류를 마주치는 것보다 낫다.
