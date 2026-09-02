@@ -73,6 +73,19 @@ describe('refresh session', () => {
     });
   });
 
+  it('로그아웃한 세션으로 갱신을 시도하면 TOKEN_REVOKED다', async () => {
+    // `revokeSession`과 회전 후 재사용은 같은 `revokedAt !== null` 검사를 공유하지만,
+    // 그 사실 자체는 지금까지 테스트로 고정돼 있지 않았다 — 위 테스트는 "회전"이 그
+    // 검사를 태우는 것만 보고, "로그아웃"이 태우는지는 보지 않는다.
+    await withRollback(dataSource, async (manager) => {
+      const user = await makeUser(manager, 'ㅊ@example.test');
+      const issued = await issueSession(manager, user.id, TTL);
+      await revokeSession(manager, issued.id);
+
+      expect(await codeOf(() => rotateSession(manager, issued.id, TTL))).toBe('TOKEN_REVOKED');
+    });
+  });
+
   it('만료된 세션은 TOKEN_EXPIRED다', async () => {
     // token 서명은 아직 유효한데 행이 만료된 경우다 — 둘의 수명이 갈릴 수 있으므로
     // 행 쪽도 반드시 본다.

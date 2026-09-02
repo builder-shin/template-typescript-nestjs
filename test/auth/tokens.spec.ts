@@ -57,10 +57,23 @@ describe('TokenService', () => {
   });
 
   it('access token을 refresh 자리에서 거절한다', () => {
-    const tokens = service();
-    expect(codeOf(() => tokens.verifyRefreshToken(tokens.signAccessToken(USER)))).toBe(
-      'INVALID_TOKEN',
+    // `tokens.signAccessToken(USER)`로 만든 token은 `jti`가 없다. `typ` 검사를 통째로
+    // 지워도 `claimString`이 그 `jti` 누락으로 대신 INVALID_TOKEN을 던지므로, 그렇게
+    // 만든 token으로는 이 테스트가 `typ`가 아니라 `jti` 부재를 확인하는 셈이 된다.
+    // `jti`를 실어 보내는 access-typ token을 직접 만들어 실패 이유를 `typ` 하나로
+    // 좁힌다 — `claimString` 도달성 테스트에서 이미 쓴 방식(같은 비밀 키로 JwtService를
+    // 직접 써서 서명)을 그대로 쓴다.
+    const raw = new JwtService({ secret: BASE.secret }).sign(
+      { typ: 'access' },
+      {
+        subject: USER,
+        jwtid: SESSION,
+        issuer: BASE.issuer,
+        audience: BASE.audience,
+        expiresIn: BASE.accessExpiresSeconds,
+      },
     );
+    expect(codeOf(() => service().verifyRefreshToken(raw))).toBe('INVALID_TOKEN');
   });
 
   it('다른 비밀 키로 서명된 token을 거절한다', () => {
