@@ -40,6 +40,9 @@ export function isFilterKey(key: string): boolean {
   return FILTER_KEY_PATTERN.test(key);
 }
 
+// 같은 모양을 `controllers/concerns/relationship-resolver.ts`도 따로 갖는다. 그쪽은
+// "이 id가 행을 가리킬 수 있는가"를 보고 여기는 "필터 값이 uuid 형식인가"를 봐서
+// 이유가 다르므로 합치지 않는다. 한쪽을 고칠 일이 생기면 다른 쪽도 함께 본다.
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const NUMBER_PATTERN = /^-?\d+(?:\.\d+)?$/;
 // 날짜와 시각을 모두 요구한다. 오프셋은 `Z` 또는 `±HH:MM`.

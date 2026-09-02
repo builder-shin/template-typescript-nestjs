@@ -21,7 +21,13 @@ export interface ResolvedLinkage {
   readonly toMany: Record<string, ObjectLiteral[]>;
 }
 
-/** 기본키 컬럼이 uuid인 엔티티의 id 모양. */
+/**
+ * 기본키 컬럼이 uuid인 엔티티의 id 모양.
+ *
+ * 같은 모양을 `jsonapi/filter.ts`도 따로 갖는다. 그쪽은 필터 값이 uuid 형식인지를
+ * 보고 여기는 이 id가 행을 가리킬 수 있는지를 봐서, 합치면 해석 계층이 필터 계층에
+ * 의존하게 된다. 한쪽을 고칠 일이 생기면 다른 쪽도 함께 본다.
+ */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
