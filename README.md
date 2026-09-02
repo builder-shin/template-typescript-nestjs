@@ -1,6 +1,6 @@
 # TypeScript NestJS Template
 
-NestJS 12, TypeORM, PostgreSQL로 구성한 JSON:API 1.1 템플릿입니다. 현재 Phase 0-7(기반, JSON:API 프로토콜, 영속성 계층, 시리얼라이저와 조회 정책, 선언형 CRUD, `PUT` 업서트, 인증, 비동기 작업)까지 구현되어 있습니다.
+NestJS 12, TypeORM, PostgreSQL로 구성한 JSON:API 1.1 템플릿입니다. Phase 0-8(기반, JSON:API 프로토콜, 영속성 계층, 시리얼라이저와 조회 정책, 선언형 CRUD, `PUT` 업서트, 인증, 비동기 작업, Docker/CI와 문서화)을 모두 구현했습니다.
 
 ## 요구 사항
 
@@ -64,7 +64,7 @@ test/                   # 단위 테스트
 scripts/check.sh        # 단일 검증 게이트
 ```
 
-Phase 0-7까지 구현되어 있습니다: 기반과 검증 게이트, JSON:API 프로토콜 계층(협상·문서·오류·언어), 영속성 계층(TypeORM 엔티티·마이그레이션·시드), 시리얼라이저와 조회 정책, 선언형 CRUD(`CrudActions`), `PUT` 업서트(동일 id 동시 요청을 advisory 잠금으로 직렬화하는 생성/교체), 인증(argon2 비밀번호, JWT access/refresh, refresh session 회전, `GET /api/v1/users/me`, Example 쓰기 보호), 그리고 비동기 작업(BullMQ 큐, `processExample`, `purgeExpiredRefreshSessions`, 독립 워커 진입점)입니다. `scripts/check.sh`가 실제 PostgreSQL과 실제 Redis에 연결해 확인합니다. 아직 구현되지 않은 것은 Docker/Compose/CI 마감과 `AGENTS.md` 문서군입니다. 전체 설계는 `docs/superpowers/specs/`를 참고하세요.
+Phase 0-8을 모두 구현했습니다: 기반과 검증 게이트, JSON:API 프로토콜 계층(협상·문서·오류·언어), 영속성 계층(TypeORM 엔티티·마이그레이션·시드), 시리얼라이저와 조회 정책, 선언형 CRUD(`CrudActions`), `PUT` 업서트(동일 id 동시 요청을 advisory 잠금으로 직렬화하는 생성/교체), 인증(argon2 비밀번호, JWT access/refresh, refresh session 회전, `GET /api/v1/users/me`, Example 쓰기 보호), 비동기 작업(BullMQ 큐, `processExample`, `purgeExpiredRefreshSessions`, 독립 워커 진입점), 그리고 Docker/Compose/CI 마감과 루트 + 계층별 `AGENTS.md` 문서군입니다. `scripts/check.sh`가 실제 PostgreSQL과 실제 Redis에 연결해 확인합니다. 이 템플릿이 의도적으로 채택하지 않은 것(리소스별 repository/service 계층, `fields[...]` 희소 필드셋, GraphQL/WebSocket, 멀티테넌시, 스케줄러 의존성 등)은 스펙 1.1절의 비목표를 참고하세요. 전체 설계는 `docs/superpowers/specs/`를 참고하세요.
 
 ## ESM 제약
 
@@ -251,6 +251,39 @@ Compose 스택(`docker-compose.yml`)이 셸 기본값 문법(`${VAR:-default}`)�
 | `POSTGRES_USER`     | `nestjs`                            | Compose 전용입니다                                                                                                                      |
 | `POSTGRES_PASSWORD` | `nestjs`                            | Compose 전용 개발 값입니다                                                                                                              |
 | `JWT_SECRET_KEY`    | 명백한 더미 값(`.env.example` 참고) | 개발용 폴백입니다. **운영에서는 반드시 실제 값으로 덮어써야 합니다**                                                                    |
+
+## 새 리소스 추가
+
+새 자원(예: `Article`) 하나를 추가하려면 아래 순서로 파일을 만듭니다. 이 저장소는 glob 탐색을 하지 않으므로, 파일을 만들고 나서 **레지스트리 등록을 잊으면 그 파일은 존재하지 않는 것과 같습니다** — 이 저장소에서 실제로 가장 자주 나온 실수입니다. `Example` 자원이 이 여섯 단계를 그대로 거쳐 만들어졌으므로(`src/app/models/example.entity.ts` 등), 새 자원을 만들 때 파일 하나하나를 그대로 본떠 쓸 수 있습니다.
+
+1. **엔티티** — `src/app/models/<name>.entity.ts`에 컬럼·관계·제약·인덱스를 선언하고, **`src/app/models/index.ts`의 `ENTITIES` 배열에 등록**합니다.
+2. **마이그레이션** — `src/db/migrations/`에 엔티티가 선언한 테이블·제약·인덱스를 SQL로 짓는 파일을 추가하고, **`src/db/migrations/index.ts`의 `MIGRATIONS` 배열에 등록**합니다. 파일명·클래스명 규약은 `src/db/migrations/AGENTS.md`를 따릅니다.
+3. **쓰기 스키마와 조회 정책** — `src/app/schemas/`에 Create/Update/Replace DTO, 관계 쓰기 스키마, filter·sort·include allowlist를 만들고 `src/app/schemas/index.ts`에서 export합니다.
+4. **시리얼라이저** — `src/app/serializers/`에 공개 표현(JSON:API type·attributes·relationships)을 만들고 `src/app/serializers/index.ts`에서 export합니다. 다른 자원의 관계 대상이거나 `include`로 노출된다면 **`SERIALIZERS` 배열에도 등록**합니다. `resourcePath`는 다음 단계 컨트롤러의 `@Controller` 경로와 문자열까지 같아야 합니다 — 다르면 부트스트랩이 즉시 예외를 던집니다.
+5. **컨트롤러** — `src/app/controllers/api/v1/`에 `CrudActions`로 위 산출물을 선언만으로 잇는 파일을 만듭니다. 자원별 service 계층은 만들지 않습니다.
+6. **라우트 등록** — **`src/config/routes.module.ts`의 `controllers` 배열에 추가**합니다. 여기 없으면 앞의 다섯 단계를 다 밟아도 라우트는 존재하지 않습니다.
+
+마지막으로 새 라우트를 위 "공개 API 표면" 표에 손으로 추가하세요 — 문서 동기화 테스트(`test/docs/readme.spec.ts`)는 이 표까지는 확인하지 않으므로, 빠뜨려도 게이트는 그대로 초록입니다.
+
+각 단계에서 정확히 무엇을 써야 하는지, 그리고 이 순서가 왜 중요한지는 `AGENTS.md`의 "조립점과 변경 순서"가 정본입니다. 계층별 세부 규칙은 아래 문서 지도를 따라가세요.
+
+## 문서 지도
+
+계층별 세부 계약은 각 디렉터리의 `AGENTS.md`가 소유합니다. 해당 디렉터리를 고치기 전에 먼저 읽으세요.
+
+| 문서                                     | 언제 읽는가                                                                                      |
+| ---------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `AGENTS.md`                              | 저장소 전체를 바꾸기 전에 — 아키텍처, DB 규칙, 검증 명령, 새 자원의 조립점과 변경 순서           |
+| `src/config/AGENTS.md`                   | 설정 로더·앱 조립·라우트 등록·DataSource 구성을 고칠 때                                          |
+| `src/db/AGENTS.md`                       | 시드(`src/db/seeds.ts`)를 고칠 때 — 결정적 시드와 트랜잭션 소유권                                |
+| `src/db/migrations/AGENTS.md`            | 마이그레이션을 추가하거나 고칠 때 — 명명 규약, `MIGRATIONS` 등록, `down()` 검증, 스키마 드리프트 |
+| `src/app/AGENTS.md`                      | 모델·스키마의 필드 표기를 고칠 때 — nullable ↔ 검증 데코레이터 대응, 내부 FK 비공개 규칙         |
+| `src/app/jsonapi/AGENTS.md`              | JSON:API 프로토콜 계층(협상·오류 카탈로그·문서 조립)을 고칠 때                                   |
+| `src/app/serializers/AGENTS.md`          | 시리얼라이저의 공개 표현 규칙을 고칠 때                                                          |
+| `src/app/controllers/concerns/AGENTS.md` | `CrudActions` 조립 기계(동적 라우트·`writeGuards`·업서트)를 고칠 때                              |
+| `test/AGENTS.md`                         | 테스트를 추가할 때 — fixture 격리 규율과 동시성 테스트 검증법                                    |
+
+계층별 소유권 표는 루트 `AGENTS.md`의 "아키텍처" 절에, 테스트 배치 표는 스펙 15장에 있습니다 — 두 표는 여기서 반복하지 않습니다.
 
 ## 개별 검사
 
