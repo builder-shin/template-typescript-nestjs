@@ -1,6 +1,6 @@
 # TypeScript NestJS Template
 
-NestJS 12, TypeORM, PostgreSQL로 구성한 JSON:API 1.1 템플릿입니다. 현재 Phase 0-3(기반, JSON:API 프로토콜, 영속성 계층, 시리얼라이저와 조회 정책)까지 구현되어 있습니다.
+NestJS 12, TypeORM, PostgreSQL로 구성한 JSON:API 1.1 템플릿입니다. 현재 Phase 0-4(기반, JSON:API 프로토콜, 영속성 계층, 시리얼라이저와 조회 정책, 선언형 CRUD)까지 구현되어 있습니다.
 
 ## 요구 사항
 
@@ -40,6 +40,8 @@ pnpm seed           # 결정적 시드 적용 (몇 번을 돌려도 결과가 �
 
 ```text
 src/app/                # 컨트롤러와 JSON:API 미디어 타입 상수
+src/app/controllers/concerns/  # CrudActions mixin과 하위 책임 분할
+src/app/controllers/api/v1/    # 리소스 선언
 src/app/jsonapi/        # JSON:API 프로토콜 — 오류·언어·문서·협상·필터·응답
 src/app/models/         # TypeORM 엔티티
 src/app/schemas/        # 조회 정책 (filter·sort·include allowlist)
@@ -52,7 +54,7 @@ test/                   # 단위 테스트
 scripts/check.sh        # 단일 검증 게이트
 ```
 
-Phase 0-3까지 구현되어 있습니다: 기반과 검증 게이트, JSON:API 프로토콜 계층(협상·문서·오류·언어), 영속성 계층(TypeORM 엔티티·마이그레이션·시드), 시리얼라이저와 조회 정책입니다. `scripts/check.sh`가 실제 PostgreSQL 테스트 DB에 연결해 확인합니다. 아직 구현되지 않은 것은 선언형 CRUD(`CrudActions`), 인증, 비동기 작업입니다. 전체 설계는 `docs/superpowers/specs/`를 참고하세요.
+Phase 0-4까지 구현되어 있습니다: 기반과 검증 게이트, JSON:API 프로토콜 계층(협상·문서·오류·언어), 영속성 계층(TypeORM 엔티티·마이그레이션·시드), 시리얼라이저와 조회 정책, 그리고 선언형 CRUD(`CrudActions`)입니다. `scripts/check.sh`가 실제 PostgreSQL 테스트 DB에 연결해 확인합니다. 아직 구현되지 않은 것은 `PUT` upsert, 인증, 비동기 작업, `AGENTS.md` 문서군입니다. 전체 설계는 `docs/superpowers/specs/`를 참고하세요.
 
 ## ESM 제약
 
