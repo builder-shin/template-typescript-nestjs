@@ -19,6 +19,12 @@ describe('normalizeControllerPath', () => {
     expect(normalizeControllerPath(undefined)).toBe('/');
     expect(normalizeControllerPath('')).toBe('/');
   });
+
+  it('루트 경로를 그대로 돌려준다', () => {
+    // 스펙 5.1이 루트 마운트 컨트롤러를 다룬다. `/`가 `//`나 빈 문자열이 되면
+    // 그 컨트롤러의 self 링크가 통째로 어긋난다.
+    expect(normalizeControllerPath('/')).toBe('/');
+  });
 });
 
 describe('assertResourcePath', () => {

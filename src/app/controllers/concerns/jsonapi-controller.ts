@@ -26,9 +26,7 @@ export function normalizeControllerPath(path: unknown): string {
     return '/';
   }
   const withLeading = raw.startsWith('/') ? raw : `/${raw}`;
-  return withLeading.length > 1 && withLeading.endsWith('/')
-    ? withLeading.slice(0, -1)
-    : withLeading;
+  return withLeading.endsWith('/') ? withLeading.slice(0, -1) : withLeading;
 }
 
 /** 컨트롤러 경로와 `resourcePath`가 문자열까지 같은지 확인한다. */
