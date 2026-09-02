@@ -81,6 +81,11 @@ describe('parsePage 기본값', () => {
     expect(page.mode).toBe('cursor');
     expect(page.before).toBe('');
   });
+
+  it('page[size]는 최대치 자체는 받는다', () => {
+    // 상한 비교가 `>=`로 잘못 바뀌면 정확히 100인 요청이 거부된다.
+    expect(parsePage({ 'page[size]': '100' }, POLICY).size).toBe(100);
+  });
 });
 
 describe('parsePage 거부', () => {
@@ -208,5 +213,16 @@ describe('buildOffsetLinks', () => {
     const query = { 'filter[title]': '가 나' };
     const links = buildOffsetLinks(base, query, parsePage(query, POLICY), false, undefined);
     expect(links.self).toContain('filter[title]=%EA%B0%80%20%EB%82%98');
+  });
+
+  it('같은 파라미터가 두 번 온 값을 링크에 모두 실어 나른다', () => {
+    // Node는 중복 키를 배열로 준다. 링크가 그중 하나를 잃으면 링크를 따라간 결과가
+    // 원래 읽던 페이지와 다른 집합이 된다.
+    const query = { 'filter[status][in]': ['draft', 'published'] };
+    const links = buildOffsetLinks(base, query, parsePage(query, POLICY), true, undefined);
+    expect(links.self).toContain('filter[status][in]=draft');
+    expect(links.self).toContain('filter[status][in]=published');
+    expect(links.next).toContain('filter[status][in]=draft');
+    expect(links.next).toContain('filter[status][in]=published');
   });
 });
