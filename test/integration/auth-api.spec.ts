@@ -52,6 +52,27 @@ describe('인증 API', () => {
     post('refresh', 'refreshTokens', { refreshToken });
   const logout = (refreshToken: string): Test => post('logout', 'refreshTokens', { refreshToken });
 
+  /**
+   * `run`을 `repeats`번 실행하고 소요 시간(ms)의 중앙값을 돌려준다.
+   *
+   * 중앙값을 쓰는 이유: 첫 실행에는 JIT·커넥션 워밍업 같은 순서 효과가 실리기 쉽고,
+   * 평균은 그 한 번의 튐에 끌려간다. 중앙값은 그 튐 하나를 무시한다.
+   */
+  async function medianDurationMs(run: () => Promise<unknown>, repeats: number): Promise<number> {
+    const samples: number[] = [];
+    for (let i = 0; i < repeats; i += 1) {
+      const start = Date.now();
+      await run();
+      samples.push(Date.now() - start);
+    }
+    samples.sort((a, b) => a - b);
+    const mid = samples[Math.floor(samples.length / 2)];
+    if (mid === undefined) {
+      throw new Error('표본이 비어 있다');
+    }
+    return mid;
+  }
+
   beforeAll(async () => {
     app = await createTestApp();
     dataSource = app.get(DataSource);
@@ -112,6 +133,33 @@ describe('인증 API', () => {
 
     expect((wrongPassword.body as ErrorBody).errors[0]?.code).toBe('INVALID_CREDENTIALS');
     expect((noAccount.body as ErrorBody).errors[0]?.code).toBe('INVALID_CREDENTIALS');
+  });
+
+  it('없는 계정도 argon2 검증 비용을 실제로 치른다', async () => {
+    // 위 테스트는 응답 코드만 본다 — login()에서 `verifyDummyPassword` 호출을
+    // 통째로 지워도 두 경로 모두 여전히 INVALID_CREDENTIALS를 던지므로 그대로
+    // 통과한다. 그 호출의 존재 이유는 코드를 맞추는 것이 아니라 응답 **시간**을
+    // 맞추는 것이라, 여기서는 시간을 직접 잰다.
+    //
+    // 절대 시간 하한이 아니라 두 경로의 비율로 본다 — HTTP 왕복 오버헤드가 절대
+    // 시간에 그대로 실려 판별력을 갉아먹기 때문이다(그 오버헤드는 두 경로가 똑같이
+    // 치르므로 비율에서는 상쇄된다). argon2 한 번은 이 기계에서 약 28ms다
+    // (`password.ts`의 실측 주석). 더미 검증이 있으면 "없는 계정" 경로도 "틀린
+    // 비밀번호" 경로와 같이 argon2를 한 번 치르므로 비율이 1에 가깝다. 없으면
+    // "없는 계정" 경로는 조회+직렬화만 남아 훨씬 짧아진다. 0.5는 그 사이에 5배
+    // 여유를 둔 임계값이다.
+    await register('auth-타이밍@example.test').expect(201);
+
+    const unknownAccountMs = await medianDurationMs(
+      () => login('auth-타이밍-없음@example.test').expect(401),
+      3,
+    );
+    const wrongPasswordMs = await medianDurationMs(
+      () => login('auth-타이밍@example.test', '틀린-비밀번호-1234').expect(401),
+      3,
+    );
+
+    expect(unknownAccountMs).toBeGreaterThan(wrongPasswordMs * 0.5);
   });
 
   it('비활성 사용자는 비밀번호가 맞아야 USER_INACTIVE를 본다', async () => {
