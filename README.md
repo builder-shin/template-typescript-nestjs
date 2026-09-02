@@ -298,7 +298,7 @@ pnpm typecheck        # tsc --noEmit -p tsconfig.json
 pnpm test             # jest (커버리지 게이트 80% 포함)
 pnpm test:quick       # jest (커버리지 없이 빠르게)
 pnpm test:jsonapi     # jest test/jsonapi (커버리지 없이)
-pnpm test:controllers # jest test/controllers (Phase 4에서 경로가 생깁니다)
+pnpm test:controllers # jest test/controllers (커버리지 없이)
 pnpm test:db          # jest test/integration test/db test/models (커버리지 없이)
 pnpm secretlint       # 비밀 정보 탐지
 pnpm check            # ./scripts/check.sh 전체 게이트
