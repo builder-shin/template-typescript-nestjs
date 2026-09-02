@@ -80,28 +80,56 @@ PostgreSQL로 본다.
 
 ## `acquireCommitLock` — 언제 잡고 언제 안 잡는가, 그리고 잡은 쪽끼리만 지킨다는 것
 
-이 잠금이 필요한 조건은 하나다 — **같은 공유 테이블에 커밋하는 스위트가
-둘 이상이고, 그중 하나가 자기 행으로 좁힐 수 없는 단언(빈 컬렉션, 총 개수처럼
-"테이블 전체"를 묻는 것)을 한다.** `examples-api.spec.ts`와
-`examples-put.spec.ts`가 이 조건이다 — 둘 다 `examples`/`categories`/`tags`에
-커밋하고, 한쪽이 "빈 컬렉션도 data가 배열이다" 같은 테이블 전체 단언을 한다.
-`purge-refresh-sessions-contention.spec.ts`와 `purge-refresh-sessions.spec.ts`도
-서로에 대해 이 잠금을 잡는데 이유가 다르다 — 이 둘이 검증하는
-`purgeExpiredRefreshSessions` 자체가 `expires_at < 커트라인`으로 테이블 전체를
-보는 연산이라 이메일·사용자로 스코프할 수 없고, 계약을 확인하려면 두 스위트
-모두 `expires_at`을 의도적으로 과거로 만들어 커밋해야 한다 — 그런 행이 병렬
-워커에서 동시에 테이블에 있으면 한쪽의 purge 호출이 다른 쪽이 시나리오를 위해
-막 커밋한 행을 먼저 지워 버릴 수 있다. 반대로 나머지 다섯 커밋 스위트(로그인 등)는
-이 잠금이 필요 없는데, 접두사가 겹치지 않아서가 아니라 그 행들의 `expires_at`이
-언제나 커트라인보다 한참 미래(최소 1시간, 보통 30일 뒤)라 시간 산술적으로 애초에
-이 잡의 대상이 될 수 없기 때문이다 — 스코프 밖에 있는 이유가 매번 "접두사가
-다르다"로 같지 않다는 뜻이다.
+이 잠금이 필요한 조건은 하나다 — **같은 공유 테이블에 커밋하는 스위트가 둘
+이상이고, 그중 하나가 자기 행으로 좁힐 수 없는 단언을 하거나(빈 컬렉션, 총
+개수처럼 "테이블 전체"를 묻는 것), 그중 하나가 하는 연산 자체가 스코프 없이
+테이블 전체를 본다.** 지금 이 잠금을 실제로 잡는 스위트는 여섯이고, 이유는
+둘로 갈린다.
+
+- **`examples`/`categories`/`tags`의 테이블 전체 단언을 지킨다.**
+  `examples-api.spec.ts`와 `examples-put.spec.ts`가 둘 다 이 테이블들에
+  커밋하고, 한쪽이 "빈 컬렉션도 data가 배열이다" 같은 테이블 전체 단언을
+  한다 — 이 둘은 스위트 전체가 `beforeEach`에서 이 잠금을 잡는다.
+  `jobs-queue.spec.ts`는 세 테스트 중 `Example` 행을 실제로 커밋하는 하나만
+  같은 이유로 이 잠금을 잡는다 — 스스로 테이블 전체를 단언하지는 않지만, 그
+  커밋이 examples-api의 테이블 전체 단언과 같은 순간에 겹치면 안 되기
+  때문이다.
+- **`purgeExpiredRefreshSessions`의 테이블 전체 스캔을 지킨다.**
+  `purge-refresh-sessions-contention.spec.ts`와 `purge-refresh-sessions.spec.ts`가
+  서로에 대해 이 잠금을 잡는다 — 이 둘이 검증하는 `purgeExpiredRefreshSessions`
+  자체가 `expires_at < 커트라인`으로 테이블 전체를 보는 연산이라 이메일·사용자로
+  스코프할 수 없고, 계약을 확인하려면 두 스위트 모두 `expires_at`을 의도적으로
+  과거로 만들어 커밋해야 한다 — 그런 행이 병렬 워커에서 동시에 테이블에 있으면
+  한쪽의 purge 호출이 다른 쪽이 시나리오를 위해 막 커밋한 행을 먼저 지워 버릴
+  수 있다. `job-dispatch.spec.ts`는 두 테스트 중 `purgeExpiredRefreshSessions`로
+  분배하는 하나만 같은 이유로 이 잠금을 잡는다 — 이미 만료된 `refresh_sessions`
+  행을 커밋해 두고 그 잡을 실제로 호출하기 때문이다.
+
+`users`/`refresh_sessions`에 커밋하는 스위트는 이 여섯 말고 다섯이 더 있다 —
+`auth-api.spec.ts`(`auth-` 접두사), `users-me.spec.ts`(`me-`),
+`refresh-session-concurrency.spec.ts`(고정 이메일 하나), 그리고 위에서 이미
+나온 `examples-api.spec.ts`/`examples-put.spec.ts`다. 이 다섯은 서로 겹치지
+않는 접두사·고정값을 쓰고 그중 어디도 `users`/`refresh_sessions`를 "테이블
+전체"로 단언하지 않으므로(`GET /users` 같은 컬렉션 라우트 자체가 없다) 서로에
+대해서는 이 잠금이 필요 없고, `purgeExpiredRefreshSessions`에 대해서도
+안전하다 — 다섯 모두 커밋하는 행의 `expires_at`이 생성되는 순간 이미
+커트라인보다 한참 미래(최소 1시간, 보통 30일 뒤)이므로 시간 산술적으로 이
+잡의 대상이 될 수 없다. **이 중 둘(`examples-api`/`examples-put`)은 그래도 이
+잠금을 잡는다** — purge 위험 때문이 아니라 바로 위 examples/categories/tags
+쪽 이유로 이미 잡고 있는 같은 잠금이다. `job-dispatch.spec.ts`는 이 다섯에
+들지 않는 여섯 번째 `users`/`refresh_sessions` 커밋 스위트다 — 다섯과 달리
+이 스위트가 커밋하는 행의 `expires_at`은 **의도적으로 과거**이므로, 다섯을
+안전하게 만드는 바로 그 조건(시간 산술적으로 대상이 될 수 없음)을 만족하지
+않는다. 다섯에 대한 "이 잠금이 필요 없다"는 결론을 여섯 번째에 그대로 적용할
+수 없는 이유가 이것이고, `job-dispatch.spec.ts`가 이 잠금을 잡는 이유이기도
+하다.
 
 반대로 `refresh-session-concurrency.spec.ts`는 `users`/`refresh_sessions`에 두
-커넥션으로 실제 커밋하면서도 이 잠금을 잡지 않는다 — 이 테이블에 커밋하는
-다섯 스위트 모두 서로 겹치지 않는 접두사·고정값을 쓰고, 다섯 중 어디도
-"테이블 전체"를 단언하지 않기 때문이다(`GET /users` 같은 컬렉션 라우트 자체가
-없다). 잠금이 막아 줄 간섭이 애초에 없으므로 잡으면 병렬성만 잃는다.
+커넥션으로 실제 커밋하면서도 이 잠금을 잡지 않는다 — 위 다섯 스위트 사이에서는
+서로 겹치지 않는 접두사·고정값과 "테이블 전체" 단언의 부재가 여전히 성립하고,
+`job-dispatch.spec.ts`의 접두사(`job-dispatch-purge-`)도 다섯 중 누구와도
+겹치지 않기 때문이다. 잠금이 막아 줄 간섭이 애초에 없으므로 잡으면 병렬성만
+잃는다.
 
 늦게 배운 것 하나: **이 잠금은 그것을 잡은 쪽끼리만 줄을 세운다.** 잡지 않은
 스위트는 애초에 이 잠금의 보호 대상이 아니다 — `query-compiler.spec.ts`가
