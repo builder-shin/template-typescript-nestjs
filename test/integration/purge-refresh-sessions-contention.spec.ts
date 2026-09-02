@@ -3,7 +3,8 @@ import { RefreshSession } from '../../src/app/models/refresh-session.entity.js';
 import { User } from '../../src/app/models/user.entity.js';
 import { purgeExpiredRefreshSessions } from '../../src/app/jobs/purge-expired-refresh-sessions.js';
 import { acquireCommitLock, createTestDataSource } from '../db/fixture.js';
-import type { DataSource } from 'typeorm';
+import type { PurgeResult } from '../../src/app/jobs/purge-expired-refresh-sessions.js';
+import type { DataSource, QueryRunner } from 'typeorm';
 import type { CommitLockHandle } from '../db/fixture.js';
 
 /**
@@ -76,12 +77,78 @@ import type { CommitLockHandle } from '../db/fixture.js';
 const EMAIL_PREFIX = 'purge-race-';
 
 /**
- * cascade lock_timeout 테스트에 주는 Jest 타임아웃(ms). 그 테스트 안의 SAFETY_MS
- * (3000ms) + 안전장치가 잠금을 풀어 준 뒤 purge 호출이 스스로 끝나기까지의 여유를
- * 넉넉히 두되, Jest 기본값(5000ms)보다 명시적으로 크게 잡아 이 스펙이 스스로 상한을
- * 갖고 있다는 것을 이 파일만 보고도 알 수 있게 한다 — 그 테스트 자신의 주석 참고.
+ * cascade lock_timeout에 기대는 두 테스트("매달리지 않는다", "배치마다 커밋한다")에
+ * 공통으로 주는 Jest 타임아웃(ms). 아래 SAFETY_MS(3000ms) + 안전장치가 잠금을 풀어
+ * 준 뒤 purge 호출이 스스로 끝나기까지의 여유를 넉넉히 두되, Jest 기본값(5000ms)보다
+ * 명시적으로 크게 잡아 이 스펙들이 스스로 상한을 갖고 있다는 것을 이 파일만 보고도
+ * 알 수 있게 한다 — `racePurgeAgainstSafetyTimeout` 주석 참고.
  */
 const TEST_TIMEOUT_MS = 10000;
+
+/**
+ * `racePurgeAgainstSafetyTimeout`이 purge 호출에 주는 여유(ms). 정상 구현이면
+ * lock_timeout(각 테스트가 300ms 근처로 준다)이 이보다 훨씬 먼저 실패를 만들어
+ * 내므로, 이 상한에 실제로 걸릴 일은 없다.
+ */
+const SAFETY_MS = 3000;
+
+/** `racePurgeAgainstSafetyTimeout`이 돌려주는 세 가지 결말. */
+type PurgeOutcome =
+  | { readonly kind: 'success'; readonly result: PurgeResult }
+  | { readonly kind: 'error'; readonly error: unknown }
+  | { readonly kind: 'safety-timeout' };
+
+/**
+ * `purge`를 `SAFETY_MS` 안에 끝나야 하는 것으로 놓고 경쟁시킨다.
+ *
+ * 이 파일의 두 cascade 테스트("매달리지 않는다", "배치마다 커밋한다")는 둘 다
+ * "매달리지 않는다"는 보장을 원래 구현의 `SET LOCAL lock_timeout` 문 하나에
+ * 기댄다. 그 문이 회귀하면(PostgreSQL 기본 lock_timeout은 0/무제한이다) purge
+ * 호출이 정말로 매달린다 — 실측으로 확인했다. Jest의 기본 테스트 타임아웃만으로는
+ * 그 테스트의 "결과"는 실패로 끝나도, 매달려 있던 purge 커넥션 자체는 정리되지
+ * 않는다(그 커넥션은 여전히 잠금을 기다리며 살아 있다) — `./scripts/check.sh`가
+ * `--forceExit` 없이 돌기 때문에 Jest 프로세스가 그 열린 핸들 때문에 종료되지
+ * 못하면 전체 게이트가 멈출 수 있다. 그래서 Jest 타임아웃 하나만 믿지 않고, 여기서
+ * `runner`의 잠금을 직접 풀어 매달려 있던 호출이 스스로 끝나게 만드는 안전장치를
+ * 둔다.
+ *
+ * 정상 경로(수백 ms 안에 lock_timeout으로 실패)에서는 SAFETY_MS 타이머가 절대
+ * 발동하지 않는다 — 그런데 켜 둔 채로 두면 Node의 타이머 핸들이 이벤트 루프를
+ * 붙잡아 Jest 워커가 깨끗이 종료되지 못한다(실측: `clearTimeout`을 빠뜨리고
+ * `--detectOpenHandles` 없이 그냥 돌리면 "A worker process has failed to exit
+ * gracefully" 경고가 실제로 뜬다). 그래서 승부가 나는 즉시(둘 중 어느 쪽이
+ * 이기든) 반드시 정리한다.
+ */
+async function racePurgeAgainstSafetyTimeout(
+  runner: QueryRunner,
+  purge: Promise<PurgeResult>,
+): Promise<PurgeOutcome> {
+  const purgeOutcome: Promise<PurgeOutcome> = purge.then(
+    (result): PurgeOutcome => ({ kind: 'success', result }),
+    (error: unknown): PurgeOutcome => ({ kind: 'error', error }),
+  );
+
+  let safetyTimer: ReturnType<typeof setTimeout> | undefined;
+  const safetyOutcome = new Promise<PurgeOutcome>((resolve) => {
+    safetyTimer = setTimeout(() => {
+      resolve({ kind: 'safety-timeout' });
+    }, SAFETY_MS);
+  });
+
+  const outcome = await Promise.race([purgeOutcome, safetyOutcome]);
+  clearTimeout(safetyTimer);
+
+  if (outcome.kind === 'safety-timeout') {
+    // 안전장치가 발동했다 — 직접 잠금을 풀어 매달려 있던 purgeOutcome이 스스로
+    // 끝나게 하고, 그 결과를 기다려 커넥션을 온전히 정리한다. 여기서 기다리지
+    // 않고 그냥 돌려주면 호출자는 끝나도 그 커넥션은 뒤에서 계속 무언가를 하고
+    // 있을 수 있다.
+    await runner.rollbackTransaction();
+    await purgeOutcome;
+  }
+
+  return outcome;
+}
 
 describe('purgeExpiredRefreshSessions 경합', () => {
   let dataSource: DataSource;
@@ -217,64 +284,21 @@ describe('purgeExpiredRefreshSessions 경합', () => {
           throw new Error('잠글 세션을 찾지 못했다');
         }
 
-        // 이 테스트의 "매달리지 않는다"는 원래 lockTimeoutMs(300ms)가 실제로 그렇게
-        // 만들어 준다는 사실 하나에 기댄다. 그런데 구현이 나중에 회귀해 `SET LOCAL
-        // lock_timeout` 문이 빠지면(이 태스크의 레드 실측이 바로 그 경우다),
-        // PostgreSQL 기본값은 lock_timeout이 0(무제한)이라 아래 purge 호출이 정말로
-        // 매달린다 — 실측으로 확인했다. Jest의 기본 테스트 타임아웃(5000ms)이 이
-        // 테스트 "결과"는 실패로 끝내주지만, 매달려 있던 purge 커넥션 자체는 정리되지
-        // 않는다(그 커넥션은 여전히 잠금을 기다리며 살아 있다) — Jest 프로세스가 그
-        // 열린 핸들 때문에 깨끗이 종료되지 못하면 `./scripts/check.sh`(`--forceExit`
-        // 없이 돈다) 전체가 멈출 수 있다. 그래서 Jest 타임아웃 하나만 믿지 않고, 이
-        // 스펙 스스로 SAFETY_MS 뒤에 A(oldId)의 잠금을 직접 풀어 버리는 안전장치를
-        // 둔다 — 잠금이 풀리면 매달려 있던 purge 호출도 스스로 끝난다. 정상 구현이면
-        // lock_timeout이 이 안전장치보다 훨씬 먼저(수백 ms 안에) 실패를 만들어
-        // 내므로, 아래 SAFETY_MS 분기는 실제로 도달할 일이 없다 — 도달한다면 그
-        // 자체가 "매달리지 않는다" 계약이 깨졌다는 뜻이라 이 테스트를 명확한 사유로
-        // 실패시킨다.
-        const SAFETY_MS = 3000;
-        type Outcome =
-          | { readonly kind: 'success' }
-          | { readonly kind: 'error'; readonly error: unknown }
-          | { readonly kind: 'safety-timeout' };
-
-        const purgeOutcome: Promise<Outcome> = purgeExpiredRefreshSessions(dataSource, {
-          retentionSeconds: 0,
-          batchSize: 10,
-          lockTimeoutMs: 300,
-        }).then(
-          (): Outcome => ({ kind: 'success' }),
-          (error: unknown): Outcome => ({ kind: 'error', error }),
+        const outcome = await racePurgeAgainstSafetyTimeout(
+          runner,
+          purgeExpiredRefreshSessions(dataSource, {
+            retentionSeconds: 0,
+            batchSize: 10,
+            lockTimeoutMs: 300,
+          }),
         );
-        // 정상 경로(수백 ms 안에 lock_timeout으로 실패)에서는 이 타이머가 절대
-        // 발동하지 않는다 — 그런데 켜 둔 채로 두면 Node의 타이머 핸들이 이벤트
-        // 루프를 붙잡아 Jest 워커가 깨끗이 종료되지 못한다(실측: `--detectOpenHandles`
-        // 없이 그냥 돌리면 "A worker process has failed to exit gracefully" 경고가
-        // 뜬다). 그래서 승부가 나는 즉시(둘 중 어느 쪽이 이기든) `clearTimeout`으로
-        // 반드시 정리한다.
-        let safetyTimer: ReturnType<typeof setTimeout> | undefined;
-        const safetyOutcome = new Promise<Outcome>((resolve) => {
-          safetyTimer = setTimeout(() => {
-            resolve({ kind: 'safety-timeout' });
-          }, SAFETY_MS);
-        });
-
-        const outcome = await Promise.race([purgeOutcome, safetyOutcome]);
-        clearTimeout(safetyTimer);
 
         if (outcome.kind === 'safety-timeout') {
-          // 안전장치가 발동했다 — 직접 잠금을 풀어 매달려 있던 purgeOutcome이
-          // 스스로 끝나게 하고, 그 결과를 기다려 커넥션을 온전히 정리한 뒤에 실패로
-          // 끝낸다. 여기서 기다리지 않고 그냥 넘어가면 이 테스트는 끝나도 그
-          // 커넥션은 뒤에서 계속 무언가를 하고 있을 수 있다.
-          await runner.rollbackTransaction();
-          await purgeOutcome;
           throw new Error(
             `lock_timeout이 ${String(SAFETY_MS)}ms 안에 작동하지 않았다 — ` +
               `매달림 방지가 깨졌다(안전장치가 대신 잠금을 풀었다)`,
           );
         }
-
         if (outcome.kind === 'success') {
           throw new Error('lock_timeout으로 실패했어야 하는데 성공했다');
         }
@@ -286,6 +310,87 @@ describe('purgeExpiredRefreshSessions 경합', () => {
         // 안전장치 분기를 이미 탔다면 위에서 롤백을 끝냈으므로 여기서는 건너뛴다 —
         // `refresh-session-concurrency.spec.ts`의 runnerA와 같은 이유로
         // `isTransactionActive`로 실제 상태를 보고 판단한다.
+        try {
+          if (runner.isTransactionActive) {
+            await runner.rollbackTransaction();
+          }
+        } finally {
+          await runner.release();
+        }
+      }
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  it(
+    'batchSize:1로 여러 배치를 도는 중 뒤쪽 배치가 실패해도, 그 앞에서 이미 지운 행은 그대로 남는다(배치마다 커밋한다)',
+    async () => {
+      // 이 함수가 EntityManager가 아니라 DataSource를 받는 유일한 이유가 배치마다
+      // 커밋하기 위해서다(purge-expired-refresh-sessions.ts의 함수 docstring 참고).
+      // 그 결정 자체는 여태 어떤 테스트도 직접 찌르지 않았다 — 전체를 바깥
+      // 트랜잭션 하나로 감싸는 회귀가 나도 지금까지의 계약들은 잡아내지 못한다.
+      // 여기서 직접 찌른다: rowA·rowB(오래된 순서)는 잠기지 않은 평범한 만료
+      // 행이라 각자의 배치에서 정상으로 지워지고, rowC는 cascade 잠금 경합으로 그
+      // 배치가 실패하도록 만든다. batchSize:1이므로 ORDER BY expires_at이
+      // rowA→rowB→rowC 순서를 강제한다.
+      const userId = await createUser('per-batch-commit');
+      const now = Date.now();
+      const rowAId = await createSession(userId, new Date(now - 500_000));
+      const rowBId = await createSession(userId, new Date(now - 400_000));
+      const rowCId = await createSession(userId, new Date(now - 300_000));
+      // guardId(rowC를 replacedById로 가리키는, 만료되지 않은 행) — rowC를 지우려면
+      // ON DELETE SET NULL cascade가 guardId에도 잠금을 요구한다(SKIP LOCKED는
+      // SELECT가 직접 고르는 행의 잠금만 피할 뿐 이 잠금은 막지 않는다). 아래에서 그
+      // 잠금을 미리 잡아 두므로 rowC를 처리하는 배치만 lock_timeout으로 실패한다.
+      const guardId = await createSession(userId, new Date(now + 3_600_000), {
+        revokedAt: new Date(),
+        replacedById: rowCId,
+      });
+
+      const runner = dataSource.createQueryRunner();
+      await runner.connect();
+      await runner.startTransaction();
+      try {
+        // guardId를 잠근 채 커밋도 롤백도 하지 않는다. 이 SELECT가 반드시 아래 purge
+        // 호출보다 먼저 끝나 있어야(await로 보장) 경합이 성립한다.
+        const locked = await runner.manager.findOne(RefreshSession, {
+          where: { id: guardId },
+          lock: { mode: 'pessimistic_write' },
+        });
+        if (locked === null) {
+          throw new Error('잠글 세션을 찾지 못했다');
+        }
+
+        const outcome = await racePurgeAgainstSafetyTimeout(
+          runner,
+          purgeExpiredRefreshSessions(dataSource, {
+            retentionSeconds: 0,
+            batchSize: 1,
+            lockTimeoutMs: 300,
+          }),
+        );
+
+        if (outcome.kind === 'safety-timeout') {
+          throw new Error(
+            `lock_timeout이 ${String(SAFETY_MS)}ms 안에 작동하지 않았다 — ` +
+              `매달림 방지가 깨졌다(안전장치가 대신 잠금을 풀었다)`,
+          );
+        }
+        if (outcome.kind === 'success') {
+          throw new Error('세 번째 배치가 lock_timeout으로 실패했어야 하는데 전체가 성공했다');
+        }
+        expect(isLockTimeoutError(outcome.error)).toBe(true);
+
+        // 핵심 단언: rowA·rowB는 각자의 배치에서 이미 커밋됐으므로 rowC의 배치가
+        // 실패해도 되살아나지 않는다. runBatch가 매 호출마다 새 트랜잭션을 열어
+        // 커밋하는 대신 전체를 바깥 트랜잭션 하나로 감쌌다면, rowC의 실패로 그
+        // 바깥 트랜잭션 전체가 롤백되어 rowA·rowB도 함께 되살아난다 — 이 단언이
+        // 그 회귀를 잡는다.
+        await expect(exists(rowAId)).resolves.toBe(false);
+        await expect(exists(rowBId)).resolves.toBe(false);
+        // rowC 자신의 배치는 실패했으므로 그대로 남는다.
+        await expect(exists(rowCId)).resolves.toBe(true);
+      } finally {
         try {
           if (runner.isTransactionActive) {
             await runner.rollbackTransaction();
