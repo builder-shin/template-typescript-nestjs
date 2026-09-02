@@ -2,7 +2,6 @@ import { Inject, UseGuards } from '@nestjs/common';
 import type { Type } from '@nestjs/common';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import type { DataSource, EntityManager, ObjectLiteral } from 'typeorm';
-import type { RelationshipInput } from '../../jsonapi/document.js';
 import { JsonApiError } from '../../jsonapi/errors.js';
 import type { HeaderWritableResponse } from '../../jsonapi/media-type.js';
 import { JsonApiNegotiationGuard } from '../../jsonapi/negotiation.js';
@@ -21,7 +20,7 @@ import { collectionDocument, singleDocument } from './documents.js';
 import type { CollectionDocument, LinkageDocument, SingleDocument } from './documents.js';
 import { applyAttributes, parseWriteDocument } from './document-parsing.js';
 import { assertResourcePath } from './jsonapi-controller.js';
-import { resolveOne, resolveRelationships } from './relationship-resolver.js';
+import { canIdentify, resolveOne, resolveRelationships } from './relationship-resolver.js';
 import type { ResolvedLinkage } from './relationship-resolver.js';
 import { RESOURCE_ALIAS, registerRoutes } from './route-registrar.js';
 import type { RelationshipDelegates } from './route-registrar.js';
@@ -39,8 +38,6 @@ import type { RelationshipDelegates } from './route-registrar.js';
 
 type QueryRecord = Readonly<Record<string, string | readonly string[] | undefined>>;
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 export function CrudActions<
   T extends ObjectLiteral & { id: string },
   C extends object,
@@ -51,6 +48,17 @@ export function CrudActions<
 
   if (declaration.enableUpsert === true && declaration.replaceSchema === undefined) {
     throw new TypeError('enableUpsert를 켰으면 replaceSchema를 선언해야 한다');
+  }
+
+  // 같은 관계를 두 곳이 선언한다. 어긋나면 라우트는 to-many로 열리는데 해석은
+  // to-one으로 도는 식이 되고, 그 사고는 요청이 들어와야 드러난다.
+  for (const [name, rule] of Object.entries(declaration.relationshipsSchema)) {
+    const declared = serializer.relationships[name];
+    if (declared !== undefined && declared.cardinality !== rule.cardinality) {
+      throw new TypeError(
+        `관계 "${name}"의 cardinality가 시리얼라이저(${declared.cardinality})와 쓰기 스키마(${rule.cardinality})에서 다르다`,
+      );
+    }
   }
 
   class CrudActionsHost implements RelationshipDelegates {
@@ -74,10 +82,12 @@ export function CrudActions<
      *
      * 기본키가 uuid인데 uuid가 아닌 문자열이 오면 PostgreSQL이 문법 오류를 내고
      * 500이 나간다. 없는 자원을 물은 것이므로 404가 맞는 답이다.
+     *
+     * 판정은 `relationship-resolver.ts`가 linkage id에 쓰는 것과 같은 함수다 — 경로
+     * id와 본문 id가 다른 규칙을 쓰면 한쪽만 고쳐지는 날이 온다.
      */
     private assertIdShape(manager: EntityManager, id: string): void {
-      const [primary] = manager.dataSource.getMetadata(model).primaryColumns;
-      if (primary?.type === 'uuid' && !UUID_PATTERN.test(id)) {
+      if (!canIdentify(manager, model, id)) {
         throw this.notFound(id);
       }
     }
@@ -229,13 +239,6 @@ export function CrudActions<
       return rule;
     }
 
-    private linkageLinks(id: string, name: string): { self: string; related: string } {
-      return {
-        self: `${this.basePath}/${id}/relationships/${name}`,
-        related: `${this.basePath}/${id}/${name}`,
-      };
-    }
-
     async showRelationshipFor(name: string, id: string): Promise<LinkageDocument> {
       const entity = await this.findOne(this.dataSource.manager, id, [name]);
       const object = serializeResource(serializer, entity);
@@ -243,14 +246,22 @@ export function CrudActions<
       if (relationship === undefined) {
         throw new TypeError(`시리얼라이저가 선언하지 않은 관계다: ${name}`);
       }
-      return { data: relationship.data ?? null, links: this.linkageLinks(id, name) };
+      // 링크는 시리얼라이저가 만든 것을 그대로 쓴다. 같은 문자열을 여기서 다시
+      // 조립하면 두 벌이 언젠가 갈리고, 갈린 쪽을 응답만 봐서는 알 수 없다.
+      // `resourcePath`가 없는 시리얼라이저만 링크가 없는데 그런 자원은 라우트를
+      // 갖지 못한다(생성자가 이미 확인했다) — 그래도 지어내지 않고 던진다.
+      const links = relationship.links;
+      if (links === undefined) {
+        throw new TypeError(`관계 링크를 만들 수 없다: ${name}`);
+      }
+      return { data: relationship.data ?? null, links };
     }
 
     async replaceRelationshipFor(name: string, id: string, body: unknown): Promise<void> {
       const rule = this.ruleFor(name);
       await this.dataSource.transaction(async (manager) => {
         const entity = await this.findOne(manager, id, [name]);
-        const resolved = await resolveOne(manager, rule, readLinkage(body), '/data');
+        const resolved = await resolveOne(manager, rule, body, '/data');
         Reflect.set(entity, name, resolved);
         await manager.getRepository(model).save(entity);
       });
@@ -260,7 +271,7 @@ export function CrudActions<
       const rule = this.ruleFor(name);
       await this.dataSource.transaction(async (manager) => {
         const entity = await this.findOne(manager, id, [name]);
-        const incoming = await resolveOne(manager, rule, readLinkage(body), '/data');
+        const incoming = await resolveOne(manager, rule, body, '/data');
         if (!Array.isArray(incoming)) {
           throw new TypeError(`to-many 관계가 아니다: ${name}`);
         }
@@ -282,7 +293,7 @@ export function CrudActions<
       const rule = this.ruleFor(name);
       await this.dataSource.transaction(async (manager) => {
         const entity = await this.findOne(manager, id, [name]);
-        const outgoing = await resolveOne(manager, rule, readLinkage(body), '/data');
+        const outgoing = await resolveOne(manager, rule, body, '/data');
         if (!Array.isArray(outgoing)) {
           throw new TypeError(`to-many 관계가 아니다: ${name}`);
         }
@@ -368,26 +379,4 @@ function identityOf(row: unknown): unknown {
     throw new TypeError('관계 행에 id가 없다');
   }
   return row.id;
-}
-
-/**
- * 관계 라우트 본문이 `data` 멤버를 가졌는지 본다.
- *
- * `data`의 **값**은 보지 않는다 — 식별자 모양과 cardinality는 `resolveOne` 안의
- * `parseLinkageInput`이 다시 검증하고 400을 낸다. `document.ts`의 같은 이름 헬퍼가
- * 자원 문서에 대해 하는 것과 같은 얕은 검사이고, 그래서 캐스트 없이 좁힐 수 있다.
- */
-function isRelationshipInput(body: unknown): body is RelationshipInput {
-  return typeof body === 'object' && body !== null && 'data' in body;
-}
-
-/** 관계 라우트 본문을 `resolveOne`의 입력으로 만든다. `data`가 없으면 문서 오류다. */
-function readLinkage(body: unknown): RelationshipInput {
-  if (!isRelationshipInput(body)) {
-    throw new JsonApiError('INVALID_JSONAPI_DOCUMENT', {
-      source: { pointer: '/data' },
-      detail: 'the document requires a "data" member',
-    });
-  }
-  return body;
 }

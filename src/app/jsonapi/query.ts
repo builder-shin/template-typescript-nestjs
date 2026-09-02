@@ -81,7 +81,10 @@ export function parseRelatedCollectionQuery(
   policy: QueryPolicy,
 ): PageRequest {
   for (const key of Object.keys(query)) {
-    if (key === 'page[number]' || key === 'page[size]') {
+    // `page[totals]`는 받아들이되 값을 보지 않는다. 이 엔드포인트는 언제나 총 개수를
+    // 내므로 끄고 켤 것이 없지만, 링크 생성기가 모든 링크에 이 파라미터를 붙이기
+    // 때문에 거부하면 우리가 낸 self 링크를 우리가 400으로 되돌려주게 된다.
+    if (key === 'page[number]' || key === 'page[size]' || key === 'page[totals]') {
       continue;
     }
     throw invalidParameter(key, 'a related collection only supports page[number] and page[size]');

@@ -145,6 +145,17 @@ describe('parseRelatedCollectionQuery', () => {
     expect(parseRelatedCollectionQuery({}, POLICY).totals).toBe(true);
   });
 
+  it('자기가 만든 링크의 파라미터를 되받는다', () => {
+    // 이 엔드포인트가 내는 링크에는 언제나 page[totals]=true가 붙는다. 그것을
+    // 거부하면 self 링크를 따라간 클라이언트가 400을 받는다.
+    expect(
+      parseRelatedCollectionQuery(
+        { 'page[number]': '1', 'page[size]': '25', 'page[totals]': 'true' },
+        POLICY,
+      ).totals,
+    ).toBe(true);
+  });
+
   it('filter를 거부한다', () => {
     const error = caught(() => parseRelatedCollectionQuery({ 'filter[status]': 'draft' }, POLICY));
     expect(error.code).toBe('INVALID_QUERY_PARAMETER');

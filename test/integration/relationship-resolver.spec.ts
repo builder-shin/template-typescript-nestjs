@@ -87,6 +87,19 @@ describe('resolveRelationships', () => {
     });
   });
 
+  it('모양이 깨진 id는 500이 아니라 404다', async () => {
+    // uuid 컬럼에 uuid가 아닌 값을 넣으면 드라이버가 22P02로 죽는다. 가리킬 수 없는
+    // id는 없는 자원을 가리킨 것이다.
+    await withRollback(dataSource, async (manager) => {
+      const error = await caught(() =>
+        resolveRelationships(manager, EXAMPLE_RELATIONSHIPS, {
+          category: { data: { type: 'categories', id: 'nope' } },
+        }),
+      );
+      expect(error.code).toBe('RELATIONSHIP_RESOURCE_NOT_FOUND');
+    });
+  });
+
   it('to-many에서 하나만 없어도 거부한다', async () => {
     // 일부만 붙이면 클라이언트가 보낸 집합과 저장된 집합이 갈라진다.
     await withRollback(dataSource, async (manager) => {
