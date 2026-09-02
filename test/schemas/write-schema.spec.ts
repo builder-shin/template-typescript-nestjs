@@ -1,7 +1,7 @@
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Length, ValidateNested } from 'class-validator';
 import { JsonApiError, JsonApiErrors } from '../../src/app/jsonapi/errors.js';
-import { validateAttributes } from '../../src/app/schemas/write-schema.js';
+import { schemaProperties, validateAttributes } from '../../src/app/schemas/write-schema.js';
 
 class Sample {
   @IsString()
@@ -111,5 +111,28 @@ describe('validateAttributes', () => {
       '/data/attributes/child/name',
       '/data/attributes/title',
     ]);
+  });
+});
+
+describe('schemaProperties', () => {
+  it('데코레이터가 붙은 필드 이름을 모두 돌려준다', () => {
+    expect([...schemaProperties(Sample)].sort()).toEqual(['size', 'title']);
+  });
+
+  it('같은 필드에 데코레이터가 여러 개여도 한 번만 센다', () => {
+    // `Sample.title`에는 `@IsString()`과 `@Length()`가 붙어 있다.
+    expect(schemaProperties(Sample).filter((name) => name === 'title')).toHaveLength(1);
+  });
+
+  it('중첩 스키마의 자식 필드는 부모 목록에 넣지 않는다', () => {
+    // `Parent`가 소유하는 것은 `title`과 `child`이지 `child.name`이 아니다.
+    // 자식의 기본값은 자식 스키마가 정할 일이다.
+    expect([...schemaProperties(Parent)].sort()).toEqual(['child', 'title']);
+  });
+
+  it('데코레이터가 없는 클래스는 빈 목록이다', () => {
+    // eslint-disable-next-line @typescript-eslint/no-extraneous-class
+    class Bare {}
+    expect(schemaProperties(Bare)).toEqual([]);
   });
 });

@@ -1,6 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import type { ClassConstructor } from 'class-transformer';
-import { validate } from 'class-validator';
+import { getMetadataStorage, validate } from 'class-validator';
 import type { ValidationError } from 'class-validator';
 import type { EntityTarget, ObjectLiteral } from 'typeorm';
 import { JsonApiError, JsonApiErrors } from '../jsonapi/errors.js';
@@ -96,3 +96,19 @@ export interface RelationshipWriteRule {
  * (`route-registrar.ts` 참고). 링크는 나가는데 라우트가 없으면 응답이 404를 광고한다.
  */
 export type RelationshipWriteSchema = Readonly<Record<string, RelationshipWriteRule>>;
+
+/**
+ * 쓰기 스키마가 소유한 필드 이름.
+ *
+ * `PUT`의 전체 교체가 이 목록을 쓴다 — 요청이 보내지 않은 필드를 기본값으로 되돌리려면
+ * 되돌릴 대상을 알아야 한다. TypeScript의 선언 필드는 초기값이 없으면 인스턴스에
+ * 존재하지 않아 `Object.keys`로 잡히지 않으므로, 데코레이터가 등록해 둔
+ * class-validator 메타데이터가 유일하게 정확한 출처다.
+ *
+ * 상속 체인까지 훑는다(세 번째 인자 `true`). 스키마를 상속으로 나눠 쓰는 것은 흔한
+ * 정리 방식이고, 부모의 필드를 빠뜨리면 그 필드가 교체 대상에서 조용히 빠진다.
+ */
+export function schemaProperties(schema: ClassConstructor<object>): readonly string[] {
+  const metadatas = getMetadataStorage().getTargetValidationMetadatas(schema, '', true, false);
+  return [...new Set(metadatas.map((metadata) => metadata.propertyName))];
+}

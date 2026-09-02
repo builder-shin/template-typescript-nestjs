@@ -15,5 +15,5 @@ export type {
   SortFieldPolicy,
   SortTerm,
 } from './query-policy.js';
-export { validateAttributes } from './write-schema.js';
+export { schemaProperties, validateAttributes } from './write-schema.js';
 export type { RelationshipWriteRule, RelationshipWriteSchema } from './write-schema.js';
