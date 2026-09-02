@@ -72,7 +72,12 @@ describe('processExample', () => {
       const created = await manager.save(Example, { title: '처리 대상', status: 'draft' });
       const before = await manager.findOneByOrFail(Example, { id: created.id });
 
-      await processExample(manager, { exampleId: created.id });
+      // 성공 경로도 `logger.log`를 남긴다 — captureWarnings로 감싸지 않으면 이 로그가
+      // 실제 콘솔에 그대로 찍힌다(다른 테스트들과 같은 이유로 감싼다).
+      const warnings = await captureWarnings(() =>
+        processExample(manager, { exampleId: created.id }),
+      );
+      expect(warnings).toHaveLength(0);
 
       const after = await manager.findOneByOrFail(Example, { id: created.id });
       expect(after).toEqual(before);

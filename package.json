@@ -13,6 +13,7 @@
     "build": "tsc -p tsconfig.build.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "node dist/config/main.js",
+    "worker": "node dist/app/jobs/worker.js",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage",
     "test:quick": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage=false",
     "test:jsonapi": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage=false test/jsonapi",
