@@ -26,5 +26,22 @@ services:
       retries: 15
       start_period: 5s
 
+  redis:
+    image: redis:8-alpine
+    ports:
+      - target: 6379
+        published: '${TEST_REDIS_PORT:-56379}'
+        host_ip: 127.0.0.1
+        protocol: tcp
+    # 볼륨을 두지 않는다 — 테스트 Redis는 실행마다 새로 시작해도 되는 상태만 갖고,
+    # 볼륨을 두면 정리할 것이 하나 더 늘 뿐이다(db가 마이그레이션 재적용 비용 때문에
+    # 볼륨을 두는 것과 대비된다).
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 2s
+      timeout: 5s
+      retries: 15
+      start_period: 5s
+
 volumes:
   test_postgres_data:

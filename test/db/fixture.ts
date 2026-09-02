@@ -53,6 +53,36 @@ export function requireTestDatabaseUrl(env: NodeJS.ProcessEnv = process.env): st
   return url;
 }
 
+/**
+ * `TEST_REDIS_URL`을 읽는다.
+ *
+ * `requireTestDatabaseUrl`과 달리 이름 규칙으로 안전을 확인할 방법이 없다. Postgres는
+ * DB 이름에 `_test` 접미사를 강제해 개발/운영 DB를 가리키는 실수를 값싸게 잡아내지만,
+ * Redis 연결 URL은 호스트·포트(선택적으로 0-15 사이의 DB 인덱스)만 담을 뿐이고 그중
+ * 무엇도 "이것은 테스트 전용"이라는 뜻을 신뢰성 있게 담지 않는다 — 포트 번호나 DB
+ * 인덱스로 짐작하는 규칙을 만들 수는 있지만, 개발 환경이 우연히 같은 값을 쓰면 그
+ * 규칙은 조용히 뚫린다. 그래서 이 함수가 확인하는 것은 값이 있고 URL 형식이라는
+ * 것뿐이다 — **가리키는 Redis가 실제로 테스트 전용인지는 검증하지 못한다.** 이
+ * 변수를 실수로 개발 Redis로 두면 그 키를 지우거나 덮어쓸 수 있는데, 그것을 막을
+ * 이름 규칙이 없다는 사실 자체를 여기 기록해 둔다 — 값을 설정하는 사람이 직접
+ * 책임져야 한다.
+ */
+export function requireTestRedisUrl(env: NodeJS.ProcessEnv = process.env): string {
+  const raw = env.TEST_REDIS_URL;
+  if (raw === undefined || raw.trim() === '') {
+    throw new Error('TEST_REDIS_URL is required');
+  }
+
+  const url = raw.trim();
+  try {
+    new URL(url);
+  } catch {
+    throw new Error('TEST_REDIS_URL must be a valid connection URL');
+  }
+
+  return url;
+}
+
 /** 마이그레이션 구간을 직렬화하는 advisory lock 키. 이 저장소 안에서만 의미가 있다. */
 const MIGRATION_LOCK_KEY = 4_182_026_829;
 
