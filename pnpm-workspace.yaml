@@ -1,6 +1,7 @@
 allowBuilds:
   '@parcel/watcher': false
   '@scarf/scarf': false
+  argon2: true
   unrs-resolver: false
 # ts-jest는 아래 네 패키지를 ^29 || ^30 범위의 optional peer로 선언한다.
 # pnpm은 이를 package.json의 jest 고정 버전과 무관하게 독립 해결하므로,
