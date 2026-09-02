@@ -21,6 +21,7 @@ export default {
     // 등록 배열만 담은 파일. 내용은 entities.spec.ts / migration-naming.spec.ts가 고정한다.
     '!src/app/models/index.ts',
     '!src/db/migrations/index.ts',
+    '!src/app/serializers/index.ts',
   ],
   coverageThreshold: {
     global: { statements: 80, branches: 80, functions: 80, lines: 80 },
