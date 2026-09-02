@@ -146,8 +146,13 @@ describe('인증 API', () => {
     // 치르므로 비율에서는 상쇄된다). argon2 한 번은 이 기계에서 약 28ms다
     // (`password.ts`의 실측 주석). 더미 검증이 있으면 "없는 계정" 경로도 "틀린
     // 비밀번호" 경로와 같이 argon2를 한 번 치르므로 비율이 1에 가깝다. 없으면
-    // "없는 계정" 경로는 조회+직렬화만 남아 훨씬 짧아진다. 0.5는 그 사이에 5배
-    // 여유를 둔 임계값이다.
+    // "없는 계정" 경로는 조회+직렬화만 남아 훨씬 짧아진다.
+    //
+    // 임계값 0.3은 실측 위에 놓았다. 호출을 지우고 재면 비율이 0.12였고(없는 계정
+    // 4ms 대 틀린 비밀번호 33ms), 호출이 있는 상태로 다섯 번 재면 0.65~1.00이었다.
+    // 0.3은 실패 쪽 값의 약 2.5배 위, 통과 쪽 최솟값의 약 2.2배 아래라 양쪽에서
+    // 비슷한 여유를 갖는다. 0.5로 두면 통과 쪽 여유가 1.3배까지 좁아져, 언젠가
+    // 흔들리는 테스트가 되고 그러면 누군가 지운다.
     await register('auth-타이밍@example.test').expect(201);
 
     const unknownAccountMs = await medianDurationMs(
@@ -159,7 +164,7 @@ describe('인증 API', () => {
       3,
     );
 
-    expect(unknownAccountMs).toBeGreaterThan(wrongPasswordMs * 0.5);
+    expect(unknownAccountMs).toBeGreaterThan(wrongPasswordMs * 0.3);
   });
 
   it('비활성 사용자는 비밀번호가 맞아야 USER_INACTIVE를 본다', async () => {
