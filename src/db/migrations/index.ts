@@ -1,4 +1,5 @@
 import type { MigrationInterface } from 'typeorm';
+import { AddExampleSortIndexes1788048000000 } from './20260830000000-add-example-sort-indexes.js';
 import { CreateExampleSchema1787961600000 } from './20260829000000-create-example-schema.js';
 
 /**
@@ -25,4 +26,7 @@ export interface MigrationClass extends Function {
  *
  * 순서는 TypeORM이 클래스명 끝의 epoch millis로 정하므로 이 배열의 순서에 의존하지 않는다.
  */
-export const MIGRATIONS: readonly MigrationClass[] = [CreateExampleSchema1787961600000];
+export const MIGRATIONS: readonly MigrationClass[] = [
+  CreateExampleSchema1787961600000,
+  AddExampleSortIndexes1788048000000,
+];

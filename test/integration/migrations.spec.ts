@@ -35,11 +35,14 @@ describe('마이그레이션 적용', () => {
     expect(rows.map((row) => row.enumlabel)).toEqual(['archived', 'draft', 'published']);
   });
 
-  it('(created_at, id) 인덱스를 만든다', async () => {
+  it('정책이 여는 정렬마다 (컬럼, id) 인덱스를 만든다', async () => {
     const rows = await dataSource.query<{ indexname: string }[]>(
       `SELECT indexname FROM pg_indexes WHERE tablename = 'examples'`,
     );
-    expect(rows.map((row) => row.indexname)).toContain('IDX_examples_created_at_id');
+    const names = rows.map((row) => row.indexname);
+    expect(names).toContain('IDX_examples_created_at_id');
+    expect(names).toContain('IDX_examples_title_id');
+    expect(names).toContain('IDX_examples_published_at_id');
   });
 
   it('적용 대기 중인 마이그레이션이 없다', async () => {
