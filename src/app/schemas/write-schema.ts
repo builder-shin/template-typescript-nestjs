@@ -18,27 +18,38 @@ import type { RelationshipCardinality } from '../serializers/serializer.js';
  */
 
 /** `ValidationError` 하나를 JSON:API 오류로 옮긴다. */
-function toJsonApiError(failure: ValidationError): JsonApiError {
+function toJsonApiError(failure: ValidationError, path: readonly string[]): JsonApiError {
   const constraints = failure.constraints ?? {};
-  const messages = Object.values(constraints);
-  const [detail] = messages;
+  const [detail] = Object.values(constraints);
   return new JsonApiError('VALIDATION_ERROR', {
-    source: { pointer: `/data/attributes/${failure.property}` },
+    // 중첩 필드는 부모까지 담아야 클라이언트가 고칠 곳을 찾는다. class-validator는
+    // 배열 원소의 property를 인덱스 문자열로 주므로 `tags/0/name` 같은 경로도
+    // 그대로 올바른 JSON Pointer가 된다.
+    source: { pointer: `/data/attributes/${path.join('/')}` },
     // 제약이 여러 개 걸린 필드는 첫 메시지만 싣는다. 나머지는 같은 필드를 고치면
     // 함께 사라지므로, 한 필드에 여러 줄을 내는 것보다 필드당 한 줄이 읽기 쉽다.
-    detail: detail ?? `"${failure.property}" is invalid`,
+    detail: detail ?? `"${path.join('.')}" is invalid`,
   });
 }
 
-/** 중첩 검증 오류를 평평하게 편다. */
-function flatten(failures: readonly ValidationError[]): JsonApiError[] {
+/**
+ * 중첩 검증 오류를 평평하게 편다.
+ *
+ * `path`에 조상 필드 이름을 쌓아 내려간다 — 이것이 없으면 자식의 오류가 부모를 잃은
+ * 경로를 가리켜 클라이언트가 없는 필드를 고치려 든다.
+ */
+function flatten(
+  failures: readonly ValidationError[],
+  path: readonly string[] = [],
+): JsonApiError[] {
   const errors: JsonApiError[] = [];
   for (const failure of failures) {
+    const here = [...path, failure.property];
     if (failure.constraints !== undefined) {
-      errors.push(toJsonApiError(failure));
+      errors.push(toJsonApiError(failure, here));
     }
     if (failure.children !== undefined && failure.children.length > 0) {
-      errors.push(...flatten(failure.children));
+      errors.push(...flatten(failure.children, here));
     }
   }
   return errors;

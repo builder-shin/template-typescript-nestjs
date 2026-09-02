@@ -1,4 +1,5 @@
-import { IsInt, IsOptional, IsString, Length } from 'class-validator';
+import { Type } from 'class-transformer';
+import { IsInt, IsOptional, IsString, Length, ValidateNested } from 'class-validator';
 import { JsonApiError, JsonApiErrors } from '../../src/app/jsonapi/errors.js';
 import { validateAttributes } from '../../src/app/schemas/write-schema.js';
 
@@ -10,6 +11,22 @@ class Sample {
   @IsOptional()
   @IsInt()
   size?: number;
+}
+
+class Child {
+  @IsString()
+  @Length(1, 5)
+  name!: string;
+}
+
+class Parent {
+  @IsString()
+  title!: string;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => Child)
+  child?: Child;
 }
 
 /** 집합 오류가 아니면 다시 던져 테스트를 실패시킨다. */
@@ -75,5 +92,24 @@ describe('validateAttributes', () => {
     const aggregate = await caught(() => validateAttributes(Sample, { title: '' }));
     expect(aggregate).toBeInstanceOf(JsonApiErrors);
     expect(aggregate.errors[0]).toBeInstanceOf(JsonApiError);
+  });
+
+  it('중첩 필드의 pointer가 부모 경로를 유지한다', async () => {
+    // 부모를 잃으면 `/data/attributes/name`을 가리키게 되는데, 그런 최상위 필드는
+    // 존재하지 않는다 — 클라이언트가 고칠 곳을 못 찾는다.
+    const aggregate = await caught(() =>
+      validateAttributes(Parent, { title: '제목', child: { name: '' } }),
+    );
+    expect(aggregate.errors[0]?.source).toEqual({ pointer: '/data/attributes/child/name' });
+  });
+
+  it('중첩 오류와 최상위 오류를 함께 담는다', async () => {
+    const aggregate = await caught(() =>
+      validateAttributes(Parent, { title: 3, child: { name: '' } }),
+    );
+    expect(aggregate.errors.map((error) => error.source?.pointer).sort()).toEqual([
+      '/data/attributes/child/name',
+      '/data/attributes/title',
+    ]);
   });
 });
