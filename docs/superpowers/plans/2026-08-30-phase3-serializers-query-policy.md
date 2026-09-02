@@ -2908,7 +2908,7 @@ export function buildOffsetLinks(
 - [ ] **Step 4: 테스트가 통과하는지 확인한다**
 
 Run: `node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage=false test/jsonapi/pagination.spec.ts`
-Expected: PASS (29 tests)
+Expected: PASS (30 tests)
 
 - [ ] **Step 5: 커밋한다**
 
