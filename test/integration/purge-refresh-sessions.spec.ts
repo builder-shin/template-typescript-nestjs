@@ -121,13 +121,19 @@ describe('purgeExpiredRefreshSessions', () => {
     await expect(exists(notExpiredId)).resolves.toBe(true);
   });
 
-  it('오래된 순서로 지운다(ORDER BY expires_at)', async () => {
+  // 주의: 이 테스트는 `purgeExpiredRefreshSessions` 함수가 아니라 `PURGE_BATCH_SQL`
+  // 문장 자체의 계약을 고정한다 — 함수를 통과시키는 방식으로는 증명할 수 없다.
+  it('PURGE_BATCH_SQL 문장은 오래된 순서로 고른다(ORDER BY expires_at) — 함수가 아니라 SQL 문장의 계약이다', async () => {
     // `purgeExpiredRefreshSessions`는 조건에 맞는 행을 빈 배치를 볼 때까지 전부
     // 지우므로, 호출이 끝난 뒤의 DB 상태만으로는 각 배치가 오래된 순서로 골랐는지
     // 확인할 수 없다 — 잠기지 않은 대상 행은 순서와 무관하게 결국 다 지워지기
     // 때문이다(배치가 여러 번 걸릴 뿐, 함수가 반환할 때는 이미 다 사라진 뒤다). 그래서
-    // 실제 배치가 도는 문장(`PURGE_BATCH_SQL`)을 `LIMIT 1`로 직접 한 번만 돌려, 더
-    // 오래전에 만료된 쪽이 실제로 선택되는지를 그 자리에서 확인한다.
+    // 이 테스트는 함수를 부르지 않는다 — 실제 배치가 도는 문장(`PURGE_BATCH_SQL`)을
+    // `LIMIT 1`로 직접 한 번만 돌려, 더 오래전에 만료된 쪽이 실제로 선택되는지를 그
+    // 자리에서 확인한다. 이 테스트가 통과한다고 해서 함수의 "오래된 순서" 계약이
+    // 저절로 증명되는 것은 아니다 — 함수는 어차피 둘 다 지우므로 순서가 결과에
+    // 드러나지 않는다. 여기서 확인하는 것은 함수가 내부에서 실행하는 그 SQL 문장이
+    // 정렬을 갖고 있다는 사실 하나뿐이다.
     const userId = await createUser('ordering');
     const now = Date.now();
     const olderId = await createSession(userId, new Date(now - 300_000));
@@ -144,11 +150,14 @@ describe('purgeExpiredRefreshSessions', () => {
     await expect(exists(newerId)).resolves.toBe(true);
   });
 
-  it('batchSize:1에 만료 행 3개면 batches가 3이고 deleted가 3이다', async () => {
-    // 배치가 실제로 여러 번 도는지의 증거다. 하나씩 지워도 정확히 3번만 도는지 본다 —
-    // 3은 batchSize(1)의 배수라서, 다 지웠는지 확인하는 빈 배치를 셈에 넣으면 4가
-    // 나온다. `batches`는 그 확인용 빈 배치를 세지 않는다(`purge-expired-refresh
-    // -sessions.ts`의 `batches` 계산 주석 참고) — 그래서 3이다.
+  it('batchSize:1에 만료 행 3개면 batches가 4이고 deleted가 3이다', async () => {
+    // 배치가 실제로 여러 번 도는지의 증거다. batchSize가 1이므로 세 행을 하나씩
+    // 지우는 데 세 번, 그리고 "더 없다"를 확인하는 빈 배치가 한 번 더 필요하다 —
+    // 3은 batchSize(1)의 배수라서, SELECT가 LIMIT만큼 채울 수 있는 한 반드시
+    // 채우므로 세 번째 배치도 1행을 돌려주고(아직 다 지웠는지 모른다), 네 번째
+    // 배치에서 0행을 받아야 비로소 끝났다는 것을 안다. `batches`는 그 확인용 빈
+    // 배치까지 포함해 실제로 실행한 배치 수를 그대로 보고한다(`purge-expired-refresh
+    // -sessions.ts`의 `PurgeResult.batches` 주석 참고) — 그래서 4다.
     const userId = await createUser('batching');
     const now = Date.now();
     const id1 = await createSession(userId, new Date(now - 300_000));
@@ -161,14 +170,14 @@ describe('purgeExpiredRefreshSessions', () => {
       lockTimeoutMs: 500,
     });
 
-    expect(result).toEqual({ deleted: 3, batches: 3 });
+    expect(result).toEqual({ deleted: 3, batches: 4 });
     await expect(exists(id1)).resolves.toBe(false);
     await expect(exists(id2)).resolves.toBe(false);
     await expect(exists(id3)).resolves.toBe(false);
   });
 
   it('지울 것이 없으면 deleted:0, batches:1이다', async () => {
-    // 빈 배치를 보고 멈춘 것 자체가 유일한 시도이므로 1로 보고한다.
+    // 첫 배치부터 빈 결과를 보고 멈춘다 — 그 한 번의 시도가 실행한 배치 전부이므로 1이다.
     const result = await purgeExpiredRefreshSessions(dataSource, {
       retentionSeconds: 0,
       batchSize: 10,

@@ -22,7 +22,12 @@ export interface PurgeOptions {
 export interface PurgeResult {
   /** 실제로 지운 행 수. */
   readonly deleted: number;
-  /** 실제로 행을 지운 배치 수. */
+  /**
+   * 실행한 배치(SQL 왕복) 수. 다 지웠는지 확인하는 마지막 빈 배치도 포함한다 —
+   * 지울 것이 없으면 그 확인 시도 하나만 돌므로 1이고, `batchSize: 1`에 만료 행
+   * 3개면 하나씩 지우는 세 번에 "더 없다"를 확인하는 한 번이 더해져 4다. 몇 번
+   * 실제로 DB를 오갔는지를 그대로 보고하는 값이다.
+   */
   readonly batches: number;
 }
 
@@ -137,32 +142,27 @@ export async function purgeExpiredRefreshSessions(
   const cutoff = new Date(Date.now() - retentionSeconds * 1000);
 
   let deleted = 0;
-  // `batches`는 "실제로 무언가를 지운 배치 수"다. 지울 대상이 정확히 batchSize의
-  // 배수만큼 있으면, 다 지웠다는 것을 확인하려면 빈 배치가 한 번 더 필요하다(SELECT는
-  // LIMIT만큼 채울 수 있으면 반드시 채우므로, 빈 결과는 "더 없다"는 뜻이다) — 그
-  // 확인용 빈 배치는 세지 않는다. 그래야 "만료 행 3개, batchSize 1"이 batches=3으로
-  // 실제로 지운 횟수와 일치한다. 처음부터 지울 게 하나도 없으면 그 확인 배치 자체가
-  // 유일한 시도이므로, 그 경우에 한해 1로 보고한다(아래 루프 뒤 처리).
+  // 실행한 배치 수. 마지막에 "더 없다"를 확인하는 빈 배치까지 그대로 센다 — 지울
+  // 대상이 정확히 batchSize의 배수만큼 있으면 그 확인 배치가 한 번 더 필요하기
+  // 때문이다(SELECT는 LIMIT만큼 채울 수 있으면 반드시 채우므로, 빈 결과라야 비로소
+  // "더 없다"는 것을 안다). 그래서 지울 것이 없으면 1(그 확인 시도 자체), 만료 행
+  // 3개에 batchSize 1이면 4(하나씩 세 번 + 확인 한 번)다. 이 카운터가 곧 무한 루프
+  // 방어 상한(`MAX_BATCHES`)과 비교하는 값이기도 하다 — 실제로 DB를 오간 횟수이므로
+  // 별도 카운터를 둘 이유가 없다.
   let batches = 0;
-  // DB 왕복 상한을 세는 별도 카운터다 — `batches`는 빈 배치를 세지 않지만, 무한 루프
-  // 방어는 "실제로 몇 번 시도했는가"를 봐야 하므로 이 값으로 `MAX_BATCHES`를 지킨다.
-  let attempts = 0;
 
   for (;;) {
-    if (attempts >= MAX_BATCHES) {
+    if (batches >= MAX_BATCHES) {
       logger.warn(
         `배치 상한(${String(MAX_BATCHES)})에 도달해 멈춘다 — ` +
           `deleted=${String(deleted)}, batches=${String(batches)}`,
       );
       break;
     }
-    attempts += 1;
 
     const batchDeleted = await runBatch(dataSource, cutoff, batchSize, lockTimeoutMs);
-    if (batchDeleted > 0) {
-      batches += 1;
-      deleted += batchDeleted;
-    }
+    batches += 1;
+    deleted += batchDeleted;
 
     if (batchDeleted < batchSize) {
       // 요청한 것보다 적게 돌아왔다는 것은 조건에 맞는(그리고 잠기지 않은) 행이 더
@@ -172,7 +172,7 @@ export async function purgeExpiredRefreshSessions(
     }
   }
 
-  return { deleted, batches: batches === 0 ? 1 : batches };
+  return { deleted, batches };
 }
 
 /**
