@@ -158,14 +158,44 @@ describe('JsonApiNegotiationGuard', () => {
     throw new Error('expected UNSUPPORTED_MEDIA_TYPE');
   });
 
-  it('본문 없는 메서드는 Content-Type을 보지 않는다', () => {
+  it('Content-Type을 보내지 않은 메서드는 통과한다', () => {
+    // 본문이 필수인 메서드만 헤더를 요구한다. GET/DELETE에 헤더를 강요하면
+    // `DELETE /examples/{id}`처럼 본문이 없는 요청이 415가 된다.
     for (const method of ['GET', 'HEAD', 'DELETE', 'OPTIONS']) {
-      const context = contextFor({
-        method,
-        headers: { accept: 'application/vnd.api+json', 'content-type': 'text/plain' },
-      });
+      const context = contextFor({ method, headers: { accept: 'application/vnd.api+json' } });
       expect(guard().canActivate(context)).toBe(true);
     }
+  });
+
+  it('DELETE가 보낸 Content-Type도 검사한다', () => {
+    // 관계 라우트의 DELETE는 linkage 본문을 싣는다. 메서드로만 판정하면 이 본문이
+    // 협상을 통과해 버린다.
+    const context = contextFor({
+      method: 'DELETE',
+      headers: { accept: 'application/vnd.api+json', 'content-type': 'application/json' },
+    });
+    try {
+      guard().canActivate(context);
+    } catch (error) {
+      if (!(error instanceof JsonApiError)) {
+        throw error;
+      }
+      expect(error.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+      expect(error.status).toBe(415);
+      return;
+    }
+    throw new Error('expected UNSUPPORTED_MEDIA_TYPE');
+  });
+
+  it('DELETE에 vendor Content-Type이면 통과한다', () => {
+    const context = contextFor({
+      method: 'DELETE',
+      headers: {
+        accept: 'application/vnd.api+json',
+        'content-type': 'application/vnd.api+json',
+      },
+    });
+    expect(guard().canActivate(context)).toBe(true);
   });
 
   it('POST에 Content-Type이 아예 없으면 UNSUPPORTED_MEDIA_TYPE', () => {

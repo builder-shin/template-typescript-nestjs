@@ -33,8 +33,15 @@ export function SkipJsonApiNegotiation(): MethodDecorator & ClassDecorator {
   return SetMetadata(NEGOTIATE_ACCEPT_KEY, true);
 }
 
-/** 본문을 실을 수 있는 메서드. 이때만 `Content-Type`을 본다. */
-const BODY_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH']);
+/**
+ * 본문을 **반드시** 실어야 하는 메서드. 이때만 `Content-Type`이 없는 것을 오류로 본다.
+ *
+ * `Content-Type`을 **보냈을 때** 그 값이 맞는지는 메서드와 무관하게 본다(가드 참고).
+ * 이 집합에 `DELETE`가 없는 이유가 그 분리다 — `DELETE /examples/{id}`는 본문이 없지만
+ * `DELETE /examples/{id}/relationships/tags`는 linkage 본문을 싣는다. 메서드만으로
+ * 판정하면 둘 중 하나는 반드시 틀린다.
+ */
+const BODY_REQUIRED_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH']);
 
 /**
  * 미디어 타입 파라미터 하나(`q=0.9` 형태)의 키를 소문자로 뽑는다. `=`가 없으면 전체가 키다.
@@ -161,12 +168,17 @@ export class JsonApiNegotiationGuard implements CanActivate {
       });
     }
 
-    if (BODY_METHODS.has(request.method.toUpperCase())) {
-      if (!isJsonApiContentType(headerValue(request, 'content-type'))) {
-        throw new JsonApiError('UNSUPPORTED_MEDIA_TYPE', {
-          detail: `this endpoint only consumes ${JSONAPI_MEDIA_TYPE} without media type parameters`,
-        });
-      }
+    // 규칙이 둘로 갈린다. (1) 보낸 `Content-Type`은 메서드와 무관하게 vendor 타입이어야
+    // 한다 — 관계 라우트의 `DELETE`처럼 본문을 싣는 메서드가 검사에서 새지 않게 한다.
+    // (2) 본문이 필수인 메서드는 `Content-Type`을 생략할 수 없다.
+    const contentType = headerValue(request, 'content-type');
+    const declaredButWrong = contentType !== undefined && !isJsonApiContentType(contentType);
+    const missingButRequired =
+      contentType === undefined && BODY_REQUIRED_METHODS.has(request.method.toUpperCase());
+    if (declaredButWrong || missingButRequired) {
+      throw new JsonApiError('UNSUPPORTED_MEDIA_TYPE', {
+        detail: `this endpoint only consumes ${JSONAPI_MEDIA_TYPE} without media type parameters`,
+      });
     }
 
     return true;

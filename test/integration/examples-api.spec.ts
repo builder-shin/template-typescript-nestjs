@@ -561,6 +561,23 @@ describe('Examples API', () => {
       expect(response.status).toBe(415);
     });
 
+    it('본문을 싣는 DELETE의 Content-Type도 검사한다', async () => {
+      // 관계 라우트의 DELETE는 linkage 본문을 싣는다. 협상을 메서드로만 판정하면
+      // 이 경로만 검사에서 새어 나가 잘못된 미디어 타입이 성공(204)한다.
+      const created = await createExample({ title: '제목' });
+      const id = (created.body as ResourceBody).data.id;
+      const tags = await seedTags();
+
+      const response = await api()
+        .delete(`/api/v1/examples/${id}/relationships/tags`)
+        .set('Accept', VENDOR)
+        .set('Content-Type', 'application/json')
+        .send(JSON.stringify({ data: tags.map((tagId) => ({ type: 'tags', id: tagId })) }));
+
+      expect(response.status).toBe(415);
+      expect((response.body as ErrorBody).errors[0]?.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+    });
+
     it('오류도 vendor Content-Type으로 나간다', async () => {
       const response = await api().get(`/api/v1/examples/${MISSING}`).set('Accept', VENDOR);
       expect(response.headers['content-type']).toBe(VENDOR);
