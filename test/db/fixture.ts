@@ -92,6 +92,49 @@ export async function withMigrationLock<T>(
   }
 }
 
+/** `examples`/`categories`/`tags`에 실제로 커밋하는 스위트끼리를 직렬화하는 잠금 키. */
+const COMMIT_LOCK_KEY = 4_182_026_830;
+
+/** `acquireCommitLock`이 돌려주는 해제 손잡이. */
+export interface CommitLockHandle {
+  release(): Promise<void>;
+}
+
+/**
+ * 실제로 행을 커밋하는 통합 스위트끼리(`examples-api.spec.ts`, `examples-put.spec.ts`)
+ * 상호 배제한다.
+ *
+ * 이 저장소의 통합 스펙 대부분은 `withRollback`으로 격리된다 — 커밋하지 않으므로
+ * 서로에게 보이지 않고, Jest가 파일을 병렬 워커로 돌려도 안전하다. 그런데 실제 HTTP
+ * 왕복과 커밋을 증명해야 하는 소수의 스위트(예: 생성 직후 `Location`을 확인하거나,
+ * 동일 id 동시 요청의 advisory 잠금을 증명하는 테스트)는 `withRollback`을 쓸 수 없다.
+ * 이 스위트들이 같은 공유 테이블에 동시에 행을 남기면, 한쪽이 정리하기 전에 다른 쪽의
+ * "테이블 전체" 단언(빈 컬렉션, 총 개수 등)이 그 행을 함께 세어 버린다 — 각자 자기
+ * id만 정리해도 막을 수 없는 종류의 간섭이다. `describe` 블록 전체를 이 잠금으로 감싸면
+ * 그런 스위트끼리만 직렬화되고, 나머지 대다수의 `withRollback` 기반 스위트는 계속
+ * 완전히 병렬로 돈다.
+ *
+ * `beforeAll`/`afterAll`에 걸쳐 잠금을 들고 있어야 하므로 `withMigrationLock`처럼 콜백을
+ * 감싸는 모양이 아니라 acquire/release 손잡이로 준다 — `describe` 블록은 동기 함수라
+ * 그 안의 모든 `it`을 비동기 콜백 하나로 감쌀 자리가 없다. 세션을 전용 `queryRunner`로
+ * 고정하는 이유와 잠금 스코프를 세션(트랜잭션이 아니라)으로 고르는 이유는
+ * `withMigrationLock`과 같다 — 이 잠금은 트랜잭션 하나가 아니라 스위트 전체에 걸린다.
+ */
+export async function acquireCommitLock(dataSource: DataSource): Promise<CommitLockHandle> {
+  const lockRunner = dataSource.createQueryRunner();
+  await lockRunner.connect();
+  await lockRunner.query('SELECT pg_advisory_lock($1)', [COMMIT_LOCK_KEY]);
+  return {
+    async release(): Promise<void> {
+      try {
+        await lockRunner.query('SELECT pg_advisory_unlock($1)', [COMMIT_LOCK_KEY]);
+      } finally {
+        await lockRunner.release();
+      }
+    },
+  };
+}
+
 /**
  * 마이그레이션을 head까지 적용한 `DataSource`를 만든다.
  *

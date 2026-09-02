@@ -4,6 +4,8 @@ import request from 'supertest';
 import type { Response } from 'supertest';
 import { DataSource } from 'typeorm';
 import { createTestApp } from '../app-factory.js';
+import { acquireCommitLock } from '../db/fixture.js';
+import type { CommitLockHandle } from '../db/fixture.js';
 
 /**
  * Example API의 계약을 실제 HTTP와 실제 PostgreSQL로 고정한다.
@@ -40,20 +42,33 @@ interface CollectionBody {
 describe('Examples API', () => {
   let app: INestApplication<Server>;
   let dataSource: DataSource;
+  // examples-put.spec.ts와의 상호 배제 손잡이. 자세한 이유는 fixture.ts의
+  // `acquireCommitLock` 문서 주석 참고 — 이 스위트가 실제로 커밋하는 유일한 다른
+  // 스위트와 같은 공유 테이블을 쓰기 때문에, id 단위 정리만으로는 "테이블 전체"를
+  // 단언하는 아래 totals/빈 컬렉션 테스트를 다른 워커의 커밋으로부터 지킬 수 없다.
+  let commitLock: CommitLockHandle;
+
+  // 이 스위트가 커밋한 자원의 id. afterEach가 지우는 범위를 이 목록으로 좁힌다 —
+  // 조건 없는 DELETE는 같은 순간 다른 워커(예: examples-put.spec.ts, 동일 id로
+  // 실제 커밋되는 PUT 시나리오를 돈다)가 커밋해 둔 행까지 지운다. 실제로 겪었던 사고다.
+  const createdExampleIds: string[] = [];
+  const createdCategoryIds: string[] = [];
+  const createdTagIds: string[] = [];
 
   const api = (): ReturnType<typeof request> => request(app.getHttpServer());
 
   /**
    * JSON:API 헤더를 갖춘 POST.
    *
-   * `async`를 붙이지 않는다. supertest의 `Test`는 그 자체로 `Promise<Response>`라
-   * 그대로 돌려주면 되고, `async`로 감싸면 `await`가 없어 `require-await`에 걸린다.
+   * 만든 자원의 id를 `createdExampleIds`에 적립하므로 `async`로 감싸 응답 본문을
+   * 읽는다 — 정리 범위를 이 스위트가 실제로 만든 행으로 좁히려면 그 id를 알아야 한다.
+   * 실패 응답(422·403·409 등)은 `data.id`가 없으므로 아무것도 적립되지 않는다.
    */
-  function createExample(
+  async function createExample(
     attributes: Record<string, unknown>,
     relationships?: unknown,
   ): Promise<Response> {
-    return api()
+    const response = await api()
       .post('/api/v1/examples')
       .set('Accept', VENDOR)
       .set('Content-Type', VENDOR)
@@ -66,6 +81,11 @@ describe('Examples API', () => {
           },
         }),
       );
+    const id = (response.body as { data?: { id?: unknown } }).data?.id;
+    if (typeof id === 'string') {
+      createdExampleIds.push(id);
+    }
+    return response;
   }
 
   /** 분류 한 행을 만들고 id를 돌려준다. */
@@ -77,6 +97,7 @@ describe('Examples API', () => {
     if (id === undefined) {
       throw new Error('분류를 만들지 못했다');
     }
+    createdCategoryIds.push(id);
     return id;
   }
 
@@ -85,24 +106,39 @@ describe('Examples API', () => {
     const rows = await dataSource.query<{ id: string }[]>(
       `INSERT INTO tags (name) VALUES ('ㄱ'), ('ㄴ') RETURNING id`,
     );
-    return rows.map((row) => row.id);
+    const ids = rows.map((row) => row.id);
+    createdTagIds.push(...ids);
+    return ids;
   }
 
   beforeAll(async () => {
     app = await createTestApp();
     dataSource = app.get(DataSource);
+    commitLock = await acquireCommitLock(dataSource);
   });
 
   afterEach(async () => {
-    // TRUNCATE가 아니라 DELETE다 — 행 수준 잠금만 잡아 다른 워커를 막지 않고,
-    // 커밋되지 않은 다른 워커의 행은 보이지 않아 지워지지도 않는다.
-    await dataSource.query('DELETE FROM example_tags');
-    await dataSource.query('DELETE FROM examples');
-    await dataSource.query('DELETE FROM categories');
-    await dataSource.query('DELETE FROM tags');
+    // TRUNCATE가 아니라 DELETE다 — 행 수준 잠금만 잡아 다른 워커를 막지 않는다.
+    // 그리고 이 스위트가 적립해 둔 id만 지운다 — 위 주석 참고.
+    if (createdExampleIds.length > 0) {
+      await dataSource.query('DELETE FROM example_tags WHERE example_id = ANY($1)', [
+        createdExampleIds,
+      ]);
+      await dataSource.query('DELETE FROM examples WHERE id = ANY($1)', [createdExampleIds]);
+      createdExampleIds.length = 0;
+    }
+    if (createdCategoryIds.length > 0) {
+      await dataSource.query('DELETE FROM categories WHERE id = ANY($1)', [createdCategoryIds]);
+      createdCategoryIds.length = 0;
+    }
+    if (createdTagIds.length > 0) {
+      await dataSource.query('DELETE FROM tags WHERE id = ANY($1)', [createdTagIds]);
+      createdTagIds.length = 0;
+    }
   });
 
   afterAll(async () => {
+    await commitLock.release();
     await app.close();
   });
 
