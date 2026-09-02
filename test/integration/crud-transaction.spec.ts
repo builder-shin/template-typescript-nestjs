@@ -19,6 +19,7 @@ import {
   ExampleUpdate,
 } from '../../src/app/schemas/example.schemas.js';
 import { EXAMPLE_SERIALIZER } from '../../src/app/serializers/example.serializer.js';
+import type { ResourceSerializer } from '../../src/app/serializers/serializer.js';
 import { buildDataSourceOptions } from '../../src/config/database.js';
 import { configureHttp } from '../../src/config/http.js';
 import { loadDatabaseSettings } from '../../src/config/settings.js';
@@ -64,6 +65,9 @@ const PROBE_TITLE = '롤백될 것';
  */
 const PUT_PROBE_ID = '0195c1a0-0000-7000-8000-00000000f001';
 
+/** 직렬화 실패 프로브가 쓰는 고정 id. 이유는 `PUT_PROBE_ID`와 같다. */
+const SERIALIZE_PROBE_ID = '0195c1a0-0000-7000-8000-00000000f002';
+
 /**
  * `ExamplesController`와 같은 선언에 `afterSave`만 더한다.
  *
@@ -88,6 +92,44 @@ const ProbeHost = CrudActions({
 // `assertResourcePath`가 부트스트랩에서 검사한다.
 @Controller('api/v1/examples')
 class ExamplesProbeController extends ProbeHost {}
+
+/**
+ * `title`을 읽을 때 언제나 던지는 시리얼라이저. `serializeResource`(응답 조립 단계)
+ * 실패를 재현하는 유일한 목적이라 다른 attribute·관계는 선언하지 않는다.
+ */
+const SERIALIZATION_FAILURE = '직렬화가 터졌다';
+
+const throwingSerializer: ResourceSerializer<Example> = {
+  type: 'examples',
+  resourcePath: '/api/v1/examples-serialize-probe',
+  attributes: {
+    title: (): string => {
+      throw new Error(SERIALIZATION_FAILURE);
+    },
+  },
+  relationships: {},
+};
+
+/**
+ * `replace()`가 재조회+직렬화를 **커밋 전**, 같은 트랜잭션 안에서 하기로 한 결정을
+ * 붙잡아 두는 프로브(`crud-actions.ts`의 `replace()` 안 "재조회도 이 트랜잭션 안에서
+ * 한다" 주석 참고). `afterSave` 실패와는 터지는 자리가 다르다 — 이쪽은 저장이 끝나고
+ * 응답을 조립하는 단계에서 터진다. 그래서 위 훅 실패 롤백 테스트가 이 경로를 대신하지
+ * 못한다.
+ */
+const SerializeFailureHost = CrudActions({
+  model: Example,
+  serializer: throwingSerializer,
+  createSchema: ExampleCreate,
+  updateSchema: ExampleUpdate,
+  relationshipsSchema: {},
+  queryPolicy: EXAMPLE_QUERY_POLICY,
+  replaceSchema: ExampleReplace,
+  enableUpsert: true,
+});
+
+@Controller('api/v1/examples-serialize-probe')
+class SerializeFailureProbeController extends SerializeFailureHost {}
 
 /** `Logger.overrideLogger`로 가로챈 `error` 호출 한 건. */
 interface LoggedError {
@@ -121,6 +163,19 @@ describe('CrudActions 트랜잭션 경계', () => {
       );
   }
 
+  /** 없는 id로 `PUT` — `throwingSerializer`가 붙은 경로라 응답 조립 단계에서 던진다. */
+  function serializeFailureProbe(): Promise<Response> {
+    return request(app.getHttpServer())
+      .put(`/api/v1/examples-serialize-probe/${SERIALIZE_PROBE_ID}`)
+      .set('Accept', VENDOR)
+      .set('Content-Type', VENDOR)
+      .send(
+        JSON.stringify({
+          data: { type: 'examples', id: SERIALIZE_PROBE_ID, attributes: { title: PROBE_TITLE } },
+        }),
+      );
+  }
+
   beforeAll(async () => {
     // 앱의 `DataSource`는 `migrationsRun: false`라 스키마를 만들지 않는다. 이 스펙이
     // 어떤 순서로 돌든 테이블이 있어야 하므로 fixture로 마이그레이션을 보장하고,
@@ -134,7 +189,7 @@ describe('CrudActions 트랜잭션 경계', () => {
           useFactory: () => buildDataSourceOptions(loadDatabaseSettings()),
         }),
       ],
-      controllers: [ExamplesProbeController],
+      controllers: [ExamplesProbeController, SerializeFailureProbeController],
       // 전역 예외 필터가 없으면 500이 Nest 기본 형식으로 나가 오류 문서를 볼 수 없다.
       providers: [{ provide: APP_FILTER, useClass: JsonApiExceptionFilter }],
     })
@@ -210,6 +265,23 @@ describe('CrudActions 트랜잭션 경계', () => {
     const rows = await dataSource.query<{ count: string }[]>(
       'SELECT COUNT(*) AS count FROM examples WHERE id = $1',
       [PUT_PROBE_ID],
+    );
+    expect(rows[0]?.count).toBe('0');
+  });
+
+  it('PUT에서 재조회·직렬화가 던지면 upsert가 만든 행도 함께 롤백된다', async () => {
+    // `create()`/`update()`는 커밋 **뒤에** 재조회하므로 이 시점에 터지면 이미 커밋된
+    // 행이 남는다 — Phase 4의 기존 규약이고 여기서 바꾸는 것이 아니다(그 동작을
+    // 계약으로 단언하지 않는다. 바람직해서가 아니라 아직 그런 것뿐이다). `PUT`만
+    // 다르다는 것을, 즉 재조회를 트랜잭션 밖으로 옮기지 않기로 한 결정이 실제로
+    // 지켜지고 있다는 것을 이 테스트가 고정한다.
+    const response = await serializeFailureProbe();
+
+    expect(response.status).toBe(500);
+
+    const rows = await dataSource.query<{ count: string }[]>(
+      'SELECT COUNT(*) AS count FROM examples WHERE id = $1',
+      [SERIALIZE_PROBE_ID],
     );
     expect(rows[0]?.count).toBe('0');
   });

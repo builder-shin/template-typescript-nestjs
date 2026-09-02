@@ -268,6 +268,7 @@ export function CrudActions<
           manager,
           model,
           parsed.attributes,
+          parsed.presentKeys,
           schemaProperties(schema),
         );
         const { created } = await upsertRow(manager, model, id, values);
@@ -281,8 +282,12 @@ export function CrudActions<
 
         // 전체 교체이므로 보내지 않은 관계는 비운다. `PATCH`가 건드리지 않는 것과
         // 갈리는 지점이고, 스펙 15장이 "관계 reset"을 회귀 대상으로 지목한 곳이다.
+        //
+        // `in`이 아니라 `Object.hasOwn`이다 — `in`은 프로토타입 체인까지 본다.
+        // `constructor`·`toString`·`valueOf` 같은 이름의 관계가 선언되면 `in`은 언제나
+        // 참이 되어, 보내지 않았는데도 리셋 대상에서 빠진다.
         for (const [name, rule] of Object.entries(relationshipsSchema)) {
-          if (name in linkage.toOne || name in linkage.toMany) {
+          if (Object.hasOwn(linkage.toOne, name) || Object.hasOwn(linkage.toMany, name)) {
             continue;
           }
           Reflect.set(entity, name, rule.cardinality === 'many' ? [] : null);

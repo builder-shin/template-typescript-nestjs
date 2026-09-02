@@ -49,11 +49,23 @@ function resetValueFor(column: ColumnMetadata): unknown {
  * 스키마가 소유한 필드 전부를 담되, 요청이 보내지 않은 것은 기본값으로 되돌린다.
  * 이것이 `PUT`과 `PATCH`가 갈리는 지점이다 — `PATCH`는 보낸 것만 옮기고, `PUT`은
  * 보내지 않은 것까지 되돌린다.
+ *
+ * "보냈는가"의 판정은 `presentKeys`(원본 요청의 `data.attributes` 키 집합,
+ * `document.ts`가 만든다)로만 한다. `property in attributes`로 판정하면 안 된다 —
+ * 이 tsconfig(`target: ES2023`)는 `useDefineForClassFields`가 기본 켜짐이라, 초기값
+ * 없는 선언 필드도 `plainToInstance`가 만든 인스턴스에 own 프로퍼티로 **존재한다**
+ * (값은 `undefined`). 그래서 `attributes`가 스키마 인스턴스라면 스키마가 소유한
+ * 프로퍼티 전부가 언제나 `in`에 참이 되어 이 함수의 되돌림 사다리(`resetValueFor`)가
+ * 실제 요청 경로에서 통째로 죽는다 — 보내지 않은 NOT NULL 필드도 `undefined`가 그대로
+ * `values`에 실려 `SET col = DEFAULT`로 나가고, 기본값이 없으면 Postgres가 23502로
+ * 죽는다. `applyAttributes`(document-parsing.ts)가 같은 이유로 `presentKeys`를 쓰는
+ * 것과 정확히 같은 문제다.
  */
 export function replacementValues<T extends ObjectLiteral>(
   manager: EntityManager,
   model: EntityTarget<T>,
   attributes: object,
+  presentKeys: ReadonlySet<string>,
   ownedProperties: readonly string[],
 ): Record<string, unknown> {
   const metadata = manager.dataSource.getMetadata(model);
@@ -64,7 +76,7 @@ export function replacementValues<T extends ObjectLiteral>(
     if (column === undefined) {
       throw new TypeError(`교체 스키마의 "${property}"에 대응하는 컬럼이 없다`);
     }
-    if (property in attributes) {
+    if (presentKeys.has(property)) {
       const value: unknown = Reflect.get(attributes, property);
       values[property] = value;
       continue;

@@ -101,9 +101,16 @@ export type RelationshipWriteSchema = Readonly<Record<string, RelationshipWriteR
  * 쓰기 스키마가 소유한 필드 이름.
  *
  * `PUT`의 전체 교체가 이 목록을 쓴다 — 요청이 보내지 않은 필드를 기본값으로 되돌리려면
- * 되돌릴 대상을 알아야 한다. TypeScript의 선언 필드는 초기값이 없으면 인스턴스에
- * 존재하지 않아 `Object.keys`로 잡히지 않으므로, 데코레이터가 등록해 둔
- * class-validator 메타데이터가 유일하게 정확한 출처다.
+ * 되돌릴 대상을 알아야 한다. `Object.keys(new schema())`로도 될 것처럼 보이지만 쓰지
+ * 않는다 — 이 tsconfig(`target: ES2023`)는 `useDefineForClassFields`가 기본 켜짐이라
+ * 초기값 없는 선언 필드도 인스턴스의 own 프로퍼티로 존재한다(값은 `undefined`), 즉
+ * `Object.keys`로도 잡힌다. 진짜 이유는 위 `validateAttributes`의
+ * `whitelist: true, forbidNonWhitelisted: true`다 — 이 파이프라인은 class-validator
+ * 데코레이터가 없는 프로퍼티를 애초에 값으로 받아들이지 않는다. "이 스키마가 실제로
+ * 쓸 수 있는 필드"의 정의는 이미 그 데코레이터 메타데이터가 정하고 있으므로, 되돌릴
+ * 대상도 같은 정의를 읽어야 두 목록이 갈리지 않는다. `Object.keys(instance)`를 쓰면
+ * 데코레이터 없이 선언만 된 필드가(있다면) 여기서는 "되돌릴 대상"으로 잡히는데
+ * `validateAttributes`는 그 값을 걸러 버리는 불일치가 생길 수 있다.
  *
  * 상속 체인까지 훑는다. class-validator 0.15.1의 `MetadataStorage.getTargetValidationMetadatas`
  * 소스를 보면, 조상 생성자에 등록된 메타데이터를 모으는 코드(`filteredForInheritedMetadatasSearch`)는

@@ -16,7 +16,15 @@ import type { ResourceSerializer } from '../../serializers/serializer.js';
 
 /** 저장·삭제 전후에 끼어드는 자리. 선언하지 않으면 아무 일도 하지 않는다. */
 export interface CrudHooks<T extends ObjectLiteral> {
-  /** 저장 직전. 파생 필드 계산처럼 같은 트랜잭션에서 끝나야 하는 일을 둔다. */
+  /**
+   * 저장 직전. 파생 필드 계산처럼 같은 트랜잭션에서 끝나야 하는 일을 둔다.
+   *
+   * `PUT`(upsert)에서는 이 시점이 `POST`/`PATCH`와 다르다. `upsertRow`의
+   * `INSERT ... ON CONFLICT`가 이 훅보다 **먼저** 실행되어 행을 이미 만들거나
+   * 갱신해 둔 뒤에야 이 훅이 돈다 — `POST`는 그 반대로, 행이 아직 없을 때 돈다.
+   * 같은 트랜잭션에서 개수를 세는 훅(예: "분류당 example 최대 N개")은 그래서
+   * `PUT`에서만 자기 자신을 한 개 더 센다.
+   */
   beforeSave?(entity: T, manager: EntityManager): Promise<void> | void;
   /** 저장 직후, 같은 트랜잭션 안. 여기서 던지면 저장도 함께 롤백된다. */
   afterSave?(entity: T, manager: EntityManager): Promise<void> | void;
