@@ -111,6 +111,7 @@ describe('executeList — 필터', () => {
       await seedExamples(manager);
       await manager.save(manager.create(Example, { title: '할인 50% 적용' }));
       await manager.save(manager.create(Example, { title: 'snake_case 규칙' }));
+      await manager.save(manager.create(Example, { title: '경로 C:\\temp 안내' }));
 
       const titles = async (value: string): Promise<string[]> => {
         const parsed = parseQuery(
@@ -124,6 +125,7 @@ describe('executeList — 필터', () => {
 
       expect(await titles('%')).toEqual(['할인 50% 적용']);
       expect(await titles('_')).toEqual(['snake_case 규칙']);
+      expect(await titles('\\')).toEqual(['경로 C:\\temp 안내']);
     });
   });
 
@@ -354,7 +356,10 @@ describe('executeList — offset 페이지네이션', () => {
     });
   });
 
-  it('to-many를 include해도 총 개수가 부풀지 않는다', async () => {
+  it('to-many를 include해도 총 개수가 행 수만큼 부풀지 않는다', async () => {
+    // 이 테스트가 고정하는 것은 결과값(조인 행 수가 아니라 자원 수)이지 COUNT를 언제
+    // 실행하는지가 아니다. TypeORM이 조인이 있을 때 COUNT(DISTINCT)로 세므로 호출 순서를
+    // 바꿔도 이 단언은 통과한다 — 순서는 비용 판단이고, 여기서 지켜지는 것은 계약이다.
     await withRollback(dataSource, async (manager) => {
       await seedExamples(manager);
       const parsed = parseQuery(

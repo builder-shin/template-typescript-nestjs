@@ -145,8 +145,10 @@ function cursorValues<T extends ObjectLiteral>(
 async function countTotal<T extends ObjectLiteral>(
   builder: SelectQueryBuilder<T>,
 ): Promise<number> {
-  // include 조인 전에 복제한 질의로 센다. to-many 조인은 행을 늘리므로 조인 뒤에 세면
-  // 총 개수가 부푼다.
+  // include 조인을 붙이기 전에 복제한 질의로 센다. TypeORM 1.1의 `getCount()`는 조인이
+  // 있으면 `COUNT(DISTINCT <alias>.id)`로 세므로 순서를 바꿔도 값 자체는 같다 — 이 순서는
+  // 정확성이 아니라 비용의 문제다. 세는 일에 to-many 조인이 끼어들 이유가 없고, 조인 없이
+  // 세는 편이 싸다.
   return builder.clone().getCount();
 }
 
