@@ -35,11 +35,36 @@ services:
       retries: 10
       start_period: 5s
 
-  api:
+  # 스키마를 head까지 올리고 끝나는 일회성 서비스. `api`/`worker`가
+  # `service_completed_successfully`로 이것을 기다리므로, 스택이 뜨는 순간 스키마는
+  # 이미 최신이다.
+  #
+  # **왜 애플리케이션이 직접 하지 않는가**: `migrationsRun`은 운영과 같이 `false`다.
+  # 부팅 시 마이그레이션은 복제본이 둘 이상이면 서로 경합하고, 배포 단계가 소유해야
+  # 할 일을 애플리케이션 수명주기에 묶는다. 일회성 서비스로 빼면 그 두 문제가 모두
+  # 없다 — Compose가 순서를 보장하고, 실행 주체는 여전히 배포 쪽이다.
+  #
+  # 이미지에 pnpm이 없으므로(runtime 단계는 프로덕션 의존성만 담는다) `pnpm migrate`가
+  # 아니라 TypeORM CLI를 직접 부른다 — `package.json`의 `migrate` 스크립트와 같은
+  # 명령이고, 진입점만 pnpm을 거치지 않을 뿐이다.
+  migrate:
     build: .
+    command:
+      ['node', 'node_modules/typeorm/cli.js', 'migration:run', '-d', 'dist/config/data-source.js']
     depends_on:
       db:
         condition: service_healthy
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-nestjs}:${POSTGRES_PASSWORD:-nestjs}@db:5432/${POSTGRES_DB:-nestjs_template}
+    # 한 번 돌고 끝나는 것이 정상이다 — 재시작하면 이미 적용된 마이그레이션을 계속
+    # 다시 확인할 뿐이고, `--wait`가 기다리는 "정상 종료"에 영영 도달하지 못한다.
+    restart: 'no'
+
+  api:
+    build: .
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
     environment:
       PORT: ${PORT:-4000}
       DATABASE_URL: postgres://${POSTGRES_USER:-nestjs}:${POSTGRES_PASSWORD:-nestjs}@db:5432/${POSTGRES_DB:-nestjs_template}
@@ -55,8 +80,8 @@ services:
     # 띄운다(`node dist/config/main.js`).
     command: ['node', 'dist/app/jobs/worker.js']
     depends_on:
-      db:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     environment:

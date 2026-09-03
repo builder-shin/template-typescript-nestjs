@@ -233,12 +233,15 @@ curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}/relationships/tags
 
 ```bash
 docker compose up -d --build --wait
-docker compose exec api node node_modules/typeorm/cli.js migration:run -d dist/config/data-source.js
 curl -s http://localhost:4000/health/ready
 docker compose down -v
 ```
 
-**마이그레이션은 스택이 자동으로 적용하지 않습니다.** API 이미지의 `migrationsRun`은 운영과 같이 `false`이고 Compose에도 이를 대신 실행하는 서비스가 없으므로, 위 두 번째 줄을 한 번 실행해야 리소스 라우트가 동작합니다. 실행하지 않으면 `GET /api/v1/examples`가 `relation "examples" does not exist`로 500을 냅니다. `/health/ready`는 그 상태에서도 200입니다 — readiness는 연결이 살아 있는지만 보고 스키마가 최신인지는 보지 않습니다. 컨테이너 안에는 pnpm이 없으므로(runtime 단계는 프로덕션 의존성만 담습니다) `pnpm migrate` 대신 TypeORM CLI를 직접 부릅니다.
+**마이그레이션은 `migrate` 서비스가 적용합니다.** 스키마를 head까지 올리고 종료하는 일회성 서비스이며, `api`와 `worker`가 `service_completed_successfully`로 이것을 기다립니다. 그래서 `--wait`가 돌아온 시점에는 스키마가 이미 최신이고, 별도 명령 없이 `GET /api/v1/examples`가 동작합니다. 이미 적용된 DB에서는 `No migrations are pending`을 찍고 그대로 종료하므로 재기동해도 안전합니다.
+
+애플리케이션이 부팅 시점에 직접 마이그레이션하지 않는 이유는 `migrationsRun`이 운영과 같이 `false`이기 때문입니다 — 복제본이 둘 이상이면 부팅 마이그레이션끼리 경합하고, 배포 단계가 소유해야 할 일이 애플리케이션 수명주기에 묶입니다.
+
+`/health/ready`는 스키마를 보지 않습니다. 연결이 살아 있는지만 확인하므로, 마이그레이션이 적용되지 않은 DB에서도 200입니다 — 스택이 정상인지는 `--wait`가 `migrate`의 정상 종료를 기다린다는 사실이 보장합니다.
 
 `worker` 서비스도 같이 뜹니다. 포트를 게시하지 않으므로(HTTP를 듣지 않습니다) 확인할 엔드포인트가 없습니다 — 동작은 `docker compose logs -f worker`로 봅니다. 헬스체크는 있습니다: 워커 컨테이너에서 `REDIS_URL`에 연결해 PING을 주고받습니다. 워커가 잡을 실제로 소비하고 있는지까지는 보지 않습니다.
 
