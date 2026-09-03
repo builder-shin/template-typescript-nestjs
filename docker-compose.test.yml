@@ -21,8 +21,11 @@ services:
       - test_postgres_data:/var/lib/postgresql
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U nestjs -d nestjs_template_test']
+      # timeout은 interval을 넘지 않는다. 넘기면 한 번의 검사가 다음 검사 시각을
+      # 지나서까지 돌 수 있어 의도한 2초 간격이 실제로는 지켜지지 않는다.
+      # `pg_isready`는 준밀리초 명령이라 2초로도 넉넉하다.
       interval: 2s
-      timeout: 5s
+      timeout: 2s
       retries: 15
       start_period: 5s
 
@@ -38,8 +41,9 @@ services:
     # 볼륨을 두는 것과 대비된다).
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
+      # db와 같은 이유로 timeout을 interval에 맞춘다.
       interval: 2s
-      timeout: 5s
+      timeout: 2s
       retries: 15
       start_period: 5s
 
