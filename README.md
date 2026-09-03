@@ -233,11 +233,14 @@ curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}/relationships/tags
 
 ```bash
 docker compose up -d --build --wait
+docker compose exec api node node_modules/typeorm/cli.js migration:run -d dist/config/data-source.js
 curl -s http://localhost:4000/health/ready
 docker compose down -v
 ```
 
-`worker` 서비스도 같이 뜹니다. 포트를 게시하지 않으므로(HTTP를 듣지 않습니다) 확인할 엔드포인트가 없습니다 — 동작은 `docker compose logs -f worker`로 봅니다.
+**마이그레이션은 스택이 자동으로 적용하지 않습니다.** API 이미지의 `migrationsRun`은 운영과 같이 `false`이고 Compose에도 이를 대신 실행하는 서비스가 없으므로, 위 두 번째 줄을 한 번 실행해야 리소스 라우트가 동작합니다. 실행하지 않으면 `GET /api/v1/examples`가 `relation "examples" does not exist`로 500을 냅니다. `/health/ready`는 그 상태에서도 200입니다 — readiness는 연결이 살아 있는지만 보고 스키마가 최신인지는 보지 않습니다. 컨테이너 안에는 pnpm이 없으므로(runtime 단계는 프로덕션 의존성만 담습니다) `pnpm migrate` 대신 TypeORM CLI를 직접 부릅니다.
+
+`worker` 서비스도 같이 뜹니다. 포트를 게시하지 않으므로(HTTP를 듣지 않습니다) 확인할 엔드포인트가 없습니다 — 동작은 `docker compose logs -f worker`로 봅니다. 헬스체크는 있습니다: 워커 컨테이너에서 `REDIS_URL`에 연결해 PING을 주고받습니다. 워커가 잡을 실제로 소비하고 있는지까지는 보지 않습니다.
 
 ## Docker Compose 환경 변수
 

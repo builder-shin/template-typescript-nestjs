@@ -84,3 +84,5 @@ SDD 실행 중 사용자를 대신해 내린 결정들이다. 각 항목은 무�
     **쓸어본 결과 하나가 더 있었다.** `withRollback`을 쓰는 스펙 14개를 전수 확인해 `seeds.spec.ts`도 같은 결함을 갖고 있었음을 찾았다 — 그중 "롤백 뒤 count()===0" 단언은 앞선 게이트 실행에서 실제로 한 번 깨졌던 것("Expected: 0, Received: 1")이고, 그때는 원인을 모른 채 지나갔다. 나머지는 이미 특정 id로 스코프돼 있거나(관계 리졸버·auth 스키마·마이그레이션·세션 동시성·upsert) 행이 느는 방향에 흔들리지 않아(`some()`/`toBeGreaterThan(0)`) 손대지 않았다.
 
     **이 항목이 값을 한 지점:** 간헐적 실패를 "간헐적이니 나중에"로 두지 않고 **결정적으로 만든 뒤에** 고쳤다. 그러지 않았으면 `seeds.spec.ts` 쪽은 영영 우연으로 남았을 것이다.
+
+32. **15번의 해답이 CI에서 치명적이었다 — 나중에 뒤집혔다.** 워커의 상속된 HEALTHCHECK를 `healthcheck: disable: true`로 끈 것은 "`--wait`가 워커에서 무한정 매달린다"를 정확히 해결했지만, **끄는 것 자체가 Compose 버전에 따라 갈린다는 것**은 보지 못했다. GitHub Actions 러너의 버전은 헬스체크 없는 서비스를 만나면 `container ... has no healthcheck configured`를 내고 exit 1로 죽는다(새 버전은 "running"만 보고 넘어간다). 이 단계에서는 CI가 그보다 앞 단계에서 멈춰 있어 이 사실이 드러날 기회 자체가 없었다. 끄는 대신 워커에 맞는 헬스체크(자기 컨테이너에서 `REDIS_URL`에 PING)를 주는 것으로 바꿨다 — 자세한 내용은 `docs/superpowers/rulings/2026-09-03-phase8-rulings.md`의 부록 28번.

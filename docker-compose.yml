@@ -64,10 +64,48 @@ services:
       REDIS_URL: redis://redis:6379
     # 워커는 HTTP를 듣지 않는다 — 포트를 게시하지 않는다. Dockerfile의 HEALTHCHECK는
     # API의 /health/ready를 확인하는데 워커 컨테이너엔 그 엔드포인트가 없어 그대로
-    # 두면 항상 실패한다 — 꺼두지 않으면 `docker compose up --wait`가 워커를 영원히
+    # 물려받으면 항상 실패한다 — 그러면 `docker compose up --wait`가 워커를 영원히
     # unhealthy로 보고 멈춘다.
+    #
+    # 그렇다고 `healthcheck: disable: true`로 꺼 두면 이번엔 Compose 버전에 따라
+    # 갈린다. 새 버전(로컬 실측 v5.3.1)은 헬스체크 없는 서비스를 "running"만 보고
+    # 넘어가지만, GitHub Actions 러너의 버전은 `container ... has no healthcheck
+    # configured`를 내고 exit 1로 죽는다(실측: 나머지 세 서비스가 전부 healthy가 된
+    # 뒤 이 한 줄만 찍고 실패). 끄는 것으로는 두 버전을 모두 만족시킬 수 없으므로,
+    # 워커에 맞는 헬스체크를 따로 준다.
+    #
+    # **무엇을 보고 무엇을 못 보는가**: 이 컨테이너에서 `REDIS_URL`이 가리키는
+    # Redis에 실제로 연결되고 PING이 오가는지를 본다. 워커가 잡을 실제로 소비하고
+    # 있는지는 보지 못한다 — 이벤트 루프가 막힌 워커도 이 검사는 통과한다. 반대로
+    # 프로세스가 죽는 경우는 컨테이너가 종료되므로 Docker가 이미 잡는다. 이 검사가
+    # 더하는 것은 그 사이, 즉 "프로세스는 살아 있는데 브로커에 못 닿는" 상태다 —
+    # 워커에게는 그것이 곧 아무 일도 하지 못하는 상태다.
     healthcheck:
-      disable: true
+      test:
+        - CMD
+        - node
+        - -e
+        - |
+          const module_ = require('ioredis');
+          const Redis = module_.default ?? module_;
+          const client = new Redis(process.env.REDIS_URL, {
+            lazyConnect: true,
+            retryStrategy: () => null,
+          });
+          const done = (code) => {
+            client.disconnect();
+            process.exit(code);
+          };
+          client.on('error', () => {});
+          client
+            .connect()
+            .then(() => client.ping())
+            .then(() => { done(0); })
+            .catch(() => { done(1); });
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   postgres_data:
