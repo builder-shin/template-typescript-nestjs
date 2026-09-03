@@ -140,6 +140,44 @@ PostgreSQL로 본다.
 못한다. 잠금 판단이 옳은가와 그 판단이 지키는 범위가 무엇인가는 다른 질문이다
 (`docs/superpowers/rulings/2026-09-02-phase7-rulings.md`).
 
+## 스키마도 옆 워커가 만들어 주기를 기대하면 안 된다
+
+위 세 절이 "다른 워커가 **만든 것** 때문에 깨진다"를 다뤘다면, 이 절은 반대 방향의
+같은 실수다 — **다른 워커가 만들어 준 덕분에 통과한다.**
+
+`test/db/fixture.ts`의 `createTestDataSource`는 자기 `DataSource`로 마이그레이션을
+겸하지만, HTTP 통합 스위트는 `test/app-factory.ts`의 `createTestApp`이 조립한
+애플리케이션의 `DataSource`만 쓰고 그쪽은 운영과 같이 `migrationsRun: false`다.
+그래서 한동안 `test/integration/examples-api.spec.ts` 같은 스위트는 같은 실행 안의
+다른 워커가 스키마를 올려 준 덕분에 통과하고 있었다. Jest는 파일을 병렬 워커로
+돌리므로 그 순서는 아무것도 보장하지 않는다 — 빈 DB에서 이 스위트가 먼저 출발하면
+`relation "users" does not exist`로 40개가 전부 무너진다. 로컬에서는 대체로
+운 좋게 초록이었고 CI에서 터졌다.
+
+지금은 `createTestApp`이 조립 전에 `ensureMigrated()`를 부른다. 규칙으로 적으면
+**DB에 닿는 스위트는 자기가 필요로 하는 스키마를 스스로 보장한다** — 옆 워커가
+무엇을 하든, 혼자 돌든 결과가 같아야 한다.
+
+확인하는 법도 그 정의를 그대로 따른다. **빈 DB에 스위트 하나만 단독으로 돌려
+본다.**
+
+```bash
+docker compose -f docker-compose.test.yml -p tmp-$RANDOM up -d --wait db redis
+TEST_DATABASE_URL=... TEST_REDIS_URL=...   node --experimental-vm-modules node_modules/jest/bin/jest.js   --coverage=false test/integration/examples-api.spec.ts
+```
+
+전체 실행(`./scripts/check.sh`)은 이 결함을 보여 주지 못한다 — 65개 스위트 중
+누군가는 반드시 마이그레이션을 돌리기 때문이다. 이 종류의 의존은 단독 실행에서만
+드러난다.
+
+곁다리로 배운 것 하나: `beforeAll`이 중간에 실패해도 `afterAll`은 돈다. 그때
+`afterAll`이 아직 할당되지 않은 손잡이를 만지면 거기서 난 `TypeError`가 Jest의
+"Test suite failed to run"이 되어 **원래의 실패 원인을 덮는다**. 위 사고에서
+실제로 `relation "users" does not exist`가 `Cannot read properties of undefined
+(reading 'release')`에 가려졌다. `beforeAll`에서 얻는 자원의 손잡이는
+`T | undefined`로 선언하고 `afterAll`에서 `?.`로 만진다 — 캐스트로 초기화를
+가장하지 않는다.
+
 ## 동시성 테스트가 실은 동시성을 검증하지 않을 수 있다
 
 이 저장소가 두 번 겪은 교훈이 이것이다 — **동시성 원시를 지운 채로 테스트를

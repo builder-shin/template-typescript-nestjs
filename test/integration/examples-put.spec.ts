@@ -46,7 +46,11 @@ describe('PUT /api/v1/examples/{id}', () => {
   //
   // `users`에는 이 잠금을 넓히지 않는다 — 이유는 examples-api.spec.ts의 같은 주석과
   // 같다. 이 스위트가 만드는 계정은 `examples-put-` 접두사로만 지운다.
-  let commitLock: CommitLockHandle;
+  // `beforeAll`이 잠금을 잡기 전에 실패해도 아래 `afterAll`이 돌므로 `undefined`를
+  // 허용한다. 캐스트로 초기화를 가장하면 그 경우 `afterAll`이 TypeError를 던지고,
+  // Jest는 그것을 "Test suite failed to run"으로 보고하면서 원래의 실패 원인을 덮는다
+  // (examples-api.spec.ts의 같은 주석 참고 — 그쪽에서 실제로 관측된 가림이다).
+  let commitLock: CommitLockHandle | undefined;
 
   const api = (): ReturnType<typeof request> => request(app.getHttpServer());
 
@@ -129,7 +133,7 @@ describe('PUT /api/v1/examples/{id}', () => {
       await dataSource.query(`DELETE FROM users WHERE email LIKE 'examples-put-%'`);
     } finally {
       try {
-        await commitLock.release();
+        await commitLock?.release();
       } finally {
         await app.close();
       }

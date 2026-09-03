@@ -60,7 +60,11 @@ describe('Examples API', () => {
   // 접두사로 지우고, `users`를 "테이블 전체"로 단언하는 테스트는(그런 컬렉션 라우트
   // 자체가 없다) 이 파일에도 다른 어떤 스위트에도 없다 — 잠금이 막아 줄 간섭이
   // 애초에 없으므로 넓히면 병렬성만 잃는다.
-  let commitLock: CommitLockHandle;
+  // `beforeAll`이 잠금을 잡기 전에 실패해도 아래 `afterAll`이 돌므로 `undefined`를
+  // 허용한다. 캐스트로 초기화를 가장하면 그 경우 `afterAll`이 TypeError를 던지고,
+  // Jest는 그것을 "Test suite failed to run"으로 보고하면서 원래의 실패 원인을 덮는다
+  // (실측: 빈 DB에서 이 스위트가 먼저 출발했을 때 실제로 그렇게 가려졌다).
+  let commitLock: CommitLockHandle | undefined;
 
   // 이 스위트가 커밋한 자원의 id. afterEach가 지우는 범위를 이 목록으로 좁힌다 —
   // 조건 없는 DELETE는 같은 순간 다른 워커(예: examples-put.spec.ts, 동일 id로
@@ -198,7 +202,7 @@ describe('Examples API', () => {
       await dataSource.query(`DELETE FROM users WHERE email LIKE 'examples-api-%'`);
     } finally {
       try {
-        await commitLock.release();
+        await commitLock?.release();
       } finally {
         await app.close();
       }

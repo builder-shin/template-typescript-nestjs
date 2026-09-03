@@ -174,12 +174,69 @@ export async function acquireCommitLock(dataSource: DataSource): Promise<CommitL
 }
 
 /**
- * 마이그레이션을 head까지 적용한 `DataSource`를 만든다.
+ * 주어진 `DataSource`로 스키마를 head까지 올린다.
  *
  * `runMigrations()`를 매번 호출한다. TypeORM이 `migrations` 테이블을 보고 이미
  * 적용된 것을 건너뛰므로 두 번째부터는 조회 한 번이다. Jest `globalSetup`으로 한 번만
  * 돌리는 방법도 있으나, ESM + ts-jest에서 `globalSetup`은 별도 모듈 로더를 타서
  * 실패 모드가 늘어난다. 조회 한 번의 비용으로 그 복잡도를 사지 않는다.
+ */
+async function migrateToHead(dataSource: DataSource): Promise<void> {
+  await withMigrationLock(dataSource, async () => {
+    await dataSource.runMigrations();
+  });
+}
+
+/**
+ * 테스트 데이터베이스의 스키마가 head까지 올라와 있게 만든다.
+ *
+ * **어떤 스위트도 다른 스위트가 스키마를 만들어 주기를 기다리지 않게 하는 것이 이
+ * 함수의 존재 이유다.** `createTestDataSource`를 쓰는 스위트는 자기 `DataSource`로
+ * 마이그레이션을 겸하지만, HTTP 통합 스위트는 `createTestApp`이 조립한 애플리케이션의
+ * `DataSource`만 쓰고 그쪽은 `migrationsRun: false`다(운영과 같은 설정이며, 그래야
+ * 하는 것이 맞다 — 마이그레이션은 배포 단계가 돌린다). 그 결과 한동안 이 스위트들은
+ * 같은 실행 안의 **다른 워커**가 마이그레이션을 끝내 준 덕분에 우연히 통과하고
+ * 있었다. Jest가 파일을 병렬 워커로 돌리므로 그 순서는 아무것도 보장하지 않는다 —
+ * 빈 DB에서 통합 스위트가 먼저 출발하면 `relation "users" does not exist`로 무너진다
+ * (실측: 빈 DB에 `jest test/integration/examples-api.spec.ts` 단독 실행 → 40개 전부
+ * 실패. CI에서 실제로 터진 방식이기도 하다).
+ *
+ * 애플리케이션 조립 **전에** 부른다. 조립 뒤에 부르면 모듈 초기화 훅이 스키마를 먼저
+ * 건드릴 여지가 남고, 무엇보다 "앱이 뜨면 스키마는 이미 준비돼 있다"는 단순한 계약이
+ * 깨진다.
+ *
+ * 애플리케이션과 별개의 `DataSource`를 잠깐 열었다 닫는다. 앱의 풀을 빌리면 커넥션
+ * 하나를 아끼지만, 그 대신 이 함수가 "앱이 `DataSource`를 노출한다"에 의존하게 된다 —
+ * 스키마 준비는 앱보다 먼저 있어야 하는 일이므로 앱을 몰라야 한다.
+ */
+export async function ensureMigrated(): Promise<void> {
+  const dataSource = new DataSource(
+    buildDataSourceOptions({
+      url: requireTestDatabaseUrl(),
+      // 이 구간이 동시에 쓰는 커넥션은 둘뿐이다 — `withMigrationLock`의 전용 잠금
+      // 커넥션과 `runMigrations()`가 쓰는 커넥션.
+      poolMax: 2,
+      idleTimeoutMs: 10000,
+      connectionTimeoutMs: 10000,
+    }),
+  );
+  await dataSource.initialize();
+  try {
+    await migrateToHead(dataSource);
+  } finally {
+    // 마이그레이션이 던져도 풀은 반드시 닫는다. 여기서 새면 이 스위트가 끝나도
+    // 커넥션이 남아 다른 워커가 굶는다 — `withRollback`이 커넥션을 반드시 돌려주는
+    // 것과 같은 원칙이다.
+    await dataSource.destroy();
+  }
+}
+
+/**
+ * 마이그레이션을 head까지 적용한 `DataSource`를 만든다.
+ *
+ * `ensureMigrated`와 달리 만든 `DataSource`를 살려서 돌려준다 — 부르는 쪽이 그것으로
+ * 질의하기 때문이다. 스키마를 올리는 방식(잠금·`runMigrations` 호출)은 둘이 똑같이
+ * `migrateToHead`를 쓴다.
  */
 export async function createTestDataSource(): Promise<DataSource> {
   const url = requireTestDatabaseUrl();
@@ -193,9 +250,7 @@ export async function createTestDataSource(): Promise<DataSource> {
   );
   await dataSource.initialize();
 
-  await withMigrationLock(dataSource, async () => {
-    await dataSource.runMigrations();
-  });
+  await migrateToHead(dataSource);
 
   return dataSource;
 }

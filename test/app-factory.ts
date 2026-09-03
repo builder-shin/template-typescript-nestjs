@@ -5,7 +5,7 @@ import { Test } from '@nestjs/testing';
 import { AppModule } from '../src/config/app.module.js';
 import { configureHttp } from '../src/config/http.js';
 import { setupOpenApi } from '../src/config/openapi.js';
-import { requireTestDatabaseUrl } from './db/fixture.js';
+import { ensureMigrated, requireTestDatabaseUrl } from './db/fixture.js';
 
 /**
  * 테스트 앱이 붙을 곳과 서명할 키를 정한다.
@@ -62,6 +62,11 @@ export async function createTestApp(
   beforeInit?: (app: NestExpressApplication) => void,
 ): Promise<INestApplication<Server>> {
   useTestEnvironment();
+  // 조립보다 먼저 스키마를 head까지 올린다. 애플리케이션의 `DataSource`는 운영과 같이
+  // `migrationsRun: false`이므로, 이 한 줄이 없으면 이 스위트는 같은 실행의 다른
+  // 워커가 마이그레이션을 끝내 주기를 기대하게 된다 — Jest가 파일을 병렬로 돌리는 한
+  // 아무것도 보장되지 않는 기대다. 자세한 근거는 `ensureMigrated`의 문서 주석 참고.
+  await ensureMigrated();
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   const app = moduleRef.createNestApplication<NestExpressApplication>();
   configureHttp(app);
