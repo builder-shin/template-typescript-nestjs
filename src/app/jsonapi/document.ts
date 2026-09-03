@@ -174,6 +174,14 @@ export function parseResourceInput(
 export interface ParseLinkageOptions {
   readonly expectedType: string;
   readonly cardinality: 'one' | 'many';
+  /**
+   * 오류 `source.pointer`의 기준. 기본은 관계 라우트의 본문을 가리키는 `/data`다.
+   *
+   * 자원 문서 안의 `relationships`를 파싱할 때는 그 관계를 가리켜야 한다
+   * (`/data/relationships/tags/data`). pointer가 틀리면 클라이언트가 어느 필드를
+   * 고쳐야 하는지 알 수 없다.
+   */
+  readonly pointer?: string;
 }
 
 /**
@@ -186,11 +194,13 @@ export function parseLinkageInput(
   body: unknown,
   options: ParseLinkageOptions,
 ): ResourceIdentifier | ResourceIdentifier[] | null {
+  const pointer = options.pointer ?? '/data';
+
   if (!isPlainObject(body)) {
     throw invalidDocument(undefined, 'request body must be a JSON object');
   }
   if (!('data' in body)) {
-    throw invalidDocument('/data', 'the document requires a "data" member');
+    throw invalidDocument(pointer, 'the document requires a "data" member');
   }
 
   const data = body.data;
@@ -200,18 +210,18 @@ export function parseLinkageInput(
       return null;
     }
     if (Array.isArray(data)) {
-      throw invalidDocument('/data', 'a to-one relationship requires a single resource identifier');
+      throw invalidDocument(pointer, 'a to-one relationship requires a single resource identifier');
     }
-    return readIdentifier(data, options.expectedType, '/data');
+    return readIdentifier(data, options.expectedType, pointer);
   }
 
   if (!Array.isArray(data)) {
     throw invalidDocument(
-      '/data',
+      pointer,
       'a to-many relationship requires an array of resource identifiers',
     );
   }
   return data.map((entry, index) =>
-    readIdentifier(entry, options.expectedType, `/data/${String(index)}`),
+    readIdentifier(entry, options.expectedType, `${pointer}/${String(index)}`),
   );
 }

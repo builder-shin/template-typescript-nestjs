@@ -124,7 +124,14 @@ describe('마이그레이션 down', () => {
   it('up이 스펙의 테이블과 enum을 만든다', () => {
     // down 단언이 공허해지지 않게 up의 결과부터 고정한다 — up이 아무것도 만들지 않았다면
     // "down 뒤에 아무것도 없다"는 저절로 통과한다.
-    expect(afterUp.tables).toEqual(['categories', 'example_tags', 'examples', 'tags']);
+    expect(afterUp.tables).toEqual([
+      'categories',
+      'example_tags',
+      'examples',
+      'refresh_sessions',
+      'tags',
+      'users',
+    ]);
     expect(afterUp.enums).toEqual(['example_status']);
     expect(afterUp.indexes).toContain('IDX_examples_created_at_id');
   });

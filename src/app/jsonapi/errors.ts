@@ -221,3 +221,30 @@ export class JsonApiError extends Error {
     this.meta = options.meta;
   }
 }
+
+/**
+ * 한 요청에서 동시에 발생한 여러 오류.
+ *
+ * 쓰기 스키마 검증은 필드 여러 개가 한꺼번에 틀릴 수 있다. 첫 오류만 돌려주면
+ * 클라이언트가 하나씩 고치며 왕복해야 하므로, 한 번에 모두 알려 준다.
+ *
+ * `status`는 첫 오류의 것을 쓴다. JSON:API는 여러 오류의 status가 갈릴 때 상위
+ * 자릿수로 뭉개라고 권하지만, 이 템플릿에서 집합으로 나가는 것은 같은 코드의
+ * 검증 오류뿐이라 그 규칙이 쓰일 자리가 없다 — 갈리는 집합을 만들게 되면 그때
+ * 뭉개는 규칙을 여기 넣는다.
+ */
+export class JsonApiErrors extends Error {
+  readonly errors: readonly JsonApiError[];
+  readonly status: number;
+
+  constructor(errors: readonly JsonApiError[]) {
+    const [first] = errors;
+    if (first === undefined) {
+      throw new TypeError('JsonApiErrors는 오류를 하나 이상 담아야 한다');
+    }
+    super(first.message);
+    this.name = 'JsonApiErrors';
+    this.errors = errors;
+    this.status = first.status;
+  }
+}

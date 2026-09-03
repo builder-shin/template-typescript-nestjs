@@ -33,8 +33,14 @@ export function SkipJsonApiNegotiation(): MethodDecorator & ClassDecorator {
   return SetMetadata(NEGOTIATE_ACCEPT_KEY, true);
 }
 
-/** 본문을 실을 수 있는 메서드. 이때만 `Content-Type`을 본다. */
-const BODY_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH']);
+/**
+ * 프로토콜상 본문이 필수인 메서드. 본문 없이 와도 `Content-Type` 요구를 유지한다.
+ *
+ * 이 집합에 `DELETE`가 없는 것은 `DELETE`를 봐주기 위해서가 아니다 — 판정의 주된
+ * 기준은 본문 유무이고(`carriesBody`), 이 집합은 "본문이 필수인데 빠뜨린 요청"까지
+ * 잡기 위한 보강이다.
+ */
+const BODY_REQUIRED_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH']);
 
 /**
  * 미디어 타입 파라미터 하나(`q=0.9` 형태)의 키를 소문자로 뽑는다. `=`가 없으면 전체가 키다.
@@ -124,6 +130,22 @@ function headerValue(request: NegotiableRequest, name: string): string | undefin
 }
 
 /**
+ * 요청이 본문을 싣고 있는지 본다.
+ *
+ * 헤더로만 판정한다. 파싱 결과(`{}`)로는 "빈 본문"과 "본문 없음"을 가를 수 없고,
+ * `Content-Length`는 Node의 http 서버가 앱 코드보다 먼저 채우는 원시 헤더라 가드
+ * 시점에 읽을 수 있다 — body parser의 등록 순서와 무관하다.
+ */
+function carriesBody(request: NegotiableRequest): boolean {
+  const encoding = headerValue(request, 'transfer-encoding');
+  if (encoding !== undefined && encoding.trim() !== '') {
+    return true;
+  }
+  const length = headerValue(request, 'content-length');
+  return length !== undefined && length.trim() !== '' && length.trim() !== '0';
+}
+
+/**
  * 리소스 라우트의 `Accept`와 `Content-Type`을 검증한다.
  *
  * `Accept` 위반을 먼저 판정한다. 클라이언트가 우리 응답을 읽지 못하는 상황이
@@ -161,12 +183,16 @@ export class JsonApiNegotiationGuard implements CanActivate {
       });
     }
 
-    if (BODY_METHODS.has(request.method.toUpperCase())) {
-      if (!isJsonApiContentType(headerValue(request, 'content-type'))) {
-        throw new JsonApiError('UNSUPPORTED_MEDIA_TYPE', {
-          detail: `this endpoint only consumes ${JSONAPI_MEDIA_TYPE} without media type parameters`,
-        });
-      }
+    // 스펙 5.1: **본문이 있는 요청**은 vendor `Content-Type`을 요구한다. 판정 기준이
+    // 메서드가 아니라 본문 유무인 것이 핵심이다 — `DELETE /examples/{id}`는 본문이
+    // 없지만 `DELETE /examples/{id}/relationships/tags`는 linkage 본문을 싣는다.
+    // `POST`/`PUT`/`PATCH`는 프로토콜상 본문이 필수라, 본문 없이 와도 요구를 유지한다.
+    const requiresJsonApiContentType =
+      carriesBody(request) || BODY_REQUIRED_METHODS.has(request.method.toUpperCase());
+    if (requiresJsonApiContentType && !isJsonApiContentType(headerValue(request, 'content-type'))) {
+      throw new JsonApiError('UNSUPPORTED_MEDIA_TYPE', {
+        detail: `this endpoint only consumes ${JSONAPI_MEDIA_TYPE} without media type parameters`,
+      });
     }
 
     return true;

@@ -25,15 +25,18 @@ export const EXAMPLE_STATUSES: readonly ExampleStatus[] = ['draft', 'published',
  * to-one(`category`)과 to-many(`tags`)를 모두 갖는 이유는 Phase 4의 관계 라우트
  * 등록이 두 cardinality를 모두 다루는지 이 자원 하나로 검증하기 위해서다.
  *
- * `(created_at, id)` 인덱스: 스펙 8.3에 따라 모든 정렬 뒤에 `id ASC`가 tie breaker로
- * 덧붙으므로, 기본 정렬 `created_at DESC`가 실제로 인덱스를 타려면 두 컬럼이 함께
- * 있어야 한다. `title` 정렬 인덱스는 Phase 3에서 QueryPolicy에 정렬을 열 때 함께 판단한다.
+ * `(created_at, id)`·`(title, id)`·`(published_at, id)` 인덱스: 스펙 8.3에 따라 모든 정렬
+ * 뒤에 `id ASC`가 tie breaker로 덧붙으므로, 정렬이 실제로 인덱스를 타려면 두 컬럼이 함께
+ * 있어야 한다. 세 컬럼은 `EXAMPLE_QUERY_POLICY.sorts`가 여는 정렬과 1:1로 대응한다 —
+ * 정렬을 늘리면 이 목록도 같은 변경에서 늘어나야 한다.
  *
  * 이름을 명시하는 이유: 이름을 생략하면 TypeORM이 해시 이름을 만들어 마이그레이션이
  * 만든 `IDX_examples_created_at_id`와 어긋난다. `test/integration/migrations.spec.ts`의
  * "엔티티 메타데이터가 실제 스키마와 어긋나지 않는다" 테스트가 그 어긋남을 잡아낸다.
  */
 @Index('IDX_examples_created_at_id', ['createdAt', 'id'])
+@Index('IDX_examples_title_id', ['title', 'id'])
+@Index('IDX_examples_published_at_id', ['publishedAt', 'id'])
 @Entity({ name: 'examples' })
 export class Example {
   @PrimaryGeneratedColumn('uuid')
