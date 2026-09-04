@@ -1,8 +1,20 @@
-import type { DataSource } from 'typeorm';
+import type { DataSource, EntityTarget, ObjectLiteral } from 'typeorm';
 import { createTestDataSource, withRollback } from '../db/fixture.js';
 import { Category } from '../../src/app/models/category.entity.js';
 import { Example } from '../../src/app/models/example.entity.js';
 import { Tag } from '../../src/app/models/tag.entity.js';
+import { EXAMPLE_CATEGORY_QUERY_POLICY } from '../../src/app/schemas/category.query-policy.js';
+import { EXAMPLE_QUERY_POLICY } from '../../src/app/schemas/example.query-policy.js';
+import type { QueryPolicy } from '../../src/app/schemas/query-policy.js';
+import { EXAMPLE_TAG_QUERY_POLICY } from '../../src/app/schemas/tag.query-policy.js';
+
+// 정책↔스키마 대조 대상. Task 6이 참조 자원 둘을 추가해 QueryPolicy가 셋이 됐으므로
+// 모두 덮는다 — 하나만 대조하면 나머지 둘의 nullable 오표시가 잡히지 않는다.
+const POLICY_ENTITIES: readonly [string, EntityTarget<ObjectLiteral>, QueryPolicy][] = [
+  ['examples', Example, EXAMPLE_QUERY_POLICY],
+  ['exampleCategories', Category, EXAMPLE_CATEGORY_QUERY_POLICY],
+  ['exampleTags', Tag, EXAMPLE_TAG_QUERY_POLICY],
+];
 
 describe('마이그레이션 적용', () => {
   let dataSource: DataSource;
@@ -63,6 +75,37 @@ describe('마이그레이션 적용', () => {
     const sqlInMemory = await dataSource.driver.createSchemaBuilder().log();
     expect(sqlInMemory.upQueries).toHaveLength(0);
   });
+
+  it.each(POLICY_ENTITIES)(
+    '%s: 정책의 정렬 nullable 표시가 실제 컬럼과 일치한다',
+    (_name, entity, policy) => {
+      // 이 표시가 틀리면 keyset 커서가 `(컬럼, id) > (값, 값)` 비교에서 NULL을 만나
+      // 오류 없이 행을 건너뛴다. 응답은 200이고 레코드만 사라지므로 어떤 와이어
+      // 테스트로도 잡히지 않는다 — 스키마와 직접 대조하는 것이 유일한 방어다.
+      const metadata = dataSource.getMetadata(entity);
+      for (const [field, sort] of Object.entries(policy.sorts)) {
+        const column = metadata.findColumnWithPropertyName(sort.property);
+        // 실패했을 때 어느 필드인지 드러나도록 이름을 함께 단언한다.
+        expect({ field, isNullable: column?.isNullable }).toEqual({
+          field,
+          isNullable: sort.nullable,
+        });
+      }
+    },
+  );
+
+  it.each(POLICY_ENTITIES)(
+    '%s: 정책의 필터 property가 실제 컬럼을 가리킨다',
+    (_name, entity, policy) => {
+      const metadata = dataSource.getMetadata(entity);
+      for (const [field, filter] of Object.entries(policy.filters)) {
+        expect({
+          field,
+          found: metadata.findColumnWithPropertyName(filter.property) !== undefined,
+        }).toEqual({ field, found: true });
+      }
+    },
+  );
 });
 
 describe('스키마 제약', () => {

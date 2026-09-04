@@ -389,6 +389,17 @@ describe('Examples API', () => {
       expect((response.body as ErrorBody).errors[0]?.code).toBe('INVALID_FILTER');
     });
 
+    it('구 공개 필터 이름 filter[category]를 INVALID_FILTER로 거절한다', async () => {
+      // 필터 이름이 category.id로 바뀌었다. 코드 경로는 같아 실질 위험은 없지만,
+      // 마이그레이션하는 클라이언트가 가장 먼저 부딪히는 이름이라 와이어에서 고정한다.
+      const response = await api()
+        .get(`/api/v1/examples?filter[category]=${MISSING}`)
+        .set('Accept', VENDOR);
+
+      expect(response.status).toBe(400);
+      expect((response.body as ErrorBody).errors[0]?.code).toBe('INVALID_FILTER');
+    });
+
     it('제거된 publishedAt sort를 INVALID_SORT로 거절한다', async () => {
       const response = await api().get('/api/v1/examples?sort=publishedAt').set('Accept', VENDOR);
 

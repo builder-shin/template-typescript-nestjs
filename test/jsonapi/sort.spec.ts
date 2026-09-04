@@ -31,6 +31,18 @@ const POLICY_WITH_UNDECLARED_TIE_BREAKER: QueryPolicy = {
   defaultPageSize: 25,
 };
 
+// tie breaker가 공개 sorts 표에 있는 정책. field('rowId')와 property('id')를 일부러
+// 다르게 둔다 — 위 POLICY처럼 둘 다 'id'면 `resolveTieBreaker`가 declared.property
+// 대신 `property: field`로 퇴행해도 스위트가 통과해 버린다.
+const POLICY_WITH_DECLARED_TIE_BREAKER: QueryPolicy = {
+  filters: {},
+  sorts: { rowId: { property: 'id', nullable: false } },
+  includes: [],
+  defaultSort: [],
+  tieBreaker: { field: 'rowId', direction: 'ASC' },
+  defaultPageSize: 25,
+};
+
 function caught(run: () => unknown): JsonApiError {
   try {
     run();
@@ -127,6 +139,13 @@ describe('parseSort — tie breaker가 공개 sorts 표에 없을 때', () => {
     expect(caught(() => parseSort({ sort: 'id' }, POLICY_WITH_UNDECLARED_TIE_BREAKER)).code).toBe(
       'INVALID_SORT',
     );
+  });
+});
+
+describe('parseSort — tie breaker가 공개 sorts 표에 있을 때', () => {
+  it('자동으로 붙는 tie breaker는 선언된 property를 쓴다', () => {
+    const terms = parseSort({}, POLICY_WITH_DECLARED_TIE_BREAKER);
+    expect(terms[terms.length - 1]?.property).toBe('id');
   });
 });
 

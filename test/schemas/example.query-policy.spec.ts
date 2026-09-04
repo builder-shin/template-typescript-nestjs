@@ -68,6 +68,14 @@ describe('EXAMPLE_QUERY_POLICY filter', () => {
       'in',
     ]);
   });
+
+  it('title 필터가 exact·contains를 연다', () => {
+    expect(EXAMPLE_QUERY_POLICY.filters.title?.operators).toEqual(['exact', 'contains']);
+  });
+
+  it('status 필터가 exact·in을 연다', () => {
+    expect(EXAMPLE_QUERY_POLICY.filters.status?.operators).toEqual(['exact', 'in']);
+  });
 });
 
 describe('EXAMPLE_QUERY_POLICY sort', () => {
