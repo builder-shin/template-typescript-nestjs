@@ -9,7 +9,7 @@ import type { ErasedSerializer, ResourceObject, ResourceSerializer } from './ser
  * 않는다(`category.serializer.ts` 주석 참고).
  */
 export const TAG_SERIALIZER: ResourceSerializer<Tag> = {
-  type: 'tags',
+  type: 'exampleTags',
   attributes: {
     name: (tag) => tag.name,
     createdAt: (tag) => tag.createdAt.toISOString(),

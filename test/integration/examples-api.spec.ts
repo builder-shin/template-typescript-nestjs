@@ -269,12 +269,12 @@ describe('Examples API', () => {
 
       const response = await createExample(
         { title: '제목' },
-        { category: { data: { type: 'categories', id: categoryId } } },
+        { category: { data: { type: 'exampleCategories', id: categoryId } } },
       );
 
       expect(response.status).toBe(201);
       expect((response.body as ResourceBody).data.relationships.category?.data).toEqual({
-        type: 'categories',
+        type: 'exampleCategories',
         id: categoryId,
       });
     });
@@ -286,7 +286,7 @@ describe('Examples API', () => {
 
       const response = await createExample(
         { title: '제목' },
-        { tags: { data: tags.map((tagId) => ({ type: 'tags', id: tagId })) } },
+        { tags: { data: tags.map((tagId) => ({ type: 'exampleTags', id: tagId })) } },
       );
 
       expect(response.status).toBe(201);
@@ -300,7 +300,7 @@ describe('Examples API', () => {
     it('없는 관계 대상은 404 RELATIONSHIP_RESOURCE_NOT_FOUND다', async () => {
       const response = await createExample(
         { title: '제목' },
-        { category: { data: { type: 'categories', id: MISSING } } },
+        { category: { data: { type: 'exampleCategories', id: MISSING } } },
       );
 
       expect(response.status).toBe(404);
@@ -312,7 +312,7 @@ describe('Examples API', () => {
       // 클라이언트가 만든 적 없는 자원이 생긴다.
       await createExample(
         { title: '제목' },
-        { category: { data: { type: 'categories', id: MISSING } } },
+        { category: { data: { type: 'exampleCategories', id: MISSING } } },
       );
       const rows = await dataSource.query<{ count: string }[]>('SELECT COUNT(*) FROM examples');
       expect(rows[0]?.count).toBe('0');
@@ -382,7 +382,7 @@ describe('Examples API', () => {
       const categoryId = await seedCategory();
       const created = await createExample(
         { title: '제목' },
-        { category: { data: { type: 'categories', id: categoryId } } },
+        { category: { data: { type: 'exampleCategories', id: categoryId } } },
       );
       const id = (created.body as ResourceBody).data.id;
 
@@ -390,7 +390,7 @@ describe('Examples API', () => {
         .get(`/api/v1/examples/${id}?include=category`)
         .set('Accept', VENDOR);
       expect(response.body as ResourceBody).toHaveProperty('included');
-      expect((response.body as ResourceBody).included?.[0]?.type).toBe('categories');
+      expect((response.body as ResourceBody).included?.[0]?.type).toBe('exampleCategories');
     });
 
     it('없는 자원은 404다', async () => {
@@ -516,7 +516,7 @@ describe('Examples API', () => {
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send(JSON.stringify({ data: tags.map((tagId) => ({ type: 'tags', id: tagId })) }));
+        .send(JSON.stringify({ data: tags.map((tagId) => ({ type: 'exampleTags', id: tagId })) }));
 
       expect(response.status).toBe(204);
       expect(response.text).toBe('');
@@ -541,7 +541,7 @@ describe('Examples API', () => {
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send(JSON.stringify({ data: [{ type: 'tags', id: first }] }));
+        .send(JSON.stringify({ data: [{ type: 'exampleTags', id: first }] }));
       expect(added.status).toBe(204);
       expect(added.text).toBe('');
 
@@ -555,7 +555,7 @@ describe('Examples API', () => {
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send(JSON.stringify({ data: [{ type: 'tags', id: first }] }));
+        .send(JSON.stringify({ data: [{ type: 'exampleTags', id: first }] }));
       expect(removed.status).toBe(204);
       expect(removed.text).toBe('');
 
@@ -575,7 +575,7 @@ describe('Examples API', () => {
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send(JSON.stringify({ data: { type: 'categories', id: categoryId } }));
+        .send(JSON.stringify({ data: { type: 'exampleCategories', id: categoryId } }));
       expect(replaced.status).toBe(204);
       expect(replaced.text).toBe('');
 
@@ -583,7 +583,7 @@ describe('Examples API', () => {
         .get(`/api/v1/examples/${id}/relationships/category`)
         .set('Accept', VENDOR);
       expect((between.body as { data: unknown }).data).toEqual({
-        type: 'categories',
+        type: 'exampleCategories',
         id: categoryId,
       });
 
@@ -611,7 +611,7 @@ describe('Examples API', () => {
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send(JSON.stringify({ data: tags.map((tagId) => ({ type: 'tags', id: tagId })) }))
+        .send(JSON.stringify({ data: tags.map((tagId) => ({ type: 'exampleTags', id: tagId })) }))
         .expect(204);
 
       const response = await api().get(`/api/v1/examples/${id}/tags`).set('Accept', VENDOR);
@@ -633,13 +633,13 @@ describe('Examples API', () => {
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send(JSON.stringify({ data: { type: 'categories', id: categoryId } }))
+        .send(JSON.stringify({ data: { type: 'exampleCategories', id: categoryId } }))
         .expect(204);
 
       const response = await api().get(`/api/v1/examples/${id}/category`).set('Accept', VENDOR);
       expect(response.status).toBe(200);
       const body = response.body as { data: { type: string; id: string } };
-      expect(body.data.type).toBe('categories');
+      expect(body.data.type).toBe('exampleCategories');
       expect(body.data.id).toBe(categoryId);
     });
 
@@ -691,7 +691,7 @@ describe('Examples API', () => {
         .delete(`/api/v1/examples/${id}/relationships/tags`)
         .set('Accept', VENDOR)
         .set('Content-Type', 'application/json')
-        .send(JSON.stringify({ data: tags.map((tagId) => ({ type: 'tags', id: tagId })) }));
+        .send(JSON.stringify({ data: tags.map((tagId) => ({ type: 'exampleTags', id: tagId })) }));
 
       expect(response.status).toBe(415);
       expect((response.body as ErrorBody).errors[0]?.code).toBe('UNSUPPORTED_MEDIA_TYPE');

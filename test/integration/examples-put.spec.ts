@@ -187,7 +187,7 @@ describe('PUT /api/v1/examples/{id}', () => {
     const tags = await dataSource.query<{ id: string }[]>(
       `INSERT INTO tags (name) VALUES ('put-ㄱ'), ('put-ㄴ') RETURNING id`,
     );
-    const linkage = tags.map((tag) => ({ type: 'tags', id: tag.id }));
+    const linkage = tags.map((tag) => ({ type: 'exampleTags', id: tag.id }));
 
     await put(ID, { title: '처음' }, { tags: { data: linkage } }).expect(201);
     const before = await api()
@@ -214,12 +214,15 @@ describe('PUT /api/v1/examples/{id}', () => {
     await put(
       ID,
       { title: '처음' },
-      { category: { data: { type: 'categories', id: categoryId } } },
+      { category: { data: { type: 'exampleCategories', id: categoryId } } },
     ).expect(201);
     const before = await api()
       .get(`/api/v1/examples/${ID}/relationships/category`)
       .set('Accept', VENDOR);
-    expect((before.body as LinkageBody).data).toEqual({ type: 'categories', id: categoryId });
+    expect((before.body as LinkageBody).data).toEqual({
+      type: 'exampleCategories',
+      id: categoryId,
+    });
 
     // PUT 응답 본문으로는 이 reset을 확인할 수 없다. replace()의 재조회는 요청이 보낸
     // 관계만 include하므로(`Object.keys(parsed.relationships)`), category를 아예 보내지
@@ -258,7 +261,7 @@ describe('PUT /api/v1/examples/{id}', () => {
     const response = await put(
       ID,
       { title: '제목' },
-      { category: { data: { type: 'categories', id: missing } } },
+      { category: { data: { type: 'exampleCategories', id: missing } } },
     ).expect(404);
     // 상태 코드만으로는 RESOURCE_NOT_FOUND(자원 자체가 없음) 같은 다른 404 원인과
     // 갈리지 않는다 — 이 404는 관계 대상을 못 찾은 것이어야 한다.
@@ -297,7 +300,7 @@ describe('PUT /api/v1/examples/{id}', () => {
     }
 
     const [first, second] = await Promise.all([
-      put(ID, { title: '가' }, { tags: { data: [{ type: 'tags', id: tagId }] } }),
+      put(ID, { title: '가' }, { tags: { data: [{ type: 'exampleTags', id: tagId }] } }),
       put(ID, { title: '나' }, { tags: { data: [] } }),
     ]);
 

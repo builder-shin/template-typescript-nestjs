@@ -1,6 +1,7 @@
 import { Category } from '../../src/app/models/category.entity.js';
 import { Example } from '../../src/app/models/example.entity.js';
 import { Tag } from '../../src/app/models/tag.entity.js';
+import { EXAMPLE_RELATIONSHIPS } from '../../src/app/schemas/example.schemas.js';
 import { CATEGORY_SERIALIZER } from '../../src/app/serializers/category.serializer.js';
 import { EXAMPLE_SERIALIZER } from '../../src/app/serializers/example.serializer.js';
 import { SERIALIZERS } from '../../src/app/serializers/index.js';
@@ -123,7 +124,7 @@ describe('EXAMPLE_SERIALIZER', () => {
       EXAMPLE_SERIALIZER,
       example({ category: category('c1', '안내서') }),
     );
-    expect(object.relationships.category?.data).toEqual({ type: 'categories', id: 'c1' });
+    expect(object.relationships.category?.data).toEqual({ type: 'exampleCategories', id: 'c1' });
   });
 
   it('로드된 tags의 linkage를 낸다', () => {
@@ -132,8 +133,8 @@ describe('EXAMPLE_SERIALIZER', () => {
       example({ tags: [tag('t1', 'a'), tag('t2', 'b')] }),
     );
     expect(object.relationships.tags?.data).toEqual([
-      { type: 'tags', id: 't1' },
-      { type: 'tags', id: 't2' },
+      { type: 'exampleTags', id: 't1' },
+      { type: 'exampleTags', id: 't2' },
     ]);
   });
 });
@@ -147,8 +148,8 @@ describe('CATEGORY_SERIALIZER / TAG_SERIALIZER', () => {
   });
 
   it('JSON:API type을 고정한다', () => {
-    expect(CATEGORY_SERIALIZER.type).toBe('categories');
-    expect(TAG_SERIALIZER.type).toBe('tags');
+    expect(CATEGORY_SERIALIZER.type).toBe('exampleCategories');
+    expect(TAG_SERIALIZER.type).toBe('exampleTags');
   });
 
   it('공개 attribute 목록을 고정한다', () => {
@@ -172,12 +173,12 @@ describe('CATEGORY_SERIALIZER / TAG_SERIALIZER', () => {
 });
 
 describe('관계 대상 시리얼라이저', () => {
-  it('category 관계 대상이 categories 시리얼라이저다', () => {
-    expect(EXAMPLE_SERIALIZER.relationships.category?.target().type).toBe('categories');
+  it('category 관계 대상이 exampleCategories 시리얼라이저다', () => {
+    expect(EXAMPLE_SERIALIZER.relationships.category?.target().type).toBe('exampleCategories');
   });
 
-  it('tags 관계 대상이 tags 시리얼라이저다', () => {
-    expect(EXAMPLE_SERIALIZER.relationships.tags?.target().type).toBe('tags');
+  it('tags 관계 대상이 exampleTags 시리얼라이저다', () => {
+    expect(EXAMPLE_SERIALIZER.relationships.tags?.target().type).toBe('exampleTags');
   });
 
   it('엔티티가 아닌 값을 받으면 던진다', () => {
@@ -194,9 +195,22 @@ describe('관계 대상 시리얼라이저', () => {
 describe('SERIALIZERS 등록', () => {
   it('세 시리얼라이저를 명시적으로 담는다', () => {
     expect(SERIALIZERS.map((serializer) => serializer.type).sort()).toEqual([
-      'categories',
+      'exampleCategories',
+      'exampleTags',
       'examples',
-      'tags',
     ]);
+  });
+});
+
+describe('읽기와 쓰기가 같은 자원 타입을 쓴다', () => {
+  it('EXAMPLE_RELATIONSHIPS의 type이 시리얼라이저가 내보내는 type과 같다', () => {
+    // 시리얼라이저는 내보내고 EXAMPLE_RELATIONSHIPS는 받는다. 둘이 갈라지면
+    // 응답이 광고한 linkage를 그대로 되돌려보내는 요청이 409로 거절된다.
+    expect(EXAMPLE_RELATIONSHIPS.category?.type).toBe(
+      EXAMPLE_SERIALIZER.relationships.category?.target().type,
+    );
+    expect(EXAMPLE_RELATIONSHIPS.tags?.type).toBe(
+      EXAMPLE_SERIALIZER.relationships.tags?.target().type,
+    );
   });
 });

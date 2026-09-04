@@ -13,7 +13,7 @@ import type { ErasedSerializer, ResourceObject, ResourceSerializer } from './ser
  * Category 하나가 Example 전체를 끌고 나올 수 있다.
  */
 export const CATEGORY_SERIALIZER: ResourceSerializer<Category> = {
-  type: 'categories',
+  type: 'exampleCategories',
   attributes: {
     name: (category) => category.name,
     createdAt: (category) => category.createdAt.toISOString(),

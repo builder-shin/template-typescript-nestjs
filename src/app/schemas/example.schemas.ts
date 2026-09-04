@@ -128,6 +128,6 @@ export class ExampleReplace {
  * 그대로 열리고 `PATCH`/`POST`/`DELETE`만 생기지 않는다(`route-registrar.ts` 참고).
  */
 export const EXAMPLE_RELATIONSHIPS: RelationshipWriteSchema = {
-  category: { cardinality: 'one', type: 'categories', model: Category },
-  tags: { cardinality: 'many', type: 'tags', model: Tag },
+  category: { cardinality: 'one', type: 'exampleCategories', model: Category },
+  tags: { cardinality: 'many', type: 'exampleTags', model: Tag },
 };
