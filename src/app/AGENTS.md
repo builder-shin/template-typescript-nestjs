@@ -15,9 +15,9 @@
 
 `src/app/schemas/example.schemas.ts`가 지금 쓰는 대응 관계가 정본이다.
 
-- 컬럼이 nullable이면(`body`, `publishedAt`) `@IsOptional()`을 쓴다 — `null`이
+- 컬럼이 nullable이면(`description`) `@IsOptional()`을 쓴다 — `null`이
   "비운다"는 유효한 의미를 갖는다.
-- 컬럼이 NOT NULL이면(`title`, `status`) `@ValidateIf`로 "아예 보내지 않았다"만
+- 컬럼이 NOT NULL이면(`title`, `status`, `score`) `@ValidateIf`로 "아예 보내지 않았다"만
   건너뛰고, 명시적으로 보낸 `null`은 검증기에 그대로 넘겨 422로 거절한다.
 
 새 쓰기 스키마를 만들 때는 필드마다 "엔티티(`src/app/models/`)에서 이 컬럼이

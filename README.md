@@ -148,7 +148,7 @@ Example 읽기(`index`/`show`, 관계 `GET`)는 공개이고, 쓰기와 관계 �
 
 ```bash
 curl -sg -H 'Accept: application/vnd.api+json' \
-  'http://localhost:4000/api/v1/examples?filter[status]=published&sort=-createdAt&page[size]=10&page[totals]=true'
+  'http://localhost:4000/api/v1/examples?filter[status]=active&sort=-createdAt&page[size]=10&page[totals]=true'
 ```
 
 인증 — 쓰기와 관계 변경은 활성 사용자의 access token을 요구합니다. 가입 → 로그인 순으로 토큰을 받고, 아래 쓰기 예시의 `{accessToken}`은 로그인 응답(`data.attributes.accessToken`)에서 얻습니다. access token은 기본 900초, refresh token은 기본 2,592,000초 뒤에 만료됩니다(`JWT_ACCESS_EXPIRES_SECONDS`/`JWT_REFRESH_EXPIRES_SECONDS`).
@@ -181,7 +181,7 @@ curl -s -X POST http://localhost:4000/api/v1/examples \
   -H 'Accept: application/vnd.api+json' \
   -H 'Content-Type: application/vnd.api+json' \
   -H 'Authorization: Bearer {accessToken}' \
-  -d '{"data":{"type":"examples","attributes":{"title":"제목","body":"본문"}}}'
+  -d '{"data":{"type":"examples","attributes":{"title":"제목","description":"본문","status":"draft","score":40}}}'
 ```
 
 단건 — `include`로 관계 자원을 함께 받습니다.
@@ -191,7 +191,7 @@ curl -sg -H 'Accept: application/vnd.api+json' \
   'http://localhost:4000/api/v1/examples/{id}?include=category,tags'
 ```
 
-부분 수정 — 보낸 필드만 바뀝니다. 아예 보내지 않은 필드는 그대로 두고, `null`을 보내면 비웁니다. 비우기는 그 컬럼이 nullable일 때만 성립합니다 — `body`·`publishedAt`은 비워지지만 NOT NULL인 `title`·`status`에 `null`을 보내면 `422 VALIDATION_ERROR`입니다.
+부분 수정 — 보낸 필드만 바뀝니다. 아예 보내지 않은 필드는 그대로 두고, `null`을 보내면 비웁니다. 비우기는 그 컬럼이 nullable일 때만 성립합니다 — `description`은 비워지지만 NOT NULL인 `title`·`status`·`score`에 `null`을 보내면 `422 VALIDATION_ERROR`입니다.
 
 ```bash
 curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}' \
@@ -201,14 +201,14 @@ curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}' \
   -d '{"data":{"type":"examples","id":"{id}","attributes":{"title":"새 제목"}}}'
 ```
 
-전체 교체 — 없는 `id`면 `201`과 `Location`, 있으면 `200`으로 교체합니다. 전체 교체이므로 `PATCH`와 달리 보내지 않은 필드는 컬럼 기본값으로, 보내지 않은 관계는 빈 상태로 되돌립니다. 동일 `id`로 동시에 들어온 요청은 advisory 잠금으로 직렬화되어 섞이지 않습니다.
+전체 교체 — 없는 `id`면 `201`과 `Location`, 있으면 `200`으로 교체합니다. 전체 교체이므로 `PATCH`와 달리 보내지 않은 필드는 컬럼 기본값으로, 보내지 않은 관계는 빈 상태로 되돌립니다. `status`·`score`는 생성과 마찬가지로 필수라 생략할 수 없습니다. 동일 `id`로 동시에 들어온 요청은 advisory 잠금으로 직렬화되어 섞이지 않습니다.
 
 ```bash
 curl -sg -X PUT 'http://localhost:4000/api/v1/examples/{id}' \
   -H 'Accept: application/vnd.api+json' \
   -H 'Content-Type: application/vnd.api+json' \
   -H 'Authorization: Bearer {accessToken}' \
-  -d '{"data":{"type":"examples","id":"{id}","attributes":{"title":"제목"}}}'
+  -d '{"data":{"type":"examples","id":"{id}","attributes":{"title":"제목","status":"draft","score":40}}}'
 ```
 
 삭제 — `204`이고 본문이 없습니다.
@@ -226,7 +226,7 @@ curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}/relationships/tags
   -H 'Accept: application/vnd.api+json' \
   -H 'Content-Type: application/vnd.api+json' \
   -H 'Authorization: Bearer {accessToken}' \
-  -d '{"data":[{"type":"tags","id":"{tagId}"}]}'
+  -d '{"data":[{"type":"exampleTags","id":"{tagId}"}]}'
 ```
 
 ## Docker로 실행

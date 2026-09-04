@@ -180,18 +180,6 @@ describe('스키마 제약', () => {
     const found = await dataSource.getRepository(Example).findOneBy({ id: createdId });
     expect(found).toBeNull();
   });
-});
-
-describe('score 범위 제약', () => {
-  let dataSource: DataSource;
-
-  beforeAll(async () => {
-    dataSource = await createTestDataSource();
-  });
-
-  afterAll(async () => {
-    await dataSource.destroy();
-  });
 
   it('CHK_examples_score_range 제약이 있다', async () => {
     const rows = await dataSource.query<{ conname: string }[]>(
@@ -204,11 +192,21 @@ describe('score 범위 제약', () => {
     expect(rows.map((row) => row.conname)).toContain('CHK_examples_score_range');
   });
 
+  // 매처 없는 `.rejects.toThrow()`는 위 "category 이름은 유일하다" 앞 주석과 같은
+  // 이유로 부족하다 — score 컬럼이 아직 없던 RED 단계에서 이 INSERT가 "column
+  // score does not exist"로 실패해도 통과해 버렸다(실측). 제약 이름까지 포함한
+  // 실제 오류 메시지를 고정해야 지금 검증하려는 그 제약이 실제로 걸렸는지 증명한다.
+  // `withRollback`으로 감싸는 이유는 제약이 사라져 이 INSERT가 실제로 성공해
+  // 버리면(레드 상태) 그 행이 커밋되어 공유 테스트 DB에 남기 때문이다 — 이 파일이
+  // 전용 스키마 없이 `public`을 직접 쓰는 다른 스위트와 워커 경계를 공유한다는
+  // 사실에서 오는 위험이다.
   it('범위 밖의 score를 DB가 거절한다', async () => {
     await expect(
-      dataSource.query(
-        `INSERT INTO "examples" ("title", "status", "score") VALUES ('범위 밖', 'draft', 101)`,
-      ),
-    ).rejects.toThrow();
+      withRollback(dataSource, async (manager) => {
+        await manager.query(
+          `INSERT INTO "examples" ("title", "status", "score") VALUES ('범위 밖', 'draft', 101)`,
+        );
+      }),
+    ).rejects.toThrow(/violates check constraint "CHK_examples_score_range"/);
   });
 });

@@ -93,6 +93,19 @@ describe('ExampleCreate', () => {
     ).rejects.toThrow();
   });
 
+  it('nullable 컬럼인 description에 null을 허용한다', async () => {
+    // `@IsOptional()`이 붙은 nullable attribute는 명시적 `null`을 "비운다"로 받는다.
+    // 이 자리를 `@ValidateIf(isPresent)`로 바꾸면 정본에서 201인 요청이 여기서만
+    // 422가 되어 wire가 갈라진다 — 그 회귀를 잡는 것이 이 테스트다.
+    const dto = await validateAttributes(ExampleCreate, {
+      title: '제목',
+      description: null,
+      status: 'draft',
+      score: 0,
+    });
+    expect(dto.description).toBeNull();
+  });
+
   it('내부 FK를 입력으로 받지 않는다', async () => {
     // 스펙 7.3: 내부 FK를 공개 입력으로 만들지 않는다. 관계는 relationships로만 바꾼다.
     await expect(
