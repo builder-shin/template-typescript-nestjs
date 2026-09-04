@@ -1,5 +1,6 @@
-import { Controller, Injectable } from '@nestjs/common';
+import { Controller, Injectable, RequestMethod } from '@nestjs/common';
 import type { CanActivate, INestApplication, Type } from '@nestjs/common';
+import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants.js';
 import type { Server } from 'node:http';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -21,6 +22,7 @@ import { registeredRoutes } from '../app-factory.js';
 /** 라우트 등록만 확인하는 최소 호스트. 액션 본문은 이 태스크의 관심사가 아니다. */
 function hostFor(
   overrides: {
+    enableWrites?: boolean;
     enableUpsert?: boolean;
     writeGuards?: Type<CanActivate>[];
     relationshipsSchema?: RelationshipWriteSchema;
@@ -65,6 +67,61 @@ async function probeRoutes(Host: Type<object>): Promise<{
   const app = moduleRef.createNestApplication<INestApplication<Server>>();
   await app.init();
   return { app, routes: registeredRoutes(app) };
+}
+
+/** Nest의 HTTP 메서드 코드를 사람이 읽는 이름으로 되돌린다. */
+const REQUEST_METHOD_NAMES: Readonly<Record<number, string>> = {
+  [RequestMethod.GET]: 'GET',
+  [RequestMethod.POST]: 'POST',
+  [RequestMethod.PUT]: 'PUT',
+  [RequestMethod.DELETE]: 'DELETE',
+  [RequestMethod.PATCH]: 'PATCH',
+};
+
+/**
+ * 값이 동적 메서드를 얹을 수 있는 객체인지 본다.
+ *
+ * `Type<object>['prototype']`는 라이브러리 타입(`Function.prototype: any`) 탓에
+ * `any`다. `route-registrar.ts`의 같은 이름 헬퍼와 같은 이유로 타입 프레디케이트로
+ * 좁혀야 캐스트 없이 `Record<string, unknown>`으로 다룰 수 있다.
+ */
+function isPrototypeObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/**
+ * `host`의 프로토타입에 실제로 등록된 라우트를 `"METHOD path"` 문자열로 모은다.
+ *
+ * `probeRoutes`와 달리 앱을 띄우지 않는다 — `registerRoutes`가 데코레이터로 남긴
+ * `PATH_METADATA`/`METHOD_METADATA`만 읽으므로 `hostFor`가 만든 클래스를 그 자리에서
+ * 바로 검사할 수 있다. `Get()`처럼 인자 없이 부른 라우트는 Nest 내부에서(`RequestMapping`)
+ * `path`가 `/`로 정규화되는데, 관계 라우트(`:id/relationships/<rel>`처럼 앞에 슬래시가
+ * 없는 경로)와 같은 모양으로 비교하기 위해 `/`는 다시 빈 문자열로 되돌린다.
+ */
+function routeSignatures(host: Type<object>): string[] {
+  const prototype: unknown = host.prototype;
+  if (!isPrototypeObject(prototype)) {
+    throw new TypeError(`${host.name}의 prototype이 객체가 아니다`);
+  }
+  const proto = prototype;
+  const signatures: string[] = [];
+  for (const name of Object.getOwnPropertyNames(proto)) {
+    const value: unknown = proto[name];
+    if (typeof value !== 'function') {
+      continue;
+    }
+    const path: unknown = Reflect.getMetadata(PATH_METADATA, value);
+    const method: unknown = Reflect.getMetadata(METHOD_METADATA, value);
+    if (typeof path !== 'string' || typeof method !== 'number') {
+      continue;
+    }
+    const methodName = REQUEST_METHOD_NAMES[method];
+    if (methodName === undefined) {
+      throw new TypeError(`알 수 없는 HTTP 메서드 코드다: ${String(method)}`);
+    }
+    signatures.push(`${methodName} ${path === '/' ? '' : path}`);
+  }
+  return signatures.sort();
 }
 
 describe('RESOURCE_ALIAS', () => {
@@ -211,5 +268,43 @@ describe('writeGuards', () => {
   it('읽기는 막지 않는다', async () => {
     // 읽기가 함께 막히면 공개 조회가 사라진다. 가드가 쓰기에만 붙는지가 계약이다.
     await request(guarded.getHttpServer()).get('/api/v1/examples').expect(200);
+  });
+});
+
+describe('enableWrites', () => {
+  it('enableWrites가 거짓이면 읽기 라우트만 만든다', () => {
+    const host = hostFor({ enableWrites: false });
+
+    // 관계 읽기(GET 두 개씩)는 시리얼라이저가 선언한 모든 관계에 대해 무조건
+    // 생긴다 — enableWrites와 무관하다(route-registrar.ts 모듈 상단 문서 참고).
+    // EXAMPLE_SERIALIZER가 category·tags 두 관계를 선언하므로 index/show 외에
+    // 그 네 개의 읽기 라우트도 남는다.
+    expect(routeSignatures(host)).toEqual([
+      'GET ',
+      'GET :id',
+      'GET :id/category',
+      'GET :id/relationships/category',
+      'GET :id/relationships/tags',
+      'GET :id/tags',
+    ]);
+  });
+
+  it('enableWrites가 거짓이면 관계 쓰기 라우트도 만들지 않는다', () => {
+    // 관계 쓰기는 relationshipsSchema가 여는데, 읽기 전용 자원이 그것을 선언했더라도
+    // 열려서는 안 된다. 이 단언이 그 구멍을 지킨다.
+    const host = hostFor({ enableWrites: false, relationshipsSchema: EXAMPLE_RELATIONSHIPS });
+
+    for (const signature of routeSignatures(host)) {
+      expect(signature.startsWith('GET ')).toBe(true);
+    }
+  });
+
+  it('enableWrites 기본값이 참이라 기존 자원의 라우트가 그대로다', () => {
+    const host = hostFor({});
+
+    const signatures = routeSignatures(host);
+    expect(signatures).toContain('POST ');
+    expect(signatures).toContain('PATCH :id');
+    expect(signatures).toContain('DELETE :id');
   });
 });

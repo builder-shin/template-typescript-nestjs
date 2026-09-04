@@ -38,6 +38,9 @@ OpenAPI 문서가 실제로 가드가 붙은 라우트를 공개라고 광고하
 `writeMethods`는 `create`·`update`·`destroy`로 시작해 `enableUpsert`면 `replace`가,
 `relationshipsSchema`에 있는 관계마다 `updateRelationship$<name>`이, cardinality가
 `many`인 관계마다 `addRelationship$<name>`·`removeRelationship$<name>`이 더해진다.
+`enableWrites: false`이면 `writeMethods`가 빈 배열로 시작하고 `create`·`update`·
+`destroy`·`replace`와 관계 mutation 라우트를 아예 등록하지 않는다 — 읽기 라우트만
+남는다.
 `index`·`show`·`showRelationship$<name>`·`showRelated$<name>`은 이 목록에 **절대**
 들어가지 않는다 — `serializer.relationships`가 선언한 모든 관계에 대해 무조건
 만들어지고, 그 등록 경로는 `writeMethods`를 참조하지도 않는다.
@@ -107,6 +110,9 @@ class-validator에는 Pydantic의 `MISSING` sentinel이 없다. "필드를 안 �
   같은 이유로 import 시점에 죽는다. `route-registrar.ts`는 `enableUpsert`가
   없으면 `replace` 라우트 자체를 만들지 않으므로, 켜지 않은 자원의 `PUT`은
   404이지 405가 아니다.
+- **`enableWrites`를 끌 때.** `createSchema`·`updateSchema`·`relationshipsSchema`를
+  선언하지 않아도 된다 — 그 셋을 읽는 액션에 라우트가 없기 때문이다. 반대로 켜 둔
+  채(기본값) `createSchema`나 `updateSchema`를 빠뜨리면 import 시점에 죽는다.
 - **`beforeSave` 훅에 같은 트랜잭션의 형제 행을 세는 로직을 넣을 때.** `replace`는
   `upsertRow`가 이미 행을 만들거나 갱신한 **뒤**에 이 훅이 돈다 — `create`는
   반대로 행이 아직 없을 때 돈다(`crud-base.ts`의 `CrudHooks.beforeSave` 문서

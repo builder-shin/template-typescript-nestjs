@@ -40,10 +40,15 @@ export interface CrudDeclaration<
 > extends CrudHooks<T> {
   readonly model: EntityTarget<T>;
   readonly serializer: ResourceSerializer<T>;
-  /** `POST` 본문의 attributes 스키마. */
-  readonly createSchema: ClassConstructor<C>;
+  /**
+   * `POST` 본문의 attributes 스키마.
+   *
+   * `enableWrites`가 거짓이면 쓰기 라우트가 없으므로 선언하지 않아도 된다. 참인데
+   * 없으면 조립 시점에 던진다 — `enableUpsert`/`replaceSchema`와 같은 계약이다.
+   */
+  readonly createSchema?: ClassConstructor<C>;
   /** `PATCH` 본문의 attributes 스키마. 모든 필드가 선택이어야 한다. */
-  readonly updateSchema: ClassConstructor<U>;
+  readonly updateSchema?: ClassConstructor<U>;
   /**
    * `PUT` 본문의 attributes 스키마. Phase 5의 upsert가 쓴다.
    *
@@ -57,11 +62,25 @@ export interface CrudDeclaration<
    * 여기 없는 관계는 읽기 전용이 된다 — 시리얼라이저가 선언했다면 `GET` 두 개는
    * 그대로 열리고 `PATCH`/`POST`/`DELETE`만 생기지 않는다. 반대로 시리얼라이저가
    * 선언하지 않은 이름을 여기 적으면 조립 시점에 던진다(`crud-actions.ts` 참고).
+   *
+   * 생략하면 빈 객체와 같다 — 관계 쓰기 라우트가 하나도 생기지 않는다.
    */
-  readonly relationshipsSchema: RelationshipWriteSchema;
+  readonly relationshipsSchema?: RelationshipWriteSchema;
   readonly queryPolicy: QueryPolicy;
   /** `PUT` 라우트를 열지. 기본은 열지 않는다. */
   readonly enableUpsert?: boolean;
+  /**
+   * 쓰기 라우트를 등록할지. 기본은 등록한다.
+   *
+   * 거짓이면 `create`·`update`·`destroy`·`replace`와 관계 mutation 라우트가 생기지
+   * 않고, `createSchema`·`updateSchema`·`relationshipsSchema`를 선언하지 않아도 된다.
+   * 참조 데이터처럼 서버가 관리하는 자원을 위한 것이다.
+   *
+   * 쓰기 메서드는 라우트 자체가 없어 405가 나간다 — `@Controller` 경로는 있고 그
+   * 경로의 다른 메서드가 있기 때문이다. 그것이 "이 자원은 쓰기를 지원하지 않는다"의
+   * 정확한 답이다.
+   */
+  readonly enableWrites?: boolean;
   /**
    * 쓰기 메서드에만 붙는 가드.
    *

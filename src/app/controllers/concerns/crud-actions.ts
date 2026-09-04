@@ -45,8 +45,20 @@ export function CrudActions<
   C extends object,
   U extends object,
 >(declaration: CrudDeclaration<T, C, U>): Type<object> {
-  const { model, serializer, queryPolicy, relationshipsSchema } = declaration;
+  const { model, serializer, queryPolicy } = declaration;
+  const enableWrites = declaration.enableWrites !== false;
+  const relationshipsSchema = declaration.relationshipsSchema ?? {};
   const declaredRelationships = Object.keys(serializer.relationships);
+
+  // 쓰기 라우트를 여는 자원은 그 라우트가 검증할 스키마를 함께 선언해야 한다.
+  // 라우트만 열리고 검증이 비는 상태가 조용히 만들어지는 것을 막는다 —
+  // `enableUpsert`/`replaceSchema`가 같은 모양의 선례다.
+  if (enableWrites && declaration.createSchema === undefined) {
+    throw new TypeError('enableWrites가 참이면 createSchema를 선언해야 한다');
+  }
+  if (enableWrites && declaration.updateSchema === undefined) {
+    throw new TypeError('enableWrites가 참이면 updateSchema를 선언해야 한다');
+  }
 
   if (declaration.enableUpsert === true && declaration.replaceSchema === undefined) {
     throw new TypeError('enableUpsert를 켰으면 replaceSchema를 선언해야 한다');
@@ -58,7 +70,7 @@ export function CrudActions<
   // 시리얼라이저에 없는 이름을 쓰기 스키마가 들고 있는 반대 방향도 여기서 잡는다.
   // 그 이름은 라우트를 얻지 못하지만 `POST` 본문의 `relationships`로는 들어올 수 있고,
   // 그러면 행을 **커밋한 뒤** 응답을 되읽는 단계에서 터져 성공한 쓰기가 500으로 나간다.
-  for (const [name, rule] of Object.entries(declaration.relationshipsSchema)) {
+  for (const [name, rule] of Object.entries(relationshipsSchema)) {
     const declared = serializer.relationships[name];
     if (declared === undefined) {
       throw new TypeError(`쓰기 스키마의 관계 "${name}"을 시리얼라이저가 선언하지 않았다`);
@@ -69,6 +81,11 @@ export function CrudActions<
       );
     }
   }
+
+  // 위 검사가 이미 존재를 확인했다. 지역 상수로 좁혀 두면 액션마다 `?? throw`를
+  // 반복하지 않아도 되고, 좁힘의 근거가 검사 바로 아래 한 곳에 남는다.
+  const createSchema = declaration.createSchema;
+  const updateSchema = declaration.updateSchema;
 
   class CrudActionsHost implements RelationshipDelegates {
     constructor(readonly dataSource: DataSource) {
@@ -175,7 +192,10 @@ export function CrudActions<
     }
 
     async create(body: unknown, response: HeaderWritableResponse): Promise<SingleDocument> {
-      const parsed = await parseWriteDocument(body, declaration.createSchema, {
+      if (createSchema === undefined) {
+        throw new TypeError('createSchema 없이 create 라우트가 등록됐다');
+      }
+      const parsed = await parseWriteDocument(body, createSchema, {
         expectedType: serializer.type,
       });
 
@@ -205,7 +225,10 @@ export function CrudActions<
     }
 
     async update(id: string, body: unknown): Promise<SingleDocument> {
-      const parsed = await parseWriteDocument(body, declaration.updateSchema, {
+      if (updateSchema === undefined) {
+        throw new TypeError('updateSchema 없이 update 라우트가 등록됐다');
+      }
+      const parsed = await parseWriteDocument(body, updateSchema, {
         expectedType: serializer.type,
         expectedId: id,
       });
