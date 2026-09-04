@@ -32,6 +32,25 @@ function resolve(field: string, direction: SortDirection, policy: QueryPolicy): 
 }
 
 /**
+ * tie breaker를 해석한다.
+ *
+ * 사용자가 고른 정렬(`resolve`)과 달리, tie breaker는 공개 `sorts` 표에 없어도 된다 —
+ * 예를 들어 `id`는 전순서를 보장하는 tie breaker 전용 필드이면서 공개 `sort`
+ * 파라미터로는 받지 않을 수 있다. 표에 없으면 공개 이름을 프로퍼티 이름으로 그대로
+ * 쓰고, tie breaker는 전순서를 보장해야 하므로 nullable은 언제나 `false`로 둔다.
+ */
+function resolveTieBreaker(policy: QueryPolicy): ResolvedSort {
+  const { field, direction } = policy.tieBreaker;
+  const declared = policy.sorts[field];
+  return {
+    field,
+    property: declared?.property ?? field,
+    direction,
+    nullable: declared?.nullable ?? false,
+  };
+}
+
+/**
  * 요청의 유효 정렬을 만든다.
  *
  * `sort`가 없으면 정책의 기본 정렬을 쓴다. 어느 쪽이든 tie breaker를 덧붙이되,
@@ -71,7 +90,7 @@ export function parseSort(
   }
 
   if (!seen.has(policy.tieBreaker.field)) {
-    terms.push(resolve(policy.tieBreaker.field, policy.tieBreaker.direction, policy));
+    terms.push(resolveTieBreaker(policy));
   }
 
   return terms;

@@ -18,6 +18,19 @@ const POLICY: QueryPolicy = {
   defaultPageSize: 25,
 };
 
+// tie breaker가 공개 sorts 표에 없는 정책. EXAMPLE_QUERY_POLICY가 이 모양이다 —
+// id는 tie breaker 전용이고 공개 정렬로는 받지 않는다.
+const POLICY_WITH_UNDECLARED_TIE_BREAKER: QueryPolicy = {
+  filters: {},
+  sorts: {
+    createdAt: { property: 'createdAt', nullable: false },
+  },
+  includes: [],
+  defaultSort: [{ field: 'createdAt', direction: 'DESC' }],
+  tieBreaker: { field: 'id', direction: 'ASC' },
+  defaultPageSize: 25,
+};
+
 function caught(run: () => unknown): JsonApiError {
   try {
     run();
@@ -94,6 +107,26 @@ describe('parseSort', () => {
       'name',
       'id',
     ]);
+  });
+});
+
+describe('parseSort — tie breaker가 공개 sorts 표에 없을 때', () => {
+  it('자동으로 붙는 tie breaker는 공개 이름을 프로퍼티로 그대로 쓴다', () => {
+    const terms = parseSort({}, POLICY_WITH_UNDECLARED_TIE_BREAKER);
+    expect(terms[terms.length - 1]).toEqual({
+      field: 'id',
+      property: 'id',
+      direction: 'ASC',
+      nullable: false,
+    });
+  });
+
+  it('사용자가 명시적으로 요청하면 여전히 INVALID_SORT다', () => {
+    // tie breaker 전용이라는 것은 자동 부착만 허용하고, 공개 sort 파라미터로는
+    // 받지 않는다는 뜻이다.
+    expect(caught(() => parseSort({ sort: 'id' }, POLICY_WITH_UNDECLARED_TIE_BREAKER)).code).toBe(
+      'INVALID_SORT',
+    );
   });
 });
 

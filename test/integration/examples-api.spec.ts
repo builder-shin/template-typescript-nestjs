@@ -130,6 +130,13 @@ describe('Examples API', () => {
     return ids;
   }
 
+  /** Example을 `count`개 만든다. 기본 페이지 크기처럼 "여러 건" 단언에 쓴다. */
+  async function seedExamples(count: number): Promise<void> {
+    for (let index = 0; index < count; index += 1) {
+      await createExample({ title: `일괄 ${String(index)}`, status: 'draft', score: 0 });
+    }
+  }
+
   beforeAll(async () => {
     app = await createTestApp();
     dataSource = app.get(DataSource);
@@ -371,6 +378,85 @@ describe('Examples API', () => {
       const response = await api().get('/api/v1/examples?q=검색').set('Accept', VENDOR);
       expect(response.status).toBe(400);
       expect((response.body as ErrorBody).errors[0]?.code).toBe('INVALID_QUERY_PARAMETER');
+    });
+
+    it('제거된 publishedAt filter를 INVALID_FILTER로 거절한다', async () => {
+      const response = await api()
+        .get('/api/v1/examples?filter[publishedAt][gte]=2026-01-01T00:00:00Z')
+        .set('Accept', VENDOR);
+
+      expect(response.status).toBe(400);
+      expect((response.body as ErrorBody).errors[0]?.code).toBe('INVALID_FILTER');
+    });
+
+    it('제거된 publishedAt sort를 INVALID_SORT로 거절한다', async () => {
+      const response = await api().get('/api/v1/examples?sort=publishedAt').set('Accept', VENDOR);
+
+      expect(response.status).toBe(400);
+      expect((response.body as ErrorBody).errors[0]?.code).toBe('INVALID_SORT');
+    });
+
+    it('id를 공개 정렬로 받지 않는다', async () => {
+      // tie breaker 전용이다. 정본의 공개 정렬에 id가 없다.
+      const response = await api().get('/api/v1/examples?sort=id').set('Accept', VENDOR);
+
+      expect(response.status).toBe(400);
+      expect((response.body as ErrorBody).errors[0]?.code).toBe('INVALID_SORT');
+    });
+
+    it('정책이 여는 모든 필터·연산자 쌍과 모든 정렬이 전부 2xx다', async () => {
+      // 정책이 선언한 (필드, 연산자) 쌍을 하나도 빠짐없이 덮는다 — 하나라도 빠지면
+      // 그 쌍이 존재하지 않는 컬럼을 가리키게 되어도(이번 태스크가 고친 publishedAt
+      // 버그처럼) 이 테스트가 못 잡는다.
+      const queries = [
+        // title: exact, contains
+        'filter[title]=x',
+        'filter[title][contains]=x',
+        // status: exact, in
+        'filter[status]=draft',
+        'filter[status][in]=draft,active',
+        // score: exact, gt, gte, lt, lte, in
+        'filter[score]=10',
+        'filter[score][gt]=0',
+        'filter[score][gte]=0',
+        'filter[score][lt]=100',
+        'filter[score][lte]=100',
+        'filter[score][in]=10,20',
+        // category.id: exact, in, isNull
+        `filter[category.id]=${MISSING}`,
+        `filter[category.id][in]=${MISSING},${MISSING}`,
+        'filter[category.id][isNull]=true',
+        // createdAt: exact, gt, gte, lt, lte
+        'filter[createdAt]=2026-01-01T00:00:00Z',
+        'filter[createdAt][gt]=2026-01-01T00:00:00Z',
+        'filter[createdAt][gte]=2026-01-01T00:00:00Z',
+        'filter[createdAt][lt]=2026-01-01T00:00:00Z',
+        'filter[createdAt][lte]=2026-01-01T00:00:00Z',
+        // sorts: title, status, score, createdAt, updatedAt
+        'sort=title',
+        'sort=status',
+        'sort=score',
+        'sort=createdAt',
+        'sort=updatedAt',
+        'sort=-score,title',
+      ];
+
+      for (const query of queries) {
+        const response = await api().get(`/api/v1/examples?${query}`).set('Accept', VENDOR);
+
+        expect([query, response.status]).toEqual([query, 200]);
+      }
+    });
+
+    it('page[size] 없는 목록이 20건을 낸다', async () => {
+      // 21건 이상을 만들어 기본값이 실제로 자르는지 본다. 20건 이하면 정책이
+      // 25든 20이든 같은 결과가 나와 테스트가 아무것도 고정하지 못한다.
+      await seedExamples(21);
+
+      const response = await api().get('/api/v1/examples').set('Accept', VENDOR);
+
+      expect(response.status).toBe(200);
+      expect((response.body as CollectionBody).data).toHaveLength(20);
     });
   });
 

@@ -184,7 +184,7 @@ describe('executeList — 필터', () => {
     await withRollback(dataSource, async (manager) => {
       const { exampleIds } = await seedExamples(manager);
       const truthy = parseQuery(
-        { 'filter[category][isNull]': 'true' },
+        { 'filter[category.id][isNull]': 'true' },
         EXAMPLE_QUERY_POLICY,
         DECLARED,
       );
@@ -192,7 +192,7 @@ describe('executeList — 필터', () => {
         (await executeList(list(manager, exampleIds), 'e', truthy, EXAMPLE_SERIALIZER)).items,
       ).toHaveLength(2);
       const falsy = parseQuery(
-        { 'filter[category][isNull]': 'false' },
+        { 'filter[category.id][isNull]': 'false' },
         EXAMPLE_QUERY_POLICY,
         DECLARED,
       );
@@ -217,11 +217,11 @@ describe('executeList — 필터', () => {
     });
   });
 
-  it('공개 이름 category가 FK 컬럼을 거른다', async () => {
+  it('공개 이름 category.id가 FK 컬럼을 거른다', async () => {
     await withRollback(dataSource, async (manager) => {
       const { category, exampleIds } = await seedExamples(manager);
       const parsed = parseQuery(
-        { 'filter[category]': category.id },
+        { 'filter[category.id]': category.id },
         EXAMPLE_QUERY_POLICY,
         DECLARED,
       );
@@ -235,7 +235,7 @@ describe('executeList — 필터', () => {
     await withRollback(dataSource, async (manager) => {
       const { exampleIds } = await seedExamples(manager);
       const parsed = parseQuery(
-        { 'filter[status]': 'draft', 'filter[category][isNull]': 'false' },
+        { 'filter[status]': 'draft', 'filter[category.id][isNull]': 'false' },
         EXAMPLE_QUERY_POLICY,
         DECLARED,
       );
@@ -291,7 +291,7 @@ describe('executeList — 정렬과 include', () => {
     await withRollback(dataSource, async (manager) => {
       const { exampleIds } = await seedExamples(manager);
       const parsed = parseQuery(
-        { include: 'category', 'filter[category][isNull]': 'false' },
+        { include: 'category', 'filter[category.id][isNull]': 'false' },
         EXAMPLE_QUERY_POLICY,
         DECLARED,
       );
@@ -306,7 +306,7 @@ describe('executeList — 정렬과 include', () => {
     await withRollback(dataSource, async (manager) => {
       const { exampleIds } = await seedExamples(manager);
       const parsed = parseQuery(
-        { include: 'category', 'filter[category][isNull]': 'true' },
+        { include: 'category', 'filter[category.id][isNull]': 'true' },
         EXAMPLE_QUERY_POLICY,
         DECLARED,
       );
@@ -532,13 +532,18 @@ describe('executeList — cursor 페이지네이션', () => {
     });
   });
 
-  it('nullable 정렬과 커서를 함께 쓰면 질의를 돌리기 전에 거부한다', () => {
-    // 거부하는 곳은 `parseQuery`다. `executeList`까지 내려가면 page[totals]=true인 요청이
-    // COUNT를 한 번 돌고 나서 400을 받는다. 여기서 보는 것은 실제 정책의 nullable 표시가
-    // 그 경로에 닿는다는 것이고, 오류의 code·detail은 test/jsonapi/query.spec.ts가 고정한다.
-    expect(() =>
-      parseQuery({ 'page[after]': '', sort: 'publishedAt' }, EXAMPLE_QUERY_POLICY, DECLARED),
-    ).toThrow(JsonApiError);
+  it('제거된 publishedAt sort는 질의를 돌리기 전에 INVALID_SORT로 거부한다', () => {
+    // publishedAt은 이제 정책에 없는 필드다. nullable 정렬과 커서 조합 자체를 질의를
+    // 돌리기 전에 거부하는 경로의 검증(스펙 8.2)은 Task 4가 합성 정책으로 대체한다 —
+    // 여기서는 사라진 필드가 여전히 질의를 돌리기 전에 거부된다는 것만 고정한다.
+    let thrown: unknown;
+    try {
+      parseQuery({ 'page[after]': '', sort: 'publishedAt' }, EXAMPLE_QUERY_POLICY, DECLARED);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(JsonApiError);
+    expect((thrown as JsonApiError).code).toBe('INVALID_SORT');
   });
 
   it('정렬을 바꾼 뒤 예전 커서를 쓰면 INVALID_PAGE다', async () => {
