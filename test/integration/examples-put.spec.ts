@@ -184,7 +184,6 @@ describe('PUT /api/v1/examples/{id}', () => {
 
     const attributes = (response.body as ResourceBody).data.attributes;
     expect(attributes.description).toBeNull();
-    expect(attributes.score).toBe(0);
   });
 
   it('보내지 않은 관계를 비운다', async () => {

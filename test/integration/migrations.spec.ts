@@ -52,7 +52,11 @@ describe('마이그레이션 적용', () => {
     expect(rows.map((row) => row.enumlabel)).toEqual(['active', 'archived', 'draft']);
   });
 
-  it('정책이 여는 정렬마다 (컬럼, id) 인덱스를 만든다', async () => {
+  // 정책이 여는 정렬 다섯 중 둘만 인덱스를 갖는다. 나머지 셋(status·score·updatedAt)에
+  // 만들지 않기로 한 근거는 `src/app/schemas/example.query-policy.ts`의 선언부 주석에
+  // 있다 — "정렬을 여는 변경은 인덱스를 진다"가 요구하는 것은 인덱스가 아니라 그
+  // 판단의 기록이다.
+  it('기본 정렬과 title 정렬의 인덱스만 남고 published_at 인덱스는 사라진다', async () => {
     // 위와 같은 이유로 스키마를 한정한다. 지금은 `toContain`이라 다른 스키마의 동명
     // 인덱스가 섞여도 통과하지만, 한정하지 않은 카탈로그 조회는 같은 함정을 남긴다.
     const rows = await dataSource.query<{ indexname: string }[]>(
@@ -104,6 +108,14 @@ describe('마이그레이션 적용', () => {
           found: metadata.findColumnWithPropertyName(filter.property) !== undefined,
         }).toEqual({ field, found: true });
       }
+      // tieBreaker.field는 공개 sorts 표에 없어도 되고, 없으면 field 이름을 그대로
+      // property로 쓴다(`query-policy.ts`의 예외 조항, `sort.ts`의 `resolveTieBreaker`).
+      // 오타가 나면 그 대체값이 존재하지 않는 컬럼을 가리키는데, 예전에는 모든 목록
+      // 요청에서 400 INVALID_SORT였던 것이 지금은 500이다 — 여기서 실제 컬럼을
+      // 가리키는지 확인한다.
+      const tieBreakerProperty =
+        policy.sorts[policy.tieBreaker.field]?.property ?? policy.tieBreaker.field;
+      expect(metadata.findColumnWithPropertyName(tieBreakerProperty) !== undefined).toBe(true);
     },
   );
 });

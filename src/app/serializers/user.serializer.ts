@@ -9,8 +9,7 @@ import type { User } from '../models/user.entity.js';
  * `test/serializers/auth.serializers.spec.ts`가 그것을 고정한다.
  *
  * `resourcePath`가 없다. 스펙 16장에 `GET /api/v1/users/{id}`가 없어서 가리킬 URL이
- * 없다 — `Category`·`Tag`와 같은 이유다. `GET /api/v1/users/me`는 있지만 그것은 id로
- * 가리키는 자리가 아니다.
+ * 없다. `GET /api/v1/users/me`는 있지만 그것은 id로 가리키는 자리가 아니다.
  */
 export const USER_SERIALIZER: ResourceSerializer<User> = {
   type: 'users',

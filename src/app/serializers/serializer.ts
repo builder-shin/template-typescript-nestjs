@@ -68,9 +68,10 @@ export interface ResourceSerializer<T extends { id: string }> {
    * Phase 4의 `CrudActions`가 `@Controller` 경로와 이 값을 비교해 어긋나면 조립 시점에
    * 던진다. 두 값이 갈라지면 잘못된 링크가 조용히 나간다.
    *
-   * **선택인 이유**: 스펙 16장의 공개 API 표면에 라우트가 없는 자원(Category·Tag는
-   * `include`로만 노출된다)은 가리킬 URL 자체가 없다. 링크를 지어내면 클라이언트가
-   * 404를 따라가므로, 그런 자원은 `links`를 아예 내지 않는다.
+   * **선택인 이유**: 스펙 16장의 공개 API 표면에 자신을 다시 가리키는 라우트가 없는
+   * 자원은 가리킬 URL 자체가 없다. 링크를 지어내면 클라이언트가 404를 따라가므로,
+   * 그런 자원은 `links`를 아예 내지 않는다. 예시와 근거는
+   * `src/app/serializers/AGENTS.md`의 "`resourcePath`가 선택인 이유" 참고.
    */
   readonly resourcePath?: string;
   readonly attributes: Readonly<Record<string, (entity: T) => unknown>>;

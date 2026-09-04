@@ -32,6 +32,10 @@ export const EXAMPLE_QUERY_POLICY: QueryPolicy = {
       operators: ['exact', 'in'],
       values: EXAMPLE_STATUSES,
     },
+    // `FilterValueType`에 `'integer'`가 없어 `'number'`를 썼다 — 필드 하나 때문에
+    // 유니온을 늘리지 않기로 한 결정이다. 그 결과 `NUMBER_PATTERN`이 소수도 통과시켜
+    // `filter[score]=3.5`가 여기선 200이고 정본(`parser=int`)은 400이다. 알려진 wire
+    // 차이이고 기록해 둔다.
     score: {
       property: 'score',
       type: 'number',

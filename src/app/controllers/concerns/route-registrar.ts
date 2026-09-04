@@ -115,7 +115,9 @@ export function registerRoutes<
   });
 
   // 쓰기 라우트는 선언이 켠 자원에만 생긴다. 읽기 전용 자원에서 POST/PATCH/DELETE를
-  // 부르면 그 경로에 그 메서드가 없어 405가 나가고, 그것이 정확한 답이다.
+  // 부르면 그 메서드의 라우트가 없어 404가 나간다 — Express가 경로 단위로 메서드를
+  // 묶지 않아 405를 판정할 지점이 없기 때문이고, 아래 `PUT` 미지원과 같은 기제다.
+  // 정본은 405다(`crud-base.ts`의 `enableWrites` 문서 참고).
   if (enableWrites) {
     decorate(proto, 'create', (descriptor) => {
       Post()(proto, 'create', descriptor);

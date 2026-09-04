@@ -101,9 +101,9 @@ describe('serializeResource', () => {
   });
 
   it('resourcePath가 없으면 링크를 내지 않는다', () => {
-    // 스펙 16장의 공개 API 표면에 라우트가 없는 자원(예: include로만 노출되는
-    // Category)은 self 링크를 가질 수 없다. 그런 자원에 링크를 지어내면 클라이언트가
-    // 404를 따라가게 된다.
+    // 스펙 16장의 공개 API 표면에 자신을 다시 가리키는 라우트가 없는 자원(예:
+    // 발급 응답 전용인 AuthTokens)은 self 링크를 가질 수 없다. 그런 자원에 링크를
+    // 지어내면 클라이언트가 404를 따라가게 된다.
     const pathless: ResourceSerializer<Author> = {
       type: 'authors',
       attributes: { name: (author) => author.name },
