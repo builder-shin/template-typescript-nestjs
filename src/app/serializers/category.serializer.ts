@@ -5,15 +5,16 @@ import type { ErasedSerializer, ResourceObject, ResourceSerializer } from './ser
 /**
  * Category의 공개 표현.
  *
- * `resourcePath`가 없다. 스펙 16장의 공개 API 표면에 `/api/v1/categories` 라우트가
- * 없기 때문이다 — 이 자원은 Example의 `include`로만 밖에 나간다. 없는 URL을 가리키는
- * `self` 링크를 지어내지 않는다.
+ * `resourcePath`는 `CategoriesController`의 `@Controller` 경로와 문자 단위로 같아야
+ * 한다 — `assertResourcePath`가 부트스트랩에서 확인한다. JSON:API `type`
+ * (`exampleCategories`)이 URL 경로(`/api/v1/categories`)와 다른 것은 의도된 결정이다.
  *
  * 반대편 관계(`examples`)는 선언하지 않는다. 선언하면 include 대상이 되고, 그러면
  * Category 하나가 Example 전체를 끌고 나올 수 있다.
  */
 export const CATEGORY_SERIALIZER: ResourceSerializer<Category> = {
   type: 'exampleCategories',
+  resourcePath: '/api/v1/categories',
   attributes: {
     name: (category) => category.name,
     createdAt: (category) => category.createdAt.toISOString(),
@@ -25,6 +26,7 @@ export const CATEGORY_SERIALIZER: ResourceSerializer<Category> = {
 /** 관계 대상과 `included` 조립용. 자기 엔티티인지 직접 좁힌다. */
 export const ERASED_CATEGORY_SERIALIZER: ErasedSerializer = {
   type: CATEGORY_SERIALIZER.type,
+  resourcePath: CATEGORY_SERIALIZER.resourcePath,
   serializeUnknown(entity: unknown): ResourceObject {
     if (!(entity instanceof Category)) {
       throw new TypeError('Category 엔티티가 아니다');

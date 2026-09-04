@@ -137,11 +137,12 @@ describe('EXAMPLE_SERIALIZER', () => {
 });
 
 describe('CATEGORY_SERIALIZER / TAG_SERIALIZER', () => {
-  it('include 전용이므로 resourcePath가 없다', () => {
-    // 스펙 16장에 categories·tags 단건 라우트가 없다. self 링크를 지어내면
-    // 클라이언트가 404를 따라간다.
-    expect(CATEGORY_SERIALIZER.resourcePath).toBeUndefined();
-    expect(TAG_SERIALIZER.resourcePath).toBeUndefined();
+  it('참조 자원이 자기 경로를 선언한다', () => {
+    // Task 6이 GET /api/v1/categories·/api/v1/tags를 열었으므로 self 링크가
+    // 가리킬 URL이 실제로 있다. 두 값은 각 컨트롤러의 @Controller 경로와
+    // 문자 단위로 같아야 한다 — `assertResourcePath`가 부트스트랩에서 확인한다.
+    expect(CATEGORY_SERIALIZER.resourcePath).toBe('/api/v1/categories');
+    expect(TAG_SERIALIZER.resourcePath).toBe('/api/v1/tags');
   });
 
   it('JSON:API type을 고정한다', () => {
@@ -162,9 +163,11 @@ describe('CATEGORY_SERIALIZER / TAG_SERIALIZER', () => {
     ]);
   });
 
-  it('링크 없이 직렬화된다', () => {
+  it('self 링크와 함께 직렬화된다', () => {
+    // resourcePath가 생기기 전에는 이 시리얼라이저가 링크 없이 직렬화됐다. Task 6이
+    // GET /api/v1/categories를 열면서 그 전제가 깨졌다 — 여기서도 함께 뒤집는다.
     const object = serializeResource(CATEGORY_SERIALIZER, category('c1', '안내서'));
-    expect(object.links).toBeUndefined();
+    expect(object.links?.self).toBe('/api/v1/categories/c1');
     expect(object.attributes.name).toBe('안내서');
   });
 });

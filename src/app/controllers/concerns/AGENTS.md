@@ -40,7 +40,7 @@ OpenAPI 문서가 실제로 가드가 붙은 라우트를 공개라고 광고하
 `many`인 관계마다 `addRelationship$<name>`·`removeRelationship$<name>`이 더해진다.
 `enableWrites: false`이면 `writeMethods`가 빈 배열로 시작하고 `create`·`update`·
 `destroy`·`replace`와 관계 mutation 라우트를 아예 등록하지 않는다 — 읽기 라우트만
-남는다.
+남는다. 읽기 전용 자원의 기준 구현은 `src/app/controllers/api/v1/categories.controller.ts`다.
 `index`·`show`·`showRelationship$<name>`·`showRelated$<name>`은 이 목록에 **절대**
 들어가지 않는다 — `serializer.relationships`가 선언한 모든 관계에 대해 무조건
 만들어지고, 그 등록 경로는 `writeMethods`를 참조하지도 않는다.
