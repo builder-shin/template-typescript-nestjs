@@ -66,8 +66,9 @@ interface TagSeed {
 interface ExampleSeed {
   readonly id: string;
   readonly title: string;
-  readonly body: string;
-  readonly status: 'draft' | 'published' | 'archived';
+  readonly description: string;
+  readonly status: 'draft' | 'active' | 'archived';
+  readonly score: number;
   readonly categoryId: string;
   readonly tagIds: readonly string[];
 }
@@ -87,16 +88,20 @@ const EXAMPLES: readonly ExampleSeed[] = [
   {
     id: EXAMPLE_ID_LITERALS.gettingStarted,
     title: '시작하기',
-    body: '이 템플릿으로 JSON:API 자원을 추가하는 방법을 설명한다.',
-    status: 'published',
+    description: '이 템플릿으로 JSON:API 자원을 추가하는 방법을 설명한다.',
+    status: 'active',
+    // 시드는 결정적이어야 하므로 값을 고정한다. 두 행의 값이 다른 이유는
+    // score 정렬을 손으로 확인할 때 순서가 정해지게 하려는 것이다.
+    score: 80,
     categoryId: CATEGORY_ID_LITERALS.guides,
     tagIds: [TAG_ID_LITERALS.jsonapi, TAG_ID_LITERALS.nestjs],
   },
   {
     id: EXAMPLE_ID_LITERALS.queryPolicy,
     title: '조회 정책',
-    body: 'filter·sort·include 허용 목록을 선언하는 방법을 설명한다.',
+    description: 'filter·sort·include 허용 목록을 선언하는 방법을 설명한다.',
     status: 'draft',
+    score: 40,
     categoryId: CATEGORY_ID_LITERALS.references,
     tagIds: [TAG_ID_LITERALS.postgres],
   },
@@ -132,12 +137,13 @@ export async function seed(manager: EntityManager): Promise<void> {
       EXAMPLES.map((example) => ({
         id: example.id,
         title: example.title,
-        body: example.body,
+        description: example.description,
         status: example.status,
+        score: example.score,
         categoryId: example.categoryId,
       })),
     )
-    .orUpdate(['title', 'body', 'status', 'category_id'], ['id'])
+    .orUpdate(['title', 'description', 'status', 'score', 'category_id'], ['id'])
     .execute();
 
   // 조인 행은 선언 상태로 맞춘다. 먼저 지우고 다시 넣어야 시드에서 뺀 관계도 사라진다.

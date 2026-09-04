@@ -141,7 +141,7 @@ describe('PUT /api/v1/examples/{id}', () => {
   });
 
   it('없는 id면 201과 Location을 낸다', async () => {
-    const response = await put(ID, { title: '만들어진 것' });
+    const response = await put(ID, { title: '만들어진 것', status: 'draft', score: 0 });
 
     expect(response.status).toBe(201);
     expect(response.headers.location).toBe(`/api/v1/examples/${ID}`);
@@ -149,13 +149,12 @@ describe('PUT /api/v1/examples/{id}', () => {
     const body = response.body as ResourceBody;
     expect(body.data.id).toBe(ID);
     expect(body.data.attributes.title).toBe('만들어진 것');
-    // 보내지 않은 필드는 컬럼 기본값으로 들어간다.
     expect(body.data.attributes.status).toBe('draft');
   });
 
   it('있는 id면 200으로 교체한다', async () => {
-    await put(ID, { title: '처음' }).expect(201);
-    const response = await put(ID, { title: '두 번째' });
+    await put(ID, { title: '처음', status: 'draft', score: 0 }).expect(201);
+    const response = await put(ID, { title: '두 번째', status: 'draft', score: 0 });
 
     expect(response.status).toBe(200);
     // 교체는 생성이 아니므로 Location을 내지 않는다.
@@ -164,8 +163,8 @@ describe('PUT /api/v1/examples/{id}', () => {
   });
 
   it('행이 하나만 남는다', async () => {
-    await put(ID, { title: '처음' }).expect(201);
-    await put(ID, { title: '두 번째' }).expect(200);
+    await put(ID, { title: '처음', status: 'draft', score: 0 }).expect(201);
+    await put(ID, { title: '두 번째', status: 'draft', score: 0 }).expect(200);
     const rows = await dataSource.query<{ count: number }[]>(
       `SELECT COUNT(*)::int AS count FROM examples WHERE id = $1`,
       [ID],
@@ -174,13 +173,17 @@ describe('PUT /api/v1/examples/{id}', () => {
   });
 
   it('보내지 않은 attribute를 기본값으로 되돌린다', async () => {
-    // 이것이 PATCH와 갈리는 지점이다. PATCH였다면 body가 남는다.
-    await put(ID, { title: '처음', body: '본문', status: 'published' }).expect(201);
-    const response = await put(ID, { title: '두 번째' });
+    // 이것이 PATCH와 갈리는 지점이다. PATCH였다면 description이 남는다. status·score는
+    // 이제 생성과 마찬가지로 필수라 두 번째 요청에서도 함께 보낸다 — 생략하면 기본값
+    // 되돌림이 아니라 422다. status의 DB 기본값('draft')은 여전히 존재하지만
+    // 스키마가 필수로 만든 뒤로는 API 요청으로 그 경로에 닿을 수 없다(그 경로는
+    // test/integration/upsert-executor.spec.ts가 단위 수준에서 계속 지킨다). 여기서
+    // 확인할 수 있는 "기본값 되돌림"은 nullable인 description뿐이다.
+    await put(ID, { title: '처음', description: '본문', status: 'active', score: 90 }).expect(201);
+    const response = await put(ID, { title: '두 번째', status: 'draft', score: 0 });
 
     const attributes = (response.body as ResourceBody).data.attributes;
-    expect(attributes.body).toBeNull();
-    expect(attributes.status).toBe('draft');
+    expect(attributes.description).toBeNull();
   });
 
   it('보내지 않은 관계를 비운다', async () => {
@@ -189,13 +192,15 @@ describe('PUT /api/v1/examples/{id}', () => {
     );
     const linkage = tags.map((tag) => ({ type: 'exampleTags', id: tag.id }));
 
-    await put(ID, { title: '처음' }, { tags: { data: linkage } }).expect(201);
+    await put(ID, { title: '처음', status: 'draft', score: 0 }, { tags: { data: linkage } }).expect(
+      201,
+    );
     const before = await api()
       .get(`/api/v1/examples/${ID}/relationships/tags`)
       .set('Accept', VENDOR);
     expect((before.body as { data: unknown[] }).data).toHaveLength(2);
 
-    await put(ID, { title: '두 번째' }).expect(200);
+    await put(ID, { title: '두 번째', status: 'draft', score: 0 }).expect(200);
     const after = await api()
       .get(`/api/v1/examples/${ID}/relationships/tags`)
       .set('Accept', VENDOR);
@@ -213,7 +218,7 @@ describe('PUT /api/v1/examples/{id}', () => {
 
     await put(
       ID,
-      { title: '처음' },
+      { title: '처음', status: 'draft', score: 0 },
       { category: { data: { type: 'exampleCategories', id: categoryId } } },
     ).expect(201);
     const before = await api()
@@ -229,7 +234,7 @@ describe('PUT /api/v1/examples/{id}', () => {
     // 않은 이 두 번째 요청은 category를 로드하지 않고, serializeResource는 로드되지 않은
     // 관계의 data 키를 통째로 생략한다 — 값이 null이 아니라 undefined다. 그래서 실제
     // 저장 상태는 관계 엔드포인트로 직접 물어서 확인한다.
-    await put(ID, { title: '두 번째' }).expect(200);
+    await put(ID, { title: '두 번째', status: 'draft', score: 0 }).expect(200);
     const after = await api()
       .get(`/api/v1/examples/${ID}/relationships/category`)
       .set('Accept', VENDOR);
@@ -260,7 +265,7 @@ describe('PUT /api/v1/examples/{id}', () => {
     const missing = '0195c1a0-0000-7000-8000-0000000009ff';
     const response = await put(
       ID,
-      { title: '제목' },
+      { title: '제목', status: 'draft', score: 0 },
       { category: { data: { type: 'exampleCategories', id: missing } } },
     ).expect(404);
     // 상태 코드만으로는 RESOURCE_NOT_FOUND(자원 자체가 없음) 같은 다른 404 원인과
@@ -300,8 +305,12 @@ describe('PUT /api/v1/examples/{id}', () => {
     }
 
     const [first, second] = await Promise.all([
-      put(ID, { title: '가' }, { tags: { data: [{ type: 'exampleTags', id: tagId }] } }),
-      put(ID, { title: '나' }, { tags: { data: [] } }),
+      put(
+        ID,
+        { title: '가', status: 'draft', score: 0 },
+        { tags: { data: [{ type: 'exampleTags', id: tagId }] } },
+      ),
+      put(ID, { title: '나', status: 'draft', score: 0 }, { tags: { data: [] } }),
     ]);
 
     // 둘 다 성공하고, 정확히 하나만 생성이다.

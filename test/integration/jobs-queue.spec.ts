@@ -102,6 +102,7 @@ describe('큐(queue.ts)와 워커 진입점의 통합 계약', () => {
         const created = await dataSource.manager.save(Example, {
           title: '잡 큐 통합 테스트',
           status: 'draft',
+          score: 0,
         });
         createdId = created.id;
         const before = await dataSource.manager.findOneByOrFail(Example, { id: created.id });

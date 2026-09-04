@@ -10,20 +10,19 @@ import { TAG_SERIALIZER } from '../../src/app/serializers/tag.serializer.js';
 
 const CREATED_AT = new Date('2026-08-30T01:02:03.000Z');
 const UPDATED_AT = new Date('2026-08-30T04:05:06.000Z');
-const PUBLISHED_AT = new Date('2026-08-30T07:08:09.000Z');
 
 function example(overrides: Partial<Example> = {}): Example {
   // 엔티티 클래스를 실제로 만든다. `included` 조립이 `instanceof`로 좁히므로
   // 구조만 흉내 낸 객체로는 이 계약을 검증할 수 없다.
   //
   // `base`에 `Partial<Example>`을 명시하는 이유: 주석 없이 객체 리터럴을 쓰면
-  // `status: 'published'`가 `string`으로 넓어져 `ExampleStatus`에 맞지 않는다.
+  // `status: 'active'`가 `string`으로 넓어져 `ExampleStatus`에 맞지 않는다.
   const base: Partial<Example> = {
     id: 'e1',
     title: '제목',
-    body: '본문',
-    status: 'published',
-    publishedAt: PUBLISHED_AT,
+    description: '본문',
+    status: 'active',
+    score: 42,
     createdAt: CREATED_AT,
     updatedAt: UPDATED_AT,
     categoryId: null,
@@ -54,9 +53,9 @@ describe('EXAMPLE_SERIALIZER', () => {
 
   it('공개 attribute 목록을 고정한다', () => {
     expect(Object.keys(EXAMPLE_SERIALIZER.attributes).sort()).toEqual([
-      'body',
       'createdAt',
-      'publishedAt',
+      'description',
+      'score',
       'status',
       'title',
       'updatedAt',
@@ -83,22 +82,20 @@ describe('EXAMPLE_SERIALIZER', () => {
     const object = serializeResource(EXAMPLE_SERIALIZER, example());
     expect(object.attributes.createdAt).toBe('2026-08-30T01:02:03.000Z');
     expect(object.attributes.updatedAt).toBe('2026-08-30T04:05:06.000Z');
-    expect(object.attributes.publishedAt).toBe('2026-08-30T07:08:09.000Z');
   });
 
-  it('publishedAt이 null이면 null을 내보낸다', () => {
-    const object = serializeResource(EXAMPLE_SERIALIZER, example({ publishedAt: null }));
-    expect(object.attributes.publishedAt).toBeNull();
-  });
-
-  it('body가 null이면 null을 내보낸다', () => {
+  it('description이 null이면 null을 내보낸다', () => {
     expect(
-      serializeResource(EXAMPLE_SERIALIZER, example({ body: null })).attributes.body,
+      serializeResource(EXAMPLE_SERIALIZER, example({ description: null })).attributes.description,
     ).toBeNull();
   });
 
   it('status를 그대로 내보낸다', () => {
-    expect(serializeResource(EXAMPLE_SERIALIZER, example()).attributes.status).toBe('published');
+    expect(serializeResource(EXAMPLE_SERIALIZER, example()).attributes.status).toBe('active');
+  });
+
+  it('score를 그대로 내보낸다', () => {
+    expect(serializeResource(EXAMPLE_SERIALIZER, example()).attributes.score).toBe(42);
   });
 
   it('self 링크가 스펙 16장의 경로와 맞는다', () => {

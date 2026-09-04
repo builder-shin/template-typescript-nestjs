@@ -211,7 +211,7 @@ describe('Examples API', () => {
 
   describe('POST /api/v1/examples', () => {
     it('201과 Location, 그리고 자원 문서를 낸다', async () => {
-      const response = await createExample({ title: '제목' });
+      const response = await createExample({ title: '제목', status: 'draft', score: 40 });
 
       expect(response.status).toBe(201);
       expect(response.headers['content-type']).toBe(VENDOR);
@@ -219,13 +219,13 @@ describe('Examples API', () => {
       expect(response.headers.location).toBe(`/api/v1/examples/${body.data.id}`);
       expect(body.data.type).toBe('examples');
       expect(body.data.attributes.title).toBe('제목');
-      // DB 기본값이 응답에 반영돼야 한다.
       expect(body.data.attributes.status).toBe('draft');
+      expect(body.data.attributes.score).toBe(40);
       expect(body.data.links.self).toBe(`/api/v1/examples/${body.data.id}`);
     });
 
     it('검증 실패를 422로, 틀린 필드를 모두 낸다', async () => {
-      const response = await createExample({ title: '', status: 'unknown' });
+      const response = await createExample({ title: '', status: 'unknown', score: 0 });
 
       expect(response.status).toBe(422);
       const body = response.body as ErrorBody;
@@ -234,6 +234,12 @@ describe('Examples API', () => {
         '/data/attributes/status',
         '/data/attributes/title',
       ]);
+    });
+
+    it('score 범위 밖의 생성을 422로 거절한다', async () => {
+      const response = await createExample({ title: '범위 밖', status: 'draft', score: 101 });
+
+      expect(response.status).toBe(422);
     });
 
     it('타입이 다르면 409 TYPE_MISMATCH다', async () => {
@@ -268,7 +274,7 @@ describe('Examples API', () => {
       const categoryId = await seedCategory();
 
       const response = await createExample(
-        { title: '제목' },
+        { title: '제목', status: 'draft', score: 0 },
         { category: { data: { type: 'exampleCategories', id: categoryId } } },
       );
 
@@ -285,7 +291,7 @@ describe('Examples API', () => {
       const tags = await seedTags();
 
       const response = await createExample(
-        { title: '제목' },
+        { title: '제목', status: 'draft', score: 0 },
         { tags: { data: tags.map((tagId) => ({ type: 'exampleTags', id: tagId })) } },
       );
 
@@ -299,7 +305,7 @@ describe('Examples API', () => {
 
     it('없는 관계 대상은 404 RELATIONSHIP_RESOURCE_NOT_FOUND다', async () => {
       const response = await createExample(
-        { title: '제목' },
+        { title: '제목', status: 'draft', score: 0 },
         { category: { data: { type: 'exampleCategories', id: MISSING } } },
       );
 
@@ -311,7 +317,7 @@ describe('Examples API', () => {
       // 트랜잭션이 실제로 걸려 있는지 확인한다. 자원만 남고 관계가 비면
       // 클라이언트가 만든 적 없는 자원이 생긴다.
       await createExample(
-        { title: '제목' },
+        { title: '제목', status: 'draft', score: 0 },
         { category: { data: { type: 'exampleCategories', id: MISSING } } },
       );
       const rows = await dataSource.query<{ count: string }[]>('SELECT COUNT(*) FROM examples');
@@ -327,8 +333,8 @@ describe('Examples API', () => {
     });
 
     it('목록과 페이지 링크를 낸다', async () => {
-      await createExample({ title: 'ㄱ' });
-      await createExample({ title: 'ㄴ' });
+      await createExample({ title: 'ㄱ', status: 'draft', score: 0 });
+      await createExample({ title: 'ㄴ', status: 'draft', score: 0 });
 
       const response = await api().get('/api/v1/examples?page[size]=1').set('Accept', VENDOR);
       const body = response.body as CollectionBody;
@@ -338,8 +344,8 @@ describe('Examples API', () => {
     });
 
     it('totals를 요청하면 총 개수와 last 링크를 낸다', async () => {
-      await createExample({ title: 'ㄱ' });
-      await createExample({ title: 'ㄴ' });
+      await createExample({ title: 'ㄱ', status: 'draft', score: 0 });
+      await createExample({ title: 'ㄴ', status: 'draft', score: 0 });
 
       const response = await api()
         .get('/api/v1/examples?page[size]=1&page[totals]=true')
@@ -350,11 +356,11 @@ describe('Examples API', () => {
     });
 
     it('filter와 sort를 적용한다', async () => {
-      await createExample({ title: 'ㄱ', status: 'published' });
-      await createExample({ title: 'ㄴ' });
+      await createExample({ title: 'ㄱ', status: 'active', score: 0 });
+      await createExample({ title: 'ㄴ', status: 'draft', score: 0 });
 
       const response = await api()
-        .get('/api/v1/examples?filter[status]=published&sort=title')
+        .get('/api/v1/examples?filter[status]=active&sort=title')
         .set('Accept', VENDOR);
       const body = response.body as CollectionBody;
       expect(body.data).toHaveLength(1);
@@ -370,7 +376,7 @@ describe('Examples API', () => {
 
   describe('GET /api/v1/examples/{id}', () => {
     it('자원 하나를 낸다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api().get(`/api/v1/examples/${id}`).set('Accept', VENDOR);
@@ -381,7 +387,7 @@ describe('Examples API', () => {
     it('include로 관계 자원을 함께 낸다', async () => {
       const categoryId = await seedCategory();
       const created = await createExample(
-        { title: '제목' },
+        { title: '제목', status: 'draft', score: 0 },
         { category: { data: { type: 'exampleCategories', id: categoryId } } },
       );
       const id = (created.body as ResourceBody).data.id;
@@ -409,7 +415,12 @@ describe('Examples API', () => {
 
   describe('PATCH /api/v1/examples/{id}', () => {
     it('보낸 필드만 바꾼다', async () => {
-      const created = await createExample({ title: '제목', body: '본문' });
+      const created = await createExample({
+        title: '제목',
+        description: '본문',
+        status: 'draft',
+        score: 0,
+      });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()
@@ -423,11 +434,16 @@ describe('Examples API', () => {
       const body = response.body as ResourceBody;
       expect(body.data.attributes.title).toBe('새 제목');
       // 보내지 않은 필드는 그대로여야 한다. 이것이 스펙 7.1의 계약이다.
-      expect(body.data.attributes.body).toBe('본문');
+      expect(body.data.attributes.description).toBe('본문');
     });
 
     it('null로 보낸 필드는 비운다', async () => {
-      const created = await createExample({ title: '제목', body: '본문' });
+      const created = await createExample({
+        title: '제목',
+        description: '본문',
+        status: 'draft',
+        score: 0,
+      });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()
@@ -435,15 +451,17 @@ describe('Examples API', () => {
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send(JSON.stringify({ data: { type: 'examples', id, attributes: { body: null } } }));
+        .send(
+          JSON.stringify({ data: { type: 'examples', id, attributes: { description: null } } }),
+        );
 
-      expect((response.body as ResourceBody).data.attributes.body).toBeNull();
+      expect((response.body as ResourceBody).data.attributes.description).toBeNull();
     });
 
     it('NOT NULL 컬럼을 null로 보내면 500이 아니라 422다', async () => {
       // `null`을 비우기로 읽는 것은 nullable 컬럼에서만 성립한다. title은 NOT NULL이라
       // 검증을 통과시키면 PostgreSQL이 거절해 사용자 입력 오류가 500으로 나간다.
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()
@@ -461,7 +479,7 @@ describe('Examples API', () => {
     });
 
     it('경로와 문서의 id가 다르면 409 ID_MISMATCH다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()
@@ -478,7 +496,7 @@ describe('Examples API', () => {
 
   describe('DELETE /api/v1/examples/{id}', () => {
     it('204를 내고 실제로 지운다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()
@@ -496,7 +514,7 @@ describe('Examples API', () => {
 
   describe('관계 라우트', () => {
     it('to-many linkage를 읽는다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()
@@ -507,7 +525,7 @@ describe('Examples API', () => {
     });
 
     it('to-many linkage를 교체하고 204를 낸다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
       const tags = await seedTags();
 
@@ -527,7 +545,7 @@ describe('Examples API', () => {
     });
 
     it('to-many에 더하고 뺀다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
       const tags = await seedTags();
       const [first, second] = tags;
@@ -566,7 +584,7 @@ describe('Examples API', () => {
     });
 
     it('to-one linkage를 교체하고 해제한다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
       const categoryId = await seedCategory();
 
@@ -603,7 +621,7 @@ describe('Examples API', () => {
     });
 
     it('related 자원 경로가 연결된 자원을 낸다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
       const tags = await seedTags();
       await api()
@@ -625,7 +643,7 @@ describe('Examples API', () => {
     it('to-one related 경로가 연결된 자원을 낸다', async () => {
       // 400 경로만 확인하면 이 라우트의 성공 경로가 통째로 비어 있게 된다 —
       // 라우트는 열려 있는데 무엇을 내는지는 아무것도 고정하지 않은 상태가 된다.
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
       const categoryId = await seedCategory();
       await api()
@@ -644,7 +662,7 @@ describe('Examples API', () => {
     });
 
     it('연결이 없으면 to-one related 경로가 null을 낸다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api().get(`/api/v1/examples/${id}/category`).set('Accept', VENDOR);
@@ -653,7 +671,7 @@ describe('Examples API', () => {
     });
 
     it('to-one related 경로는 조회 파라미터를 거부한다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()
@@ -683,7 +701,7 @@ describe('Examples API', () => {
     it('본문을 싣는 DELETE의 Content-Type도 검사한다', async () => {
       // 관계 라우트의 DELETE는 linkage 본문을 싣는다. 협상을 메서드로만 판정하면
       // 이 경로만 검사에서 새어 나가 잘못된 미디어 타입이 성공(204)한다.
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
       const tags = await seedTags();
 
@@ -745,7 +763,7 @@ describe('Examples API', () => {
     it('토큰 없이 관계를 바꾸면 401이다', async () => {
       // 관계 쓰기 라우트도 `writeMethods`에 들어 있으므로 같은 가드가 붙어야 한다.
       // 이 스위트는 고정 id를 쓰지 않으므로 대상은 이 테스트가 직접 만든다.
-      const created = await createExample({ title: '관계 보호' });
+      const created = await createExample({ title: '관계 보호', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()

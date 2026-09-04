@@ -1,4 +1,5 @@
 import {
+  Check,
   Column,
   CreateDateColumn,
   Entity,
@@ -14,10 +15,10 @@ import { Category } from './category.entity.js';
 import { Tag } from './tag.entity.js';
 
 /** Example의 상태. 저장 형식은 PostgreSQL enum이다. */
-export type ExampleStatus = 'draft' | 'published' | 'archived';
+export type ExampleStatus = 'draft' | 'active' | 'archived';
 
 /** 허용되는 상태 값. 마이그레이션의 enum 정의와 이 배열이 같아야 한다. */
-export const EXAMPLE_STATUSES: readonly ExampleStatus[] = ['draft', 'published', 'archived'];
+export const EXAMPLE_STATUSES: readonly ExampleStatus[] = ['draft', 'active', 'archived'];
 
 /**
  * 이 템플릿의 견본 자원.
@@ -25,18 +26,21 @@ export const EXAMPLE_STATUSES: readonly ExampleStatus[] = ['draft', 'published',
  * to-one(`category`)과 to-many(`tags`)를 모두 갖는 이유는 Phase 4의 관계 라우트
  * 등록이 두 cardinality를 모두 다루는지 이 자원 하나로 검증하기 위해서다.
  *
- * `(created_at, id)`·`(title, id)`·`(published_at, id)` 인덱스: 스펙 8.3에 따라 모든 정렬
- * 뒤에 `id ASC`가 tie breaker로 덧붙으므로, 정렬이 실제로 인덱스를 타려면 두 컬럼이 함께
- * 있어야 한다. 세 컬럼은 `EXAMPLE_QUERY_POLICY.sorts`가 여는 정렬과 1:1로 대응한다 —
- * 정렬을 늘리면 이 목록도 같은 변경에서 늘어나야 한다.
+ * `(created_at, id)`·`(title, id)` 인덱스: 스펙 8.3에 따라 모든 정렬 뒤에 `id ASC`가
+ * tie breaker로 덧붙으므로, 정렬이 실제로 인덱스를 타려면 두 컬럼이 함께 있어야 한다.
+ *
+ * `EXAMPLE_QUERY_POLICY.sorts`가 여는 정렬은 다섯이고 인덱스는 둘이다. 이 불일치는
+ * 의도된 것이며 그 근거는 `example.query-policy.ts`의 선언부 주석에 있다 — 정본도
+ * 기본 정렬 하나와 FK만 인덱싱한다.
  *
  * 이름을 명시하는 이유: 이름을 생략하면 TypeORM이 해시 이름을 만들어 마이그레이션이
  * 만든 `IDX_examples_created_at_id`와 어긋난다. `test/integration/migrations.spec.ts`의
  * "엔티티 메타데이터가 실제 스키마와 어긋나지 않는다" 테스트가 그 어긋남을 잡아낸다.
+ * `@Check`의 이름도 같은 이유로 명시한다.
  */
 @Index('IDX_examples_created_at_id', ['createdAt', 'id'])
 @Index('IDX_examples_title_id', ['title', 'id'])
-@Index('IDX_examples_published_at_id', ['publishedAt', 'id'])
+@Check('CHK_examples_score_range', `"score" >= 0 AND "score" <= 100`)
 @Entity({ name: 'examples' })
 export class Example {
   @PrimaryGeneratedColumn('uuid')
@@ -45,8 +49,8 @@ export class Example {
   @Column({ name: 'title', type: 'varchar', length: 200 })
   title!: string;
 
-  @Column({ name: 'body', type: 'text', nullable: true })
-  body!: string | null;
+  @Column({ name: 'description', type: 'text', nullable: true })
+  description!: string | null;
 
   @Column({
     name: 'status',
@@ -57,8 +61,8 @@ export class Example {
   })
   status!: ExampleStatus;
 
-  @Column({ name: 'published_at', type: 'timestamptz', nullable: true })
-  publishedAt!: Date | null;
+  @Column({ name: 'score', type: 'integer' })
+  score!: number;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt!: Date;

@@ -37,7 +37,7 @@ describe('마이그레이션 적용', () => {
        WHERE pg_type.typname = 'example_status' AND pg_namespace.nspname = 'public'
        ORDER BY enumlabel`,
     );
-    expect(rows.map((row) => row.enumlabel)).toEqual(['archived', 'draft', 'published']);
+    expect(rows.map((row) => row.enumlabel)).toEqual(['active', 'archived', 'draft']);
   });
 
   it('정책이 여는 정렬마다 (컬럼, id) 인덱스를 만든다', async () => {
@@ -49,7 +49,9 @@ describe('마이그레이션 적용', () => {
     const names = rows.map((row) => row.indexname);
     expect(names).toContain('IDX_examples_created_at_id');
     expect(names).toContain('IDX_examples_title_id');
-    expect(names).toContain('IDX_examples_published_at_id');
+    // published_at 컬럼이 사라졌으므로 인덱스도 함께 사라져야 한다. 남아 있으면
+    // 마이그레이션이 컬럼만 지우고 인덱스를 흘린 것이다.
+    expect(names).not.toContain('IDX_examples_published_at_id');
   });
 
   it('적용 대기 중인 마이그레이션이 없다', async () => {
@@ -80,10 +82,10 @@ describe('스키마 제약', () => {
 
   it('Example을 저장하고 기본값을 적용한다', async () => {
     await withRollback(dataSource, async (manager) => {
-      const saved = await manager.save(manager.create(Example, { title: '제목' }));
+      const saved = await manager.save(manager.create(Example, { title: '제목', score: 0 }));
       expect(saved.id).toMatch(/^[0-9a-f-]{36}$/);
       expect(saved.status).toBe('draft');
-      expect(saved.body).toBeNull();
+      expect(saved.description).toBeNull();
       expect(saved.categoryId).toBeNull();
       expect(saved.createdAt).toBeInstanceOf(Date);
     });
@@ -117,7 +119,7 @@ describe('스키마 제약', () => {
     await withRollback(dataSource, async (manager) => {
       const category = await manager.save(manager.create(Category, { name: '분류' }));
       const example = await manager.save(
-        manager.create(Example, { title: '제목', categoryId: category.id }),
+        manager.create(Example, { title: '제목', score: 0, categoryId: category.id }),
       );
       await manager.delete(Category, { id: category.id });
       const reloaded = await manager.findOneByOrFail(Example, { id: example.id });
@@ -128,7 +130,9 @@ describe('스키마 제약', () => {
   it('Example 삭제가 조인 행을 함께 지운다', async () => {
     await withRollback(dataSource, async (manager) => {
       const tag = await manager.save(manager.create(Tag, { name: '라벨' }));
-      const example = await manager.save(manager.create(Example, { title: '제목', tags: [tag] }));
+      const example = await manager.save(
+        manager.create(Example, { title: '제목', score: 0, tags: [tag] }),
+      );
       await manager.delete(Example, { id: example.id });
       const rows = await manager.query<{ count: number }[]>(
         `SELECT COUNT(*)::int AS count FROM example_tags WHERE example_id = $1`,
@@ -146,7 +150,9 @@ describe('스키마 제약', () => {
         manager.create(Tag, { name: 'a' }),
         manager.create(Tag, { name: 'b' }),
       ]);
-      const example = await manager.save(manager.create(Example, { title: '제목', tags }));
+      const example = await manager.save(
+        manager.create(Example, { title: '제목', score: 0, tags }),
+      );
       const reloaded = await manager.findOneOrFail(Example, {
         where: { id: example.id },
         relations: { tags: true },
@@ -168,10 +174,41 @@ describe('스키마 제약', () => {
   it('withRollback이 실제로 롤백한다', async () => {
     let createdId = '';
     await withRollback(dataSource, async (manager) => {
-      const saved = await manager.save(manager.create(Example, { title: '사라질 것' }));
+      const saved = await manager.save(manager.create(Example, { title: '사라질 것', score: 0 }));
       createdId = saved.id;
     });
     const found = await dataSource.getRepository(Example).findOneBy({ id: createdId });
     expect(found).toBeNull();
+  });
+});
+
+describe('score 범위 제약', () => {
+  let dataSource: DataSource;
+
+  beforeAll(async () => {
+    dataSource = await createTestDataSource();
+  });
+
+  afterAll(async () => {
+    await dataSource.destroy();
+  });
+
+  it('CHK_examples_score_range 제약이 있다', async () => {
+    const rows = await dataSource.query<{ conname: string }[]>(
+      `SELECT conname FROM pg_constraint
+       JOIN pg_class ON pg_class.oid = pg_constraint.conrelid
+       JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+       WHERE pg_class.relname = 'examples' AND pg_namespace.nspname = 'public'
+         AND pg_constraint.contype = 'c'`,
+    );
+    expect(rows.map((row) => row.conname)).toContain('CHK_examples_score_range');
+  });
+
+  it('범위 밖의 score를 DB가 거절한다', async () => {
+    await expect(
+      dataSource.query(
+        `INSERT INTO "examples" ("title", "status", "score") VALUES ('범위 밖', 'draft', 101)`,
+      ),
+    ).rejects.toThrow();
   });
 });

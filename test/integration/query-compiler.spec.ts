@@ -34,9 +34,9 @@ async function seedExamples(
     const saved = await manager.save(
       manager.create(Example, {
         title: `제목 ${String(index)}`,
-        status: index % 2 === 0 ? 'draft' : 'published',
+        status: index % 2 === 0 ? 'draft' : 'active',
+        score: index * 20,
         categoryId: index < 3 ? category.id : null,
-        publishedAt: index % 2 === 0 ? null : at(index),
         tags: index === 0 ? [tag] : [],
       }),
     );
@@ -140,10 +140,14 @@ describe('executeList — 필터', () => {
     // 가진 행이 찾아지는지, 그리고 그것만 찾아지는지 함께 본다.
     await withRollback(dataSource, async (manager) => {
       const { exampleIds } = await seedExamples(manager);
-      const percent = await manager.save(manager.create(Example, { title: '할인 50% 적용' }));
-      const underscore = await manager.save(manager.create(Example, { title: 'snake_case 규칙' }));
+      const percent = await manager.save(
+        manager.create(Example, { title: '할인 50% 적용', score: 0 }),
+      );
+      const underscore = await manager.save(
+        manager.create(Example, { title: 'snake_case 규칙', score: 0 }),
+      );
       const backslash = await manager.save(
-        manager.create(Example, { title: '경로 C:\\temp 안내' }),
+        manager.create(Example, { title: '경로 C:\\temp 안내', score: 0 }),
       );
       const ids = [...exampleIds, percent.id, underscore.id, backslash.id];
 
@@ -167,7 +171,7 @@ describe('executeList — 필터', () => {
     await withRollback(dataSource, async (manager) => {
       const { exampleIds } = await seedExamples(manager);
       const parsed = parseQuery(
-        { 'filter[status][in]': 'draft,published' },
+        { 'filter[status][in]': 'draft,active' },
         EXAMPLE_QUERY_POLICY,
         DECLARED,
       );
@@ -505,7 +509,9 @@ describe('executeList — cursor 페이지네이션', () => {
       );
       const page1 = await executeList(list(manager, exampleIds), 'e', first, EXAMPLE_SERIALIZER);
 
-      const inserted = await manager.save(manager.create(Example, { title: '끼어든 것' }));
+      const inserted = await manager.save(
+        manager.create(Example, { title: '끼어든 것', score: 0 }),
+      );
       await manager.update(Example, { id: inserted.id }, { createdAt: at(99) });
       // `inserted`는 이 테스트가 일부러 만든, 커서 이후에 끼어드는 행이다 — 범위에서
       // 빼면 이 테스트가 확인하려는 것(끼어든 행이 있어도 커서가 흔들리지 않는다) 자체가

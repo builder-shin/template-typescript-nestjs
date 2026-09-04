@@ -21,9 +21,9 @@ export const EXAMPLE_SERIALIZER: ResourceSerializer<Example> = {
   resourcePath: '/api/v1/examples',
   attributes: {
     title: (example) => example.title,
-    body: (example) => example.body,
+    description: (example) => example.description,
     status: (example) => example.status,
-    publishedAt: (example) => example.publishedAt?.toISOString() ?? null,
+    score: (example) => example.score,
     createdAt: (example) => example.createdAt.toISOString(),
     updatedAt: (example) => example.updatedAt.toISOString(),
   },
