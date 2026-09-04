@@ -30,7 +30,7 @@ interface ResourceBody {
     relationships: Record<string, { data?: unknown }>;
     links: { self: string };
   };
-  included?: { type: string; id: string }[];
+  included?: { type: string; id: string; links?: { self: string } }[];
 }
 
 interface CollectionBody {
@@ -483,6 +483,43 @@ describe('Examples API', () => {
         .set('Accept', VENDOR);
       expect(response.body as ResourceBody).toHaveProperty('included');
       expect((response.body as ResourceBody).included?.[0]?.type).toBe('exampleCategories');
+    });
+
+    it('include된 참조 자원이 self 링크를 낸다', async () => {
+      // Task 6이 CATEGORY_SERIALIZER·TAG_SERIALIZER에 resourcePath를 주면서 included[]에
+      // links.self가 붙었다 — 관측 가능한 계약 변경이다. 링크 문자열을 만드는 함수 자체는
+      // test/serializers/example.serializer.spec.ts가 고정하고, 여기서 보는 것은 그 결과가
+      // collectIncluded와 문서 조립을 지나 응답까지 그대로 실려 나가는가다.
+      const categoryId = await seedCategory();
+      const tagIds = await seedTags();
+      const created = await createExample(
+        { title: '제목', status: 'draft', score: 0 },
+        {
+          category: { data: { type: 'exampleCategories', id: categoryId } },
+          tags: { data: tagIds.map((tagId) => ({ type: 'exampleTags', id: tagId })) },
+        },
+      );
+      const id = (created.body as ResourceBody).data.id;
+
+      const response = await api()
+        .get(`/api/v1/examples/${id}?include=category,tags`)
+        .set('Accept', VENDOR);
+
+      expect(response.status).toBe(200);
+      const included = (response.body as ResourceBody).included ?? [];
+
+      // JSON:API type은 exampleCategories·exampleTags이고 링크는 URL 경로
+      // (/api/v1/categories·/api/v1/tags)를 쓴다. 둘이 다른 것이 이 브랜치의 결정이므로
+      // 그 차이를 여기서 함께 고정한다.
+      expect(included.find((item) => item.type === 'exampleCategories')?.links?.self).toBe(
+        `/api/v1/categories/${categoryId}`,
+      );
+      expect(
+        included
+          .filter((item) => item.type === 'exampleTags')
+          .map((item) => item.links?.self)
+          .sort(),
+      ).toEqual(tagIds.map((tagId) => `/api/v1/tags/${tagId}`).sort());
     });
 
     it('없는 자원은 404다', async () => {

@@ -128,6 +128,10 @@ pnpm worker    # node dist/app/jobs/worker.js
 | `GET`                         | `/api/v1/examples/{id}/category`               | 연결된 category       | 공개                            |
 | `GET`/`POST`/`PATCH`/`DELETE` | `/api/v1/examples/{id}/relationships/tags`     | tags linkage          | `GET` 공개, 나머지 인증 필요    |
 | `GET`                         | `/api/v1/examples/{id}/tags`                   | 연결된 tags           | 공개                            |
+| `GET`                         | `/api/v1/categories`                           | 분류 목록             | 공개                            |
+| `GET`                         | `/api/v1/categories/{id}`                      | 분류 단건             | 공개                            |
+| `GET`                         | `/api/v1/tags`                                 | 라벨 목록             | 공개                            |
+| `GET`                         | `/api/v1/tags/{id}`                            | 라벨 단건             | 공개                            |
 | `POST`                        | `/api/v1/auth/register`                        | 회원가입              | 공개                            |
 | `POST`                        | `/api/v1/auth/login`                           | 로그인                | 공개                            |
 | `POST`                        | `/api/v1/auth/refresh`                         | token 갱신(세션 회전) | 공개(유효한 refresh token 필요) |
@@ -135,27 +139,6 @@ pnpm worker    # node dist/app/jobs/worker.js
 | `GET`                         | `/api/v1/users/me`                             | 자기 자신 조회        | 활성 사용자 Bearer token 필요   |
 
 Example 읽기(`index`/`show`, 관계 `GET`)는 공개이고, 쓰기와 관계 변경은 `POST /api/v1/auth/login`이 발급한 access token을 `Authorization: Bearer <token>`으로 실어야 합니다. 토큰이 없으면 `401 AUTHENTICATION_REQUIRED`, 비활성 사용자의 토큰이면 `403 USER_INACTIVE`입니다.
-
-## 참조 자원
-
-분류와 라벨은 읽기 전용 컬렉션으로도 조회할 수 있습니다. 관계 선택기처럼 고를 목록이
-필요한 화면을 위한 것이며, 쓰기 라우트는 없습니다.
-
-| 메서드 | 경로                      | 동작                                                             |
-| ------ | ------------------------- | ---------------------------------------------------------------- |
-| `GET`  | `/api/v1/categories`      | 분류 목록 (`filter[name]` · `sort=name,createdAt` · `page[...]`) |
-| `GET`  | `/api/v1/categories/{id}` | 분류 단건                                                        |
-| `GET`  | `/api/v1/tags`            | 라벨 목록                                                        |
-| `GET`  | `/api/v1/tags/{id}`       | 라벨 단건                                                        |
-
-기본 정렬은 `name` 오름차순입니다. JSON:API 자원 타입은 각각 `exampleCategories`와
-`exampleTags`로, URL 경로와 다릅니다. 읽기는 Example과 마찬가지로 공개이며 `include`는
-지원하지 않습니다.
-
-```bash
-curl -sg -H 'Accept: application/vnd.api+json' \
-  'http://localhost:4000/api/v1/categories?filter[name][contains]=문서'
-```
 
 ## API 사용
 
@@ -248,6 +231,27 @@ curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}/relationships/tags
   -H 'Content-Type: application/vnd.api+json' \
   -H 'Authorization: Bearer {accessToken}' \
   -d '{"data":[{"type":"exampleTags","id":"{tagId}"}]}'
+```
+
+## 참조 자원
+
+분류와 라벨은 읽기 전용 컬렉션으로도 조회할 수 있습니다. 관계 선택기처럼 고를 목록이
+필요한 화면을 위한 것이며, 쓰기 라우트는 없습니다.
+
+| 메서드 | 경로                      | 동작                                                             |
+| ------ | ------------------------- | ---------------------------------------------------------------- |
+| `GET`  | `/api/v1/categories`      | 분류 목록 (`filter[name]` · `sort=name,createdAt` · `page[...]`) |
+| `GET`  | `/api/v1/categories/{id}` | 분류 단건                                                        |
+| `GET`  | `/api/v1/tags`            | 라벨 목록                                                        |
+| `GET`  | `/api/v1/tags/{id}`       | 라벨 단건                                                        |
+
+기본 정렬은 `name` 오름차순입니다. JSON:API 자원 타입은 각각 `exampleCategories`와
+`exampleTags`로, URL 경로와 다릅니다. 읽기는 Example과 마찬가지로 공개이며 `include`는
+지원하지 않습니다.
+
+```bash
+curl -sg -H 'Accept: application/vnd.api+json' \
+  'http://localhost:4000/api/v1/categories?filter[name][contains]=문서'
 ```
 
 ## Docker로 실행

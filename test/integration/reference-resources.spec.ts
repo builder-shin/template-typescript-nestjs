@@ -126,8 +126,11 @@ describe('참조 자원 읽기 라우트', () => {
 
     expect(exact.status).toBe(200);
     expect(contains.status).toBe(200);
-    expect((contains.body as CollectionBody).data.map((item) => item.attributes.name)).toEqual(
-      (exact.body as CollectionBody).data.map((item) => item.attributes.name),
+    // exact 결과와의 완전한 동일성이 아니라 포함 여부를 본다 — 다른 스위트가 남긴
+    // 'lph'를 담은 이름이 있어도(가능성은 낮지만 이 스위트가 배제를 보장하지 않는다)
+    // 이 단언은 그 값에 의존하지 않는다.
+    expect((contains.body as CollectionBody).data.map((item) => item.attributes.name)).toContain(
+      'alpha',
     );
   });
 
@@ -194,6 +197,11 @@ describe('참조 자원 읽기 라우트', () => {
       .send(JSON.stringify({ data: { type: 'exampleCategories', attributes: { name: 'delta' } } }));
 
     expect(response.status).toBe(404);
+    // 상태 코드만으로는 이 응답이 JSON:API 오류 문서인지, 아니면 APP_FILTER 배선이
+    // 끊겨 나온 HTML/기본 404인지 구분하지 못한다. 이 코드는 Nest의 기본
+    // NotFoundException이 exception-filter.ts의 normalize()를 거쳐 HTTP_ERROR로
+    // 정규화된 값이다(실측).
+    expect((response.body as ErrorBody).errors[0]?.code).toBe('HTTP_ERROR');
   });
 
   it('라벨 단건이 삭제를 받지 않는다', async () => {
@@ -203,5 +211,6 @@ describe('참조 자원 읽기 라우트', () => {
       .set('Accept', JSONAPI);
 
     expect(response.status).toBe(404);
+    expect((response.body as ErrorBody).errors[0]?.code).toBe('HTTP_ERROR');
   });
 });
