@@ -1,6 +1,7 @@
 import type { MigrationInterface } from 'typeorm';
 import { AddExampleSortIndexes1788048000000 } from './20260830000000-add-example-sort-indexes.js';
 import { AddRefreshSessionsReplacedByIndex1788367541000 } from './20260902164541-add-refresh-sessions-replaced-by-index.js';
+import { AlignExampleSchemaWithCanon1788480000000 } from './20260904000000-align-example-schema-with-canon.js';
 import { CreateAuthSchema1788307200000 } from './20260902000000-create-auth-schema.js';
 import { CreateExampleSchema1787961600000 } from './20260829000000-create-example-schema.js';
 
@@ -33,4 +34,5 @@ export const MIGRATIONS: readonly MigrationClass[] = [
   AddExampleSortIndexes1788048000000,
   CreateAuthSchema1788307200000,
   AddRefreshSessionsReplacedByIndex1788367541000,
+  AlignExampleSchemaWithCanon1788480000000,
 ];

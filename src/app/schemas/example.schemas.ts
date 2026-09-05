@@ -1,5 +1,4 @@
-import { Transform } from 'class-transformer';
-import { IsDate, IsIn, IsOptional, IsString, Length, ValidateIf } from 'class-validator';
+import { IsIn, IsInt, IsOptional, IsString, Length, Max, Min, ValidateIf } from 'class-validator';
 import { Category } from '../models/category.entity.js';
 import { EXAMPLE_STATUSES } from '../models/example.entity.js';
 import type { ExampleStatus } from '../models/example.entity.js';
@@ -21,17 +20,12 @@ import type { RelationshipWriteSchema } from './write-schema.js';
  * 검증을 통과해 PostgreSQL까지 내려가고, 사용자 입력 오류가 422가 아니라 500으로 나간다.
  * 그래서 표기는 컬럼의 nullable 여부를 따라간다 — 취향이 아니라 대응 관계다.
  *
- * - nullable 컬럼(`body`·`published_at`)은 `@IsOptional()`. `null`은 "비운다"는 뜻이다.
- * - NOT NULL 컬럼(`title`·`status`)은 `@ValidateIf(isPresent)`. 보내지 않은 것만
+ * - nullable 컬럼(`description`)은 `@IsOptional()`. `null`은 "비운다"는 뜻이다.
+ * - NOT NULL 컬럼(`title`·`status`·`score`)은 `@ValidateIf(isPresent)`. 보내지 않은 것만
  *   건너뛰고 `null`은 검증기에 그대로 넘겨 422로 거절한다.
  *
  * 이 스키마를 복사해 새 자원을 만든다면 필드마다 이 대응부터 맞춘다.
  */
-
-/** ISO 8601 문자열을 `Date`로 바꾼다. 저장 계층이 받는 형식이다. */
-function toDate({ value }: { value: unknown }): unknown {
-  return typeof value === 'string' ? new Date(value) : value;
-}
 
 /**
  * "아예 보내지 않았다"만 검증을 건너뛰게 하는 `@ValidateIf` 조건.
@@ -51,21 +45,19 @@ export class ExampleCreate {
 
   @IsOptional()
   @IsString()
-  body?: string | null;
+  description?: string | null;
 
-  // 컬럼이 NOT NULL이고 기본값이 있다. 보내지 않으면 DB 기본값(`draft`)이 되지만
-  // `null`은 그 기본값을 뜻하지 않으므로 여기서 거절한다.
-  @ValidateIf(isPresent)
+  // 정본이 생성에서 `status`를 필수로 받는다. 컬럼에 DB 기본값이 있지만 그것에
+  // 도달하는 경로를 열면 `status`를 생략한 같은 요청이 정본에서는 422, 여기서는
+  // 201이 되어 wire가 갈라진다.
   @IsIn(EXAMPLE_STATUSES)
-  status?: ExampleStatus;
+  status!: ExampleStatus;
 
-  // `@Transform`이 `plainToInstance` 단계에서 돌아 검증기는 이미 `Date`를 본다.
-  // 그래서 `@IsISO8601`이 아니라 `@IsDate`다 — `new Date('어제')`는 Invalid Date라
-  // `@IsDate`가 잡는다.
-  @IsOptional()
-  @Transform(toDate)
-  @IsDate()
-  publishedAt?: Date | null;
+  // 범위 검증을 스키마에도 건다. DB의 CHECK 제약만 있으면 위반이 500으로 나간다.
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  score!: number;
 }
 
 /**
@@ -84,16 +76,19 @@ export class ExampleUpdate {
 
   @IsOptional()
   @IsString()
-  body?: string | null;
+  description?: string | null;
 
   @ValidateIf(isPresent)
   @IsIn(EXAMPLE_STATUSES)
   status?: ExampleStatus;
 
-  @IsOptional()
-  @Transform(toDate)
-  @IsDate()
-  publishedAt?: Date | null;
+  // `score`도 NOT NULL이므로 `@IsOptional()`이 아니라 `@ValidateIf(isPresent)`다.
+  // `{"score": null}`은 사용자가 명시적으로 보낸 값이고 422로 거절해야 한다.
+  @ValidateIf(isPresent)
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  score?: number;
 }
 
 /**
@@ -109,16 +104,15 @@ export class ExampleReplace {
 
   @IsOptional()
   @IsString()
-  body?: string | null;
+  description?: string | null;
 
-  @ValidateIf(isPresent)
   @IsIn(EXAMPLE_STATUSES)
-  status?: ExampleStatus;
+  status!: ExampleStatus;
 
-  @IsOptional()
-  @Transform(toDate)
-  @IsDate()
-  publishedAt?: Date | null;
+  @IsInt()
+  @Min(0)
+  @Max(100)
+  score!: number;
 }
 
 /**
@@ -128,6 +122,6 @@ export class ExampleReplace {
  * 그대로 열리고 `PATCH`/`POST`/`DELETE`만 생기지 않는다(`route-registrar.ts` 참고).
  */
 export const EXAMPLE_RELATIONSHIPS: RelationshipWriteSchema = {
-  category: { cardinality: 'one', type: 'categories', model: Category },
-  tags: { cardinality: 'many', type: 'tags', model: Tag },
+  category: { cardinality: 'one', type: 'exampleCategories', model: Category },
+  tags: { cardinality: 'many', type: 'exampleTags', model: Tag },
 };

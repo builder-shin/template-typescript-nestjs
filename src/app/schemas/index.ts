@@ -1,4 +1,5 @@
 export { AuthCredentials, RefreshTokenInput, UserRegister } from './auth.schemas.js';
+export { EXAMPLE_CATEGORY_QUERY_POLICY } from './category.query-policy.js';
 export { EXAMPLE_QUERY_POLICY } from './example.query-policy.js';
 export {
   EXAMPLE_RELATIONSHIPS,
@@ -16,5 +17,6 @@ export type {
   SortFieldPolicy,
   SortTerm,
 } from './query-policy.js';
+export { EXAMPLE_TAG_QUERY_POLICY } from './tag.query-policy.js';
 export { schemaProperties, validateAttributes } from './write-schema.js';
 export type { RelationshipWriteRule, RelationshipWriteSchema } from './write-schema.js';

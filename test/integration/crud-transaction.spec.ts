@@ -142,12 +142,22 @@ describe('CrudActions 트랜잭션 경계', () => {
   let dataSource: DataSource;
   const logged: LoggedError[] = [];
 
+  // `status`·`score`는 생성·교체에서 필수다(Task 2). 이 프로브들이 증명하려는 것은
+  // 훅/직렬화 실패의 트랜잭션 경계이지 검증이 아니므로, 둘 다 통과하는 값을 채워
+  // 요청이 422가 아니라 훅까지 도달하게 한다.
   function createProbe(): Promise<Response> {
     return request(app.getHttpServer())
       .post('/api/v1/examples')
       .set('Accept', VENDOR)
       .set('Content-Type', VENDOR)
-      .send(JSON.stringify({ data: { type: 'examples', attributes: { title: PROBE_TITLE } } }));
+      .send(
+        JSON.stringify({
+          data: {
+            type: 'examples',
+            attributes: { title: PROBE_TITLE, status: 'draft', score: 0 },
+          },
+        }),
+      );
   }
 
   /** 없는 id로 `PUT` — upsert가 반드시 생성 분기(행을 새로 만드는 쪽)를 타게 한다. */
@@ -158,7 +168,11 @@ describe('CrudActions 트랜잭션 경계', () => {
       .set('Content-Type', VENDOR)
       .send(
         JSON.stringify({
-          data: { type: 'examples', id: PUT_PROBE_ID, attributes: { title: PROBE_TITLE } },
+          data: {
+            type: 'examples',
+            id: PUT_PROBE_ID,
+            attributes: { title: PROBE_TITLE, status: 'draft', score: 0 },
+          },
         }),
       );
   }
@@ -171,7 +185,11 @@ describe('CrudActions 트랜잭션 경계', () => {
       .set('Content-Type', VENDOR)
       .send(
         JSON.stringify({
-          data: { type: 'examples', id: SERIALIZE_PROBE_ID, attributes: { title: PROBE_TITLE } },
+          data: {
+            type: 'examples',
+            id: SERIALIZE_PROBE_ID,
+            attributes: { title: PROBE_TITLE, status: 'draft', score: 0 },
+          },
         }),
       );
   }

@@ -68,4 +68,28 @@ describe('CrudActions 조립 검사', () => {
       }),
     ).toEqual(expect.any(Function));
   });
+
+  it('enableWrites가 거짓이면 쓰기 스키마 없이도 조립된다', () => {
+    expect(() =>
+      CrudActions({
+        model: Example,
+        serializer: EXAMPLE_SERIALIZER,
+        queryPolicy: EXAMPLE_QUERY_POLICY,
+        enableWrites: false,
+      }),
+    ).not.toThrow();
+  });
+
+  it('enableWrites가 참인데 createSchema가 없으면 조립 시점에 던진다', () => {
+    // 라우트만 열리고 검증이 비는 상태가 조용히 만들어지는 것을 막는다.
+    // enableUpsert/replaceSchema가 같은 모양의 선례다.
+    expect(() =>
+      CrudActions({
+        model: Example,
+        serializer: EXAMPLE_SERIALIZER,
+        queryPolicy: EXAMPLE_QUERY_POLICY,
+        updateSchema: ExampleUpdate,
+      } as never),
+    ).toThrow(TypeError);
+  });
 });

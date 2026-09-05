@@ -1,8 +1,20 @@
-import type { DataSource } from 'typeorm';
+import type { DataSource, EntityTarget, ObjectLiteral } from 'typeorm';
 import { createTestDataSource, withRollback } from '../db/fixture.js';
 import { Category } from '../../src/app/models/category.entity.js';
 import { Example } from '../../src/app/models/example.entity.js';
 import { Tag } from '../../src/app/models/tag.entity.js';
+import { EXAMPLE_CATEGORY_QUERY_POLICY } from '../../src/app/schemas/category.query-policy.js';
+import { EXAMPLE_QUERY_POLICY } from '../../src/app/schemas/example.query-policy.js';
+import type { QueryPolicy } from '../../src/app/schemas/query-policy.js';
+import { EXAMPLE_TAG_QUERY_POLICY } from '../../src/app/schemas/tag.query-policy.js';
+
+// 정책↔스키마 대조 대상. Task 6이 참조 자원 둘을 추가해 QueryPolicy가 셋이 됐으므로
+// 모두 덮는다 — 하나만 대조하면 나머지 둘의 nullable 오표시가 잡히지 않는다.
+const POLICY_ENTITIES: readonly [string, EntityTarget<ObjectLiteral>, QueryPolicy][] = [
+  ['examples', Example, EXAMPLE_QUERY_POLICY],
+  ['exampleCategories', Category, EXAMPLE_CATEGORY_QUERY_POLICY],
+  ['exampleTags', Tag, EXAMPLE_TAG_QUERY_POLICY],
+];
 
 describe('마이그레이션 적용', () => {
   let dataSource: DataSource;
@@ -37,10 +49,14 @@ describe('마이그레이션 적용', () => {
        WHERE pg_type.typname = 'example_status' AND pg_namespace.nspname = 'public'
        ORDER BY enumlabel`,
     );
-    expect(rows.map((row) => row.enumlabel)).toEqual(['archived', 'draft', 'published']);
+    expect(rows.map((row) => row.enumlabel)).toEqual(['active', 'archived', 'draft']);
   });
 
-  it('정책이 여는 정렬마다 (컬럼, id) 인덱스를 만든다', async () => {
+  // 정책이 여는 정렬 다섯 중 둘만 인덱스를 갖는다. 나머지 셋(status·score·updatedAt)에
+  // 만들지 않기로 한 근거는 `src/app/schemas/example.query-policy.ts`의 선언부 주석에
+  // 있다 — "정렬을 여는 변경은 인덱스를 진다"가 요구하는 것은 인덱스가 아니라 그
+  // 판단의 기록이다.
+  it('기본 정렬과 title 정렬의 인덱스만 남고 published_at 인덱스는 사라진다', async () => {
     // 위와 같은 이유로 스키마를 한정한다. 지금은 `toContain`이라 다른 스키마의 동명
     // 인덱스가 섞여도 통과하지만, 한정하지 않은 카탈로그 조회는 같은 함정을 남긴다.
     const rows = await dataSource.query<{ indexname: string }[]>(
@@ -49,7 +65,9 @@ describe('마이그레이션 적용', () => {
     const names = rows.map((row) => row.indexname);
     expect(names).toContain('IDX_examples_created_at_id');
     expect(names).toContain('IDX_examples_title_id');
-    expect(names).toContain('IDX_examples_published_at_id');
+    // published_at 컬럼이 사라졌으므로 인덱스도 함께 사라져야 한다. 남아 있으면
+    // 마이그레이션이 컬럼만 지우고 인덱스를 흘린 것이다.
+    expect(names).not.toContain('IDX_examples_published_at_id');
   });
 
   it('적용 대기 중인 마이그레이션이 없다', async () => {
@@ -61,6 +79,45 @@ describe('마이그레이션 적용', () => {
     const sqlInMemory = await dataSource.driver.createSchemaBuilder().log();
     expect(sqlInMemory.upQueries).toHaveLength(0);
   });
+
+  it.each(POLICY_ENTITIES)(
+    '%s: 정책의 정렬 nullable 표시가 실제 컬럼과 일치한다',
+    (_name, entity, policy) => {
+      // 이 표시가 틀리면 keyset 커서가 `(컬럼, id) > (값, 값)` 비교에서 NULL을 만나
+      // 오류 없이 행을 건너뛴다. 응답은 200이고 레코드만 사라지므로 어떤 와이어
+      // 테스트로도 잡히지 않는다 — 스키마와 직접 대조하는 것이 유일한 방어다.
+      const metadata = dataSource.getMetadata(entity);
+      for (const [field, sort] of Object.entries(policy.sorts)) {
+        const column = metadata.findColumnWithPropertyName(sort.property);
+        // 실패했을 때 어느 필드인지 드러나도록 이름을 함께 단언한다.
+        expect({ field, isNullable: column?.isNullable }).toEqual({
+          field,
+          isNullable: sort.nullable,
+        });
+      }
+    },
+  );
+
+  it.each(POLICY_ENTITIES)(
+    '%s: 정책의 필터 property가 실제 컬럼을 가리킨다',
+    (_name, entity, policy) => {
+      const metadata = dataSource.getMetadata(entity);
+      for (const [field, filter] of Object.entries(policy.filters)) {
+        expect({
+          field,
+          found: metadata.findColumnWithPropertyName(filter.property) !== undefined,
+        }).toEqual({ field, found: true });
+      }
+      // tieBreaker.field는 공개 sorts 표에 없어도 되고, 없으면 field 이름을 그대로
+      // property로 쓴다(`query-policy.ts`의 예외 조항, `sort.ts`의 `resolveTieBreaker`).
+      // 오타가 나면 그 대체값이 존재하지 않는 컬럼을 가리키는데, 예전에는 모든 목록
+      // 요청에서 400 INVALID_SORT였던 것이 지금은 500이다 — 여기서 실제 컬럼을
+      // 가리키는지 확인한다.
+      const tieBreakerProperty =
+        policy.sorts[policy.tieBreaker.field]?.property ?? policy.tieBreaker.field;
+      expect(metadata.findColumnWithPropertyName(tieBreakerProperty) !== undefined).toBe(true);
+    },
+  );
 });
 
 describe('스키마 제약', () => {
@@ -80,10 +137,10 @@ describe('스키마 제약', () => {
 
   it('Example을 저장하고 기본값을 적용한다', async () => {
     await withRollback(dataSource, async (manager) => {
-      const saved = await manager.save(manager.create(Example, { title: '제목' }));
+      const saved = await manager.save(manager.create(Example, { title: '제목', score: 0 }));
       expect(saved.id).toMatch(/^[0-9a-f-]{36}$/);
       expect(saved.status).toBe('draft');
-      expect(saved.body).toBeNull();
+      expect(saved.description).toBeNull();
       expect(saved.categoryId).toBeNull();
       expect(saved.createdAt).toBeInstanceOf(Date);
     });
@@ -117,7 +174,7 @@ describe('스키마 제약', () => {
     await withRollback(dataSource, async (manager) => {
       const category = await manager.save(manager.create(Category, { name: '분류' }));
       const example = await manager.save(
-        manager.create(Example, { title: '제목', categoryId: category.id }),
+        manager.create(Example, { title: '제목', score: 0, categoryId: category.id }),
       );
       await manager.delete(Category, { id: category.id });
       const reloaded = await manager.findOneByOrFail(Example, { id: example.id });
@@ -128,7 +185,9 @@ describe('스키마 제약', () => {
   it('Example 삭제가 조인 행을 함께 지운다', async () => {
     await withRollback(dataSource, async (manager) => {
       const tag = await manager.save(manager.create(Tag, { name: '라벨' }));
-      const example = await manager.save(manager.create(Example, { title: '제목', tags: [tag] }));
+      const example = await manager.save(
+        manager.create(Example, { title: '제목', score: 0, tags: [tag] }),
+      );
       await manager.delete(Example, { id: example.id });
       const rows = await manager.query<{ count: number }[]>(
         `SELECT COUNT(*)::int AS count FROM example_tags WHERE example_id = $1`,
@@ -146,7 +205,9 @@ describe('스키마 제약', () => {
         manager.create(Tag, { name: 'a' }),
         manager.create(Tag, { name: 'b' }),
       ]);
-      const example = await manager.save(manager.create(Example, { title: '제목', tags }));
+      const example = await manager.save(
+        manager.create(Example, { title: '제목', score: 0, tags }),
+      );
       const reloaded = await manager.findOneOrFail(Example, {
         where: { id: example.id },
         relations: { tags: true },
@@ -168,10 +229,39 @@ describe('스키마 제약', () => {
   it('withRollback이 실제로 롤백한다', async () => {
     let createdId = '';
     await withRollback(dataSource, async (manager) => {
-      const saved = await manager.save(manager.create(Example, { title: '사라질 것' }));
+      const saved = await manager.save(manager.create(Example, { title: '사라질 것', score: 0 }));
       createdId = saved.id;
     });
     const found = await dataSource.getRepository(Example).findOneBy({ id: createdId });
     expect(found).toBeNull();
+  });
+
+  it('CHK_examples_score_range 제약이 있다', async () => {
+    const rows = await dataSource.query<{ conname: string }[]>(
+      `SELECT conname FROM pg_constraint
+       JOIN pg_class ON pg_class.oid = pg_constraint.conrelid
+       JOIN pg_namespace ON pg_namespace.oid = pg_class.relnamespace
+       WHERE pg_class.relname = 'examples' AND pg_namespace.nspname = 'public'
+         AND pg_constraint.contype = 'c'`,
+    );
+    expect(rows.map((row) => row.conname)).toContain('CHK_examples_score_range');
+  });
+
+  // 매처 없는 `.rejects.toThrow()`는 위 "category 이름은 유일하다" 앞 주석과 같은
+  // 이유로 부족하다 — score 컬럼이 아직 없던 RED 단계에서 이 INSERT가 "column
+  // score does not exist"로 실패해도 통과해 버렸다(실측). 제약 이름까지 포함한
+  // 실제 오류 메시지를 고정해야 지금 검증하려는 그 제약이 실제로 걸렸는지 증명한다.
+  // `withRollback`으로 감싸는 이유는 제약이 사라져 이 INSERT가 실제로 성공해
+  // 버리면(레드 상태) 그 행이 커밋되어 공유 테스트 DB에 남기 때문이다 — 이 파일이
+  // 전용 스키마 없이 `public`을 직접 쓰는 다른 스위트와 워커 경계를 공유한다는
+  // 사실에서 오는 위험이다.
+  it('범위 밖의 score를 DB가 거절한다', async () => {
+    await expect(
+      withRollback(dataSource, async (manager) => {
+        await manager.query(
+          `INSERT INTO "examples" ("title", "status", "score") VALUES ('범위 밖', 'draft', 101)`,
+        );
+      }),
+    ).rejects.toThrow(/violates check constraint "CHK_examples_score_range"/);
   });
 });

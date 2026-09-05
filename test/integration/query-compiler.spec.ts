@@ -34,9 +34,9 @@ async function seedExamples(
     const saved = await manager.save(
       manager.create(Example, {
         title: `제목 ${String(index)}`,
-        status: index % 2 === 0 ? 'draft' : 'published',
+        status: index % 2 === 0 ? 'draft' : 'active',
+        score: index * 20,
         categoryId: index < 3 ? category.id : null,
-        publishedAt: index % 2 === 0 ? null : at(index),
         tags: index === 0 ? [tag] : [],
       }),
     );
@@ -140,10 +140,14 @@ describe('executeList — 필터', () => {
     // 가진 행이 찾아지는지, 그리고 그것만 찾아지는지 함께 본다.
     await withRollback(dataSource, async (manager) => {
       const { exampleIds } = await seedExamples(manager);
-      const percent = await manager.save(manager.create(Example, { title: '할인 50% 적용' }));
-      const underscore = await manager.save(manager.create(Example, { title: 'snake_case 규칙' }));
+      const percent = await manager.save(
+        manager.create(Example, { title: '할인 50% 적용', score: 0 }),
+      );
+      const underscore = await manager.save(
+        manager.create(Example, { title: 'snake_case 규칙', score: 0 }),
+      );
       const backslash = await manager.save(
-        manager.create(Example, { title: '경로 C:\\temp 안내' }),
+        manager.create(Example, { title: '경로 C:\\temp 안내', score: 0 }),
       );
       const ids = [...exampleIds, percent.id, underscore.id, backslash.id];
 
@@ -167,7 +171,7 @@ describe('executeList — 필터', () => {
     await withRollback(dataSource, async (manager) => {
       const { exampleIds } = await seedExamples(manager);
       const parsed = parseQuery(
-        { 'filter[status][in]': 'draft,published' },
+        { 'filter[status][in]': 'draft,active' },
         EXAMPLE_QUERY_POLICY,
         DECLARED,
       );
@@ -180,7 +184,7 @@ describe('executeList — 필터', () => {
     await withRollback(dataSource, async (manager) => {
       const { exampleIds } = await seedExamples(manager);
       const truthy = parseQuery(
-        { 'filter[category][isNull]': 'true' },
+        { 'filter[category.id][isNull]': 'true' },
         EXAMPLE_QUERY_POLICY,
         DECLARED,
       );
@@ -188,7 +192,7 @@ describe('executeList — 필터', () => {
         (await executeList(list(manager, exampleIds), 'e', truthy, EXAMPLE_SERIALIZER)).items,
       ).toHaveLength(2);
       const falsy = parseQuery(
-        { 'filter[category][isNull]': 'false' },
+        { 'filter[category.id][isNull]': 'false' },
         EXAMPLE_QUERY_POLICY,
         DECLARED,
       );
@@ -213,11 +217,11 @@ describe('executeList — 필터', () => {
     });
   });
 
-  it('공개 이름 category가 FK 컬럼을 거른다', async () => {
+  it('공개 이름 category.id가 FK 컬럼을 거른다', async () => {
     await withRollback(dataSource, async (manager) => {
       const { category, exampleIds } = await seedExamples(manager);
       const parsed = parseQuery(
-        { 'filter[category]': category.id },
+        { 'filter[category.id]': category.id },
         EXAMPLE_QUERY_POLICY,
         DECLARED,
       );
@@ -231,7 +235,7 @@ describe('executeList — 필터', () => {
     await withRollback(dataSource, async (manager) => {
       const { exampleIds } = await seedExamples(manager);
       const parsed = parseQuery(
-        { 'filter[status]': 'draft', 'filter[category][isNull]': 'false' },
+        { 'filter[status]': 'draft', 'filter[category.id][isNull]': 'false' },
         EXAMPLE_QUERY_POLICY,
         DECLARED,
       );
@@ -287,7 +291,7 @@ describe('executeList — 정렬과 include', () => {
     await withRollback(dataSource, async (manager) => {
       const { exampleIds } = await seedExamples(manager);
       const parsed = parseQuery(
-        { include: 'category', 'filter[category][isNull]': 'false' },
+        { include: 'category', 'filter[category.id][isNull]': 'false' },
         EXAMPLE_QUERY_POLICY,
         DECLARED,
       );
@@ -302,7 +306,7 @@ describe('executeList — 정렬과 include', () => {
     await withRollback(dataSource, async (manager) => {
       const { exampleIds } = await seedExamples(manager);
       const parsed = parseQuery(
-        { include: 'category', 'filter[category][isNull]': 'true' },
+        { include: 'category', 'filter[category.id][isNull]': 'true' },
         EXAMPLE_QUERY_POLICY,
         DECLARED,
       );
@@ -505,7 +509,9 @@ describe('executeList — cursor 페이지네이션', () => {
       );
       const page1 = await executeList(list(manager, exampleIds), 'e', first, EXAMPLE_SERIALIZER);
 
-      const inserted = await manager.save(manager.create(Example, { title: '끼어든 것' }));
+      const inserted = await manager.save(
+        manager.create(Example, { title: '끼어든 것', score: 0 }),
+      );
       await manager.update(Example, { id: inserted.id }, { createdAt: at(99) });
       // `inserted`는 이 테스트가 일부러 만든, 커서 이후에 끼어드는 행이다 — 범위에서
       // 빼면 이 테스트가 확인하려는 것(끼어든 행이 있어도 커서가 흔들리지 않는다) 자체가
@@ -526,13 +532,18 @@ describe('executeList — cursor 페이지네이션', () => {
     });
   });
 
-  it('nullable 정렬과 커서를 함께 쓰면 질의를 돌리기 전에 거부한다', () => {
-    // 거부하는 곳은 `parseQuery`다. `executeList`까지 내려가면 page[totals]=true인 요청이
-    // COUNT를 한 번 돌고 나서 400을 받는다. 여기서 보는 것은 실제 정책의 nullable 표시가
-    // 그 경로에 닿는다는 것이고, 오류의 code·detail은 test/jsonapi/query.spec.ts가 고정한다.
-    expect(() =>
-      parseQuery({ 'page[after]': '', sort: 'publishedAt' }, EXAMPLE_QUERY_POLICY, DECLARED),
-    ).toThrow(JsonApiError);
+  it('제거된 publishedAt sort는 질의를 돌리기 전에 INVALID_SORT로 거부한다', () => {
+    // publishedAt은 이제 정책에 없는 필드다. nullable 정렬과 커서 조합 자체를 질의를
+    // 돌리기 전에 거부하는 경로의 검증(스펙 8.2)은 Task 4가 합성 정책으로 대체한다 —
+    // 여기서는 사라진 필드가 여전히 질의를 돌리기 전에 거부된다는 것만 고정한다.
+    let thrown: unknown;
+    try {
+      parseQuery({ 'page[after]': '', sort: 'publishedAt' }, EXAMPLE_QUERY_POLICY, DECLARED);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(JsonApiError);
+    expect((thrown as JsonApiError).code).toBe('INVALID_SORT');
   });
 
   it('정렬을 바꾼 뒤 예전 커서를 쓰면 INVALID_PAGE다', async () => {

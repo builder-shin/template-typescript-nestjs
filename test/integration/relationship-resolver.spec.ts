@@ -35,7 +35,7 @@ describe('resolveRelationships', () => {
     await withRollback(dataSource, async (manager) => {
       const category = await manager.save(manager.create(Category, { name: '분류' }));
       const resolved = await resolveRelationships(manager, EXAMPLE_RELATIONSHIPS, {
-        category: { data: { type: 'categories', id: category.id } },
+        category: { data: { type: 'exampleCategories', id: category.id } },
       });
       expect(resolved.toOne.category).toBeInstanceOf(Category);
     });
@@ -57,8 +57,8 @@ describe('resolveRelationships', () => {
       const resolved = await resolveRelationships(manager, EXAMPLE_RELATIONSHIPS, {
         tags: {
           data: [
-            { type: 'tags', id: first.id },
-            { type: 'tags', id: second.id },
+            { type: 'exampleTags', id: first.id },
+            { type: 'exampleTags', id: second.id },
           ],
         },
       });
@@ -79,7 +79,7 @@ describe('resolveRelationships', () => {
     await withRollback(dataSource, async (manager) => {
       const error = await caught(() =>
         resolveRelationships(manager, EXAMPLE_RELATIONSHIPS, {
-          category: { data: { type: 'categories', id: MISSING } },
+          category: { data: { type: 'exampleCategories', id: MISSING } },
         }),
       );
       expect(error.code).toBe('RELATIONSHIP_RESOURCE_NOT_FOUND');
@@ -93,7 +93,7 @@ describe('resolveRelationships', () => {
     await withRollback(dataSource, async (manager) => {
       const error = await caught(() =>
         resolveRelationships(manager, EXAMPLE_RELATIONSHIPS, {
-          category: { data: { type: 'categories', id: 'nope' } },
+          category: { data: { type: 'exampleCategories', id: 'nope' } },
         }),
       );
       expect(error.code).toBe('RELATIONSHIP_RESOURCE_NOT_FOUND');
@@ -108,8 +108,8 @@ describe('resolveRelationships', () => {
         resolveRelationships(manager, EXAMPLE_RELATIONSHIPS, {
           tags: {
             data: [
-              { type: 'tags', id: tag.id },
-              { type: 'tags', id: MISSING },
+              { type: 'exampleTags', id: tag.id },
+              { type: 'exampleTags', id: MISSING },
             ],
           },
         }),
@@ -134,7 +134,7 @@ describe('resolveRelationships', () => {
     await withRollback(dataSource, async (manager) => {
       const error = await caught(() =>
         resolveRelationships(manager, EXAMPLE_RELATIONSHIPS, {
-          tags: { data: [{ type: 'categories', id: MISSING }] },
+          tags: { data: [{ type: 'exampleCategories', id: MISSING }] },
         }),
       );
       expect(error.code).toBe('TYPE_MISMATCH');
@@ -147,8 +147,8 @@ describe('resolveRelationships', () => {
       const resolved = await resolveRelationships(manager, EXAMPLE_RELATIONSHIPS, {
         tags: {
           data: [
-            { type: 'tags', id: tag.id },
-            { type: 'tags', id: tag.id },
+            { type: 'exampleTags', id: tag.id },
+            { type: 'exampleTags', id: tag.id },
           ],
         },
       });

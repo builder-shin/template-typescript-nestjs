@@ -100,7 +100,8 @@ export function registerRoutes<
     throw new TypeError(`${host.name}의 prototype이 객체가 아니다`);
   }
   const proto = prototype;
-  const writeMethods: string[] = ['create', 'update', 'destroy'];
+  const enableWrites = declaration.enableWrites !== false;
+  const writeMethods: string[] = enableWrites ? ['create', 'update', 'destroy'] : [];
 
   decorate(proto, 'index', (descriptor) => {
     Get()(proto, 'index', descriptor);
@@ -113,43 +114,51 @@ export function registerRoutes<
     Query()(proto, 'show', 1);
   });
 
-  decorate(proto, 'create', (descriptor) => {
-    Post()(proto, 'create', descriptor);
-    HttpCode(201)(proto, 'create', descriptor);
-    Body()(proto, 'create', 0);
-    // `Location` 헤더를 붙이려면 응답 객체가 필요하다. `passthrough`이므로 반환값은
-    // 그대로 Nest가 직렬화한다.
-    Res({ passthrough: true })(proto, 'create', 1);
-  });
-
-  decorate(proto, 'update', (descriptor) => {
-    Patch(':id')(proto, 'update', descriptor);
-    Param('id')(proto, 'update', 0);
-    Body()(proto, 'update', 1);
-  });
-
-  decorate(proto, 'destroy', (descriptor) => {
-    Delete(':id')(proto, 'destroy', descriptor);
-    HttpCode(204)(proto, 'destroy', descriptor);
-    Param('id')(proto, 'destroy', 0);
-  });
-
-  // `PUT`은 선언이 켠 자원에만 생긴다. 켜지 않은 자원에서 `PUT`을 부르면 라우트가 없어
-  // 404가 나가고, 그것이 "이 자원은 upsert를 지원하지 않는다"의 정확한 답이다.
-  if (declaration.enableUpsert === true) {
-    decorate(proto, 'replace', (descriptor) => {
-      Put(':id')(proto, 'replace', descriptor);
-      Param('id')(proto, 'replace', 0);
-      Body()(proto, 'replace', 1);
-      // 생성이면 `Location`을 붙이고 201로 바꾼다. 교체는 기본값 200 그대로다.
-      Res({ passthrough: true })(proto, 'replace', 2);
+  // 쓰기 라우트는 선언이 켠 자원에만 생긴다. 읽기 전용 자원에서 POST/PATCH/DELETE를
+  // 부르면 그 메서드의 라우트가 없어 404가 나간다 — Express가 경로 단위로 메서드를
+  // 묶지 않아 405를 판정할 지점이 없기 때문이고, 아래 `PUT` 미지원과 같은 기제다.
+  // 정본은 405다(`crud-base.ts`의 `enableWrites` 문서 참고).
+  if (enableWrites) {
+    decorate(proto, 'create', (descriptor) => {
+      Post()(proto, 'create', descriptor);
+      HttpCode(201)(proto, 'create', descriptor);
+      Body()(proto, 'create', 0);
+      // `Location` 헤더를 붙이려면 응답 객체가 필요하다. `passthrough`이므로 반환값은
+      // 그대로 Nest가 직렬화한다.
+      Res({ passthrough: true })(proto, 'create', 1);
     });
-    writeMethods.push('replace');
+
+    decorate(proto, 'update', (descriptor) => {
+      Patch(':id')(proto, 'update', descriptor);
+      Param('id')(proto, 'update', 0);
+      Body()(proto, 'update', 1);
+    });
+
+    decorate(proto, 'destroy', (descriptor) => {
+      Delete(':id')(proto, 'destroy', descriptor);
+      HttpCode(204)(proto, 'destroy', descriptor);
+      Param('id')(proto, 'destroy', 0);
+    });
+
+    // `PUT`은 선언이 켠 자원에만 생긴다. 켜지 않은 자원에서 `PUT`을 부르면 라우트가 없어
+    // 404가 나가고, 그것이 "이 자원은 upsert를 지원하지 않는다"의 정확한 답이다.
+    if (declaration.enableUpsert === true) {
+      decorate(proto, 'replace', (descriptor) => {
+        Put(':id')(proto, 'replace', descriptor);
+        Param('id')(proto, 'replace', 0);
+        Body()(proto, 'replace', 1);
+        // 생성이면 `Location`을 붙이고 201로 바꾼다. 교체는 기본값 200 그대로다.
+        Res({ passthrough: true })(proto, 'replace', 2);
+      });
+      writeMethods.push('replace');
+    }
   }
 
-  // 규칙이 없는 관계(= 쓰기 스키마에 없는 관계)는 읽기 라우트만 받는다.
+  // 규칙이 없는 관계(= 쓰기 스키마에 없는 관계)는 읽기 라우트만 받는다. 읽기 전용
+  // 자원은 그 규칙을 언제나 `undefined`로 만들어 관계 쓰기가 열리지 않게 한다.
+  const relationshipRules = enableWrites ? (declaration.relationshipsSchema ?? {}) : {};
   for (const name of Object.keys(declaration.serializer.relationships)) {
-    registerRelationship(proto, name, declaration.relationshipsSchema[name], writeMethods);
+    registerRelationship(proto, name, relationshipRules[name], writeMethods);
   }
 
   guardWrites(proto, writeMethods, declaration.writeGuards ?? []);

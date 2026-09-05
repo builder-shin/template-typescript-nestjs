@@ -20,16 +20,23 @@
 ## `resourcePath`가 선택인 이유
 
 `resourcePath`는 `self` 링크와 관계 링크(`links.self`·`links.related`)의
-기준 경로다. 스펙 16장의 공개 API 표면에 전용 라우트가 없는 자원 —
-`Category`·`Tag`는 `Example`의 `include`로만 밖에 나간다 — 은 가리킬 URL이
-애초에 없다. `resourcePath`를 억지로 채우면 존재하지 않는 라우트를 가리키는
-링크를 응답에 실어 보내게 되고, 그 링크를 따라간 클라이언트는 404를 받는다.
-그래서 `src/app/serializers/category.serializer.ts`와
-`src/app/serializers/tag.serializer.ts`는 이 필드를 아예 생략한다 —
+기준 경로다. 스펙 16장의 공개 API 표면에 자신을 다시 가리키는 라우트가 없는
+자원 — `AuthTokens`(발급 응답 전용이라 다시 가리킬 라우트가 없다)와
+`User`(`GET /api/v1/users/{id}`가 없다) — 은 가리킬 URL이 애초에 없다.
+`resourcePath`를 억지로 채우면 존재하지 않는 라우트를 가리키는 링크를 응답에
+실어 보내게 되고, 그 링크를 따라간 클라이언트는 404를 받는다. 그래서
+`src/app/serializers/auth-tokens.serializer.ts`와
+`src/app/serializers/user.serializer.ts`는 이 필드를 아예 생략한다 —
 `serializeResource`(`src/app/serializers/serializer.ts`)는 `resourcePath`가
 없으면 `links` 자체를 응답에서 뺀다. 새 자원이 전용 라우트 없이 `include`
 대상으로만 시작한다면, `resourcePath`를 빈 문자열이나 추측값으로 채우지
 않는다.
+
+`Category`·`Tag`는 한때 이 규칙의 예시였다 — `Example`의 `include`로만
+노출되고 전용 라우트가 없었을 때는. 참조 자원 라우트(`GET
+/api/v1/categories`·`GET /api/v1/tags`)가 생기면서 그 둘은 규칙의 반대편으로
+옮겨 갔다 — 라우트가 생긴 바로 그 변경에서 `resourcePath`도 함께 선언됐다.
+"라우트가 생기면 `resourcePath`도 같은 변경에서 생긴다"가 이 규칙의 대우다.
 
 ## `SERIALIZERS` 배열은 "저장소가 아는 시리얼라이저 전부"가 아니다
 

@@ -113,8 +113,8 @@ export interface KeysetPredicate {
  * 행 값 비교(`(a, b) > (x, y)`)는 모든 컬럼의 정렬 방향이 같을 때만 맞다. 이 템플릿은
  * 방향이 섞인 정렬을 허용하므로 사전식으로 펼친다.
  *
- * 컬럼 이름은 `ResolvedSort.property`에서만 나온다 — 그 값은 정책 allowlist를 거친
- * 것이므로 사용자 입력이 열 이름이 되는 경로가 없다.
+ * 컬럼 이름은 `ResolvedSort.property`에서만 나온다 — 그 값은 정책 선언에서만 나오므로
+ * 사용자 입력이 열 이름이 되는 경로가 없다.
  */
 export function keysetPredicate(
   alias: string,

@@ -128,6 +128,10 @@ pnpm worker    # node dist/app/jobs/worker.js
 | `GET`                         | `/api/v1/examples/{id}/category`               | 연결된 category       | 공개                            |
 | `GET`/`POST`/`PATCH`/`DELETE` | `/api/v1/examples/{id}/relationships/tags`     | tags linkage          | `GET` 공개, 나머지 인증 필요    |
 | `GET`                         | `/api/v1/examples/{id}/tags`                   | 연결된 tags           | 공개                            |
+| `GET`                         | `/api/v1/categories`                           | 분류 목록             | 공개                            |
+| `GET`                         | `/api/v1/categories/{id}`                      | 분류 단건             | 공개                            |
+| `GET`                         | `/api/v1/tags`                                 | 라벨 목록             | 공개                            |
+| `GET`                         | `/api/v1/tags/{id}`                            | 라벨 단건             | 공개                            |
 | `POST`                        | `/api/v1/auth/register`                        | 회원가입              | 공개                            |
 | `POST`                        | `/api/v1/auth/login`                           | 로그인                | 공개                            |
 | `POST`                        | `/api/v1/auth/refresh`                         | token 갱신(세션 회전) | 공개(유효한 refresh token 필요) |
@@ -148,7 +152,7 @@ Example 읽기(`index`/`show`, 관계 `GET`)는 공개이고, 쓰기와 관계 �
 
 ```bash
 curl -sg -H 'Accept: application/vnd.api+json' \
-  'http://localhost:4000/api/v1/examples?filter[status]=published&sort=-createdAt&page[size]=10&page[totals]=true'
+  'http://localhost:4000/api/v1/examples?filter[status]=active&sort=-createdAt&page[size]=10&page[totals]=true'
 ```
 
 인증 — 쓰기와 관계 변경은 활성 사용자의 access token을 요구합니다. 가입 → 로그인 순으로 토큰을 받고, 아래 쓰기 예시의 `{accessToken}`은 로그인 응답(`data.attributes.accessToken`)에서 얻습니다. access token은 기본 900초, refresh token은 기본 2,592,000초 뒤에 만료됩니다(`JWT_ACCESS_EXPIRES_SECONDS`/`JWT_REFRESH_EXPIRES_SECONDS`).
@@ -181,7 +185,7 @@ curl -s -X POST http://localhost:4000/api/v1/examples \
   -H 'Accept: application/vnd.api+json' \
   -H 'Content-Type: application/vnd.api+json' \
   -H 'Authorization: Bearer {accessToken}' \
-  -d '{"data":{"type":"examples","attributes":{"title":"제목","body":"본문"}}}'
+  -d '{"data":{"type":"examples","attributes":{"title":"제목","description":"본문","status":"draft","score":40}}}'
 ```
 
 단건 — `include`로 관계 자원을 함께 받습니다.
@@ -191,7 +195,7 @@ curl -sg -H 'Accept: application/vnd.api+json' \
   'http://localhost:4000/api/v1/examples/{id}?include=category,tags'
 ```
 
-부분 수정 — 보낸 필드만 바뀝니다. 아예 보내지 않은 필드는 그대로 두고, `null`을 보내면 비웁니다. 비우기는 그 컬럼이 nullable일 때만 성립합니다 — `body`·`publishedAt`은 비워지지만 NOT NULL인 `title`·`status`에 `null`을 보내면 `422 VALIDATION_ERROR`입니다.
+부분 수정 — 보낸 필드만 바뀝니다. 아예 보내지 않은 필드는 그대로 두고, `null`을 보내면 비웁니다. 비우기는 그 컬럼이 nullable일 때만 성립합니다 — `description`은 비워지지만 NOT NULL인 `title`·`status`·`score`에 `null`을 보내면 `422 VALIDATION_ERROR`입니다.
 
 ```bash
 curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}' \
@@ -201,14 +205,14 @@ curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}' \
   -d '{"data":{"type":"examples","id":"{id}","attributes":{"title":"새 제목"}}}'
 ```
 
-전체 교체 — 없는 `id`면 `201`과 `Location`, 있으면 `200`으로 교체합니다. 전체 교체이므로 `PATCH`와 달리 보내지 않은 필드는 컬럼 기본값으로, 보내지 않은 관계는 빈 상태로 되돌립니다. 동일 `id`로 동시에 들어온 요청은 advisory 잠금으로 직렬화되어 섞이지 않습니다.
+전체 교체 — 없는 `id`면 `201`과 `Location`, 있으면 `200`으로 교체합니다. 전체 교체이므로 `PATCH`와 달리 보내지 않은 필드는 컬럼 기본값으로, 보내지 않은 관계는 빈 상태로 되돌립니다. `status`·`score`는 생성과 마찬가지로 필수라 생략할 수 없습니다. 동일 `id`로 동시에 들어온 요청은 advisory 잠금으로 직렬화되어 섞이지 않습니다.
 
 ```bash
 curl -sg -X PUT 'http://localhost:4000/api/v1/examples/{id}' \
   -H 'Accept: application/vnd.api+json' \
   -H 'Content-Type: application/vnd.api+json' \
   -H 'Authorization: Bearer {accessToken}' \
-  -d '{"data":{"type":"examples","id":"{id}","attributes":{"title":"제목"}}}'
+  -d '{"data":{"type":"examples","id":"{id}","attributes":{"title":"제목","status":"draft","score":40}}}'
 ```
 
 삭제 — `204`이고 본문이 없습니다.
@@ -226,7 +230,28 @@ curl -sg -X PATCH 'http://localhost:4000/api/v1/examples/{id}/relationships/tags
   -H 'Accept: application/vnd.api+json' \
   -H 'Content-Type: application/vnd.api+json' \
   -H 'Authorization: Bearer {accessToken}' \
-  -d '{"data":[{"type":"tags","id":"{tagId}"}]}'
+  -d '{"data":[{"type":"exampleTags","id":"{tagId}"}]}'
+```
+
+## 참조 자원
+
+분류와 라벨은 읽기 전용 컬렉션으로도 조회할 수 있습니다. 관계 선택기처럼 고를 목록이
+필요한 화면을 위한 것이며, 쓰기 라우트는 없습니다.
+
+| 메서드 | 경로                      | 동작                                                             |
+| ------ | ------------------------- | ---------------------------------------------------------------- |
+| `GET`  | `/api/v1/categories`      | 분류 목록 (`filter[name]` · `sort=name,createdAt` · `page[...]`) |
+| `GET`  | `/api/v1/categories/{id}` | 분류 단건                                                        |
+| `GET`  | `/api/v1/tags`            | 라벨 목록                                                        |
+| `GET`  | `/api/v1/tags/{id}`       | 라벨 단건                                                        |
+
+기본 정렬은 `name` 오름차순입니다. JSON:API 자원 타입은 각각 `exampleCategories`와
+`exampleTags`로, URL 경로와 다릅니다. 읽기는 Example과 마찬가지로 공개이며 `include`는
+지원하지 않습니다.
+
+```bash
+curl -sg -H 'Accept: application/vnd.api+json' \
+  'http://localhost:4000/api/v1/categories?filter[name][contains]=문서'
 ```
 
 ## Docker로 실행
@@ -266,9 +291,10 @@ Compose 스택(`docker-compose.yml`)이 셸 기본값 문법(`${VAR:-default}`)�
 2. **마이그레이션** — `src/db/migrations/`에 엔티티가 선언한 테이블·제약·인덱스를 SQL로 짓는 파일을 추가하고, **`src/db/migrations/index.ts`의 `MIGRATIONS` 배열에 등록**합니다. 파일명·클래스명 규약은 `src/db/migrations/AGENTS.md`를 따릅니다.
 3. **쓰기 스키마와 조회 정책** — `src/app/schemas/`에 Create/Update DTO, 관계 쓰기 스키마, filter·sort·include allowlist를 만들고 `src/app/schemas/index.ts`에서 export합니다. `PUT`(upsert)까지 지원할 자원이면 Replace DTO도 이때 함께 만듭니다 — 5단계의 `replaceSchema`가 이것을 가리킵니다.
 4. **시리얼라이저** — `src/app/serializers/`에 공개 표현(JSON:API type·attributes·relationships)을 만들고 `src/app/serializers/index.ts`에서 export합니다. 다른 자원의 관계 대상이거나 `include`로 노출된다면 `SERIALIZERS` 배열에도 등록합니다 — 이 배열은 ENTITIES·MIGRATIONS·`controllers`와 달리 런타임이 소비하지 않습니다(관계 대상은 각 시리얼라이저의 `target()`이, `included`는 `collectIncluded`가 정하고 둘 다 이 배열을 거치지 않습니다). 등록을 잊으면 그 구성을 고정하는 테스트(`test/serializers/example.serializer.spec.ts`)가 실패로 잡아 줍니다. `resourcePath`는 다음 단계 컨트롤러의 `@Controller` 경로와 문자열까지 같아야 합니다 — 다르면 부트스트랩이 즉시 예외를 던집니다.
-5. **컨트롤러** — `src/app/controllers/api/v1/`에 `CrudActions`로 위 산출물을 선언만으로 잇는 파일을 만듭니다(`examples.controller.ts` 참고). 자원별 service 계층은 만들지 않습니다. 이 선언에는 기본값이 있어 빠뜨려도 조립 자체는 되지만, 그 기본값이 실제로 뜻하는 바를 모르고 빠뜨리면 안 되는 옵션이 둘 있습니다.
+5. **컨트롤러** — `src/app/controllers/api/v1/`에 `CrudActions`로 위 산출물을 선언만으로 잇는 파일을 만듭니다(`examples.controller.ts` 참고). 자원별 service 계층은 만들지 않습니다. 이 선언에는 기본값이 있어 빠뜨려도 조립 자체는 되지만, 그 기본값이 실제로 뜻하는 바를 모르고 빠뜨리면 안 되는 옵션이 셋 있습니다.
    - **`writeGuards`** — 기본값은 빈 배열이고, **빈 배열은 그 자원의 쓰기(및 관계 변경) 라우트를 인증 없이 공개한다는 뜻입니다.** 위 "공개 API 표면" 표처럼 활성 사용자 Bearer token을 요구하려면 `writeGuards: [JwtActiveUserGuard]`(`src/app/auth/current-user.guard.ts`)를 명시적으로 넣어야 합니다. 읽기(`index`/`show`, 관계 `GET`)는 이 값과 무관하게 항상 공개입니다.
    - **`enableUpsert`/`replaceSchema`** — `PUT`을 지원하려면 `enableUpsert: true`와 3단계에서 만든 Replace DTO를 가리키는 `replaceSchema`를 함께 선언합니다. `enableUpsert`를 켜지 않으면 `PUT`은 라우트 자체가 없어 404이고, 켜고서 `replaceSchema`를 빠뜨리면 조립 시점(부트스트랩)에 예외가 납니다.
+   - **`enableWrites`** — 읽기 전용 자원은 `enableWrites: false`를 선언합니다. `POST`/`PATCH`/`DELETE`와 관계 변경 라우트가 아예 등록되지 않고, `createSchema`·`updateSchema`·`relationshipsSchema`를 선언하지 않아도 됩니다. 기준 구현은 `src/app/controllers/api/v1/categories.controller.ts`입니다.
 6. **라우트 등록** — **`src/config/routes.module.ts`의 `controllers` 배열에 추가**합니다. 여기 없으면 앞의 다섯 단계를 다 밟아도 라우트는 존재하지 않습니다.
 
 마지막으로 새 라우트를 위 "공개 API 표면" 표에 손으로 추가하세요 — 문서 동기화 테스트(`test/docs/readme.spec.ts`)는 이 표까지는 확인하지 않으므로, 빠뜨려도 게이트는 그대로 초록입니다.

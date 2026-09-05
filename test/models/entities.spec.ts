@@ -55,11 +55,11 @@ describe('Example 엔티티', () => {
   it('스펙이 정한 컬럼을 가진다', () => {
     expect(columnNames(Example)).toEqual(
       [
-        'body',
         'category_id',
         'created_at',
+        'description',
         'id',
-        'published_at',
+        'score',
         'status',
         'title',
         'updated_at',
@@ -68,7 +68,7 @@ describe('Example 엔티티', () => {
   });
 
   it('status 값 집합을 고정한다', () => {
-    expect([...EXAMPLE_STATUSES].sort()).toEqual(['archived', 'draft', 'published']);
+    expect([...EXAMPLE_STATUSES].sort()).toEqual(['active', 'archived', 'draft']);
   });
 
   it('category to-one 관계를 선언한다', () => {

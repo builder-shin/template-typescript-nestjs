@@ -69,7 +69,11 @@ describe('processExample', () => {
     // 한다 — 그것도 공개 표현의 일부이고, 배경 잡이 사용자에게 보이는 상태를 조용히
     // 흔들지 않는다는 것이 이 잡의 규율이다.
     await withRollback(dataSource, async (manager) => {
-      const created = await manager.save(Example, { title: '처리 대상', status: 'draft' });
+      const created = await manager.save(Example, {
+        title: '처리 대상',
+        status: 'draft',
+        score: 0,
+      });
       const before = await manager.findOneByOrFail(Example, { id: created.id });
 
       // 성공 경로도 `logger.log`를 남긴다 — captureWarnings로 감싸지 않으면 이 로그가

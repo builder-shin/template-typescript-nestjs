@@ -22,8 +22,14 @@ async function caught(run: () => Promise<unknown>): Promise<JsonApiErrors> {
 }
 
 describe('ExampleCreate', () => {
-  it('제목만으로 만들 수 있다', async () => {
-    const dto = await validateAttributes(ExampleCreate, { title: '제목' });
+  it('필수 필드를 모두 보내면 만들 수 있다', async () => {
+    // status·score가 필수가 되면서 더 이상 "제목만으로" 만들 수 없다 — 아래
+    // "생성에서 status를 생략하면 거절한다"가 그 경계를 고정한다.
+    const dto = await validateAttributes(ExampleCreate, {
+      title: '제목',
+      status: 'draft',
+      score: 0,
+    });
     expect(dto.title).toBe('제목');
   });
 
@@ -36,58 +42,79 @@ describe('ExampleCreate', () => {
   it('제목 길이 상한이 엔티티 컬럼과 같다', async () => {
     // 스키마가 더 느슨하면 DB가 거절하고 500이 나간다.
     await expect(
-      validateAttributes(ExampleCreate, { title: 'ㄱ'.repeat(200) }),
+      validateAttributes(ExampleCreate, { title: 'ㄱ'.repeat(200), status: 'draft', score: 0 }),
     ).resolves.toBeInstanceOf(ExampleCreate);
-    await expect(validateAttributes(ExampleCreate, { title: 'ㄱ'.repeat(201) })).rejects.toThrow(
-      JsonApiErrors,
-    );
+    await expect(
+      validateAttributes(ExampleCreate, {
+        title: 'ㄱ'.repeat(201),
+        status: 'draft',
+        score: 0,
+      }),
+    ).rejects.toThrow(JsonApiErrors);
   });
 
   it('status는 엔티티의 enum 값만 받는다', async () => {
     for (const status of EXAMPLE_STATUSES) {
       await expect(
-        validateAttributes(ExampleCreate, { title: '제목', status }),
+        validateAttributes(ExampleCreate, { title: '제목', status, score: 0 }),
       ).resolves.toBeInstanceOf(ExampleCreate);
     }
     await expect(
-      validateAttributes(ExampleCreate, { title: '제목', status: 'unknown' }),
+      validateAttributes(ExampleCreate, { title: '제목', status: 'unknown', score: 0 }),
     ).rejects.toThrow(JsonApiErrors);
-  });
-
-  it('publishedAt을 Date로 바꾼다', async () => {
-    // 저장 계층은 Date를 받는다. 문자열을 그대로 넘기면 TypeORM이 조용히
-    // 문자열을 저장하려다 드라이버 단계에서 터진다.
-    const dto = await validateAttributes(ExampleCreate, {
-      title: '제목',
-      publishedAt: '2026-08-30T00:00:00.000Z',
-    });
-    expect(dto.publishedAt).toBeInstanceOf(Date);
-  });
-
-  it('publishedAt이 날짜가 아니면 거부한다', async () => {
-    await expect(
-      validateAttributes(ExampleCreate, { title: '제목', publishedAt: '어제' }),
-    ).rejects.toThrow(JsonApiErrors);
-  });
-
-  it('publishedAt에 null을 허용한다', async () => {
-    const dto = await validateAttributes(ExampleCreate, { title: '제목', publishedAt: null });
-    expect(dto.publishedAt).toBeNull();
   });
 
   it('NOT NULL 컬럼인 status에 null을 거부한다', async () => {
     // `@IsOptional()`이면 null이 검증을 전부 건너뛰어 DB까지 내려가고 500이 된다.
     // 사용자 입력 오류이므로 여기서 422로 끝나야 한다.
     const errors = await caught(() =>
-      validateAttributes(ExampleCreate, { title: '제목', status: null }),
+      validateAttributes(ExampleCreate, { title: '제목', status: null, score: 0 }),
     );
     expect(errors.errors[0]?.source).toEqual({ pointer: '/data/attributes/status' });
+  });
+
+  it('생성에서 status를 생략하면 거절한다', async () => {
+    // 정본이 생성에서 status를 필수로 받는다. 여기서 선택이면 같은 요청이
+    // 정본에서는 422, 여기서는 201이 되어 wire가 갈라진다.
+    await expect(validateAttributes(ExampleCreate, { title: '제목', score: 10 })).rejects.toThrow();
+  });
+
+  it('score 범위 밖을 거절한다', async () => {
+    // DB의 CHECK 제약만 있으면 위반이 500으로 나간다. 스키마에서 먼저 잡는다.
+    await expect(
+      validateAttributes(ExampleCreate, {
+        title: '제목',
+        status: 'draft',
+        score: 101,
+      }),
+    ).rejects.toThrow();
+    await expect(
+      validateAttributes(ExampleCreate, { title: '제목', status: 'draft', score: -1 }),
+    ).rejects.toThrow();
+  });
+
+  it('nullable 컬럼인 description에 null을 허용한다', async () => {
+    // `@IsOptional()`이 붙은 nullable attribute는 명시적 `null`을 "비운다"로 받는다.
+    // 이 자리를 `@ValidateIf(isPresent)`로 바꾸면 정본에서 201인 요청이 여기서만
+    // 422가 되어 wire가 갈라진다 — 그 회귀를 잡는 것이 이 테스트다.
+    const dto = await validateAttributes(ExampleCreate, {
+      title: '제목',
+      description: null,
+      status: 'draft',
+      score: 0,
+    });
+    expect(dto.description).toBeNull();
   });
 
   it('내부 FK를 입력으로 받지 않는다', async () => {
     // 스펙 7.3: 내부 FK를 공개 입력으로 만들지 않는다. 관계는 relationships로만 바꾼다.
     await expect(
-      validateAttributes(ExampleCreate, { title: '제목', categoryId: 'x' }),
+      validateAttributes(ExampleCreate, {
+        title: '제목',
+        status: 'draft',
+        score: 0,
+        categoryId: 'x',
+      }),
     ).rejects.toThrow(JsonApiErrors);
   });
 });
@@ -109,30 +136,35 @@ describe('ExampleUpdate', () => {
     expect(title.errors[0]?.source).toEqual({ pointer: '/data/attributes/title' });
     const status = await caught(() => validateAttributes(ExampleUpdate, { status: null }));
     expect(status.errors[0]?.source).toEqual({ pointer: '/data/attributes/status' });
+    const score = await caught(() => validateAttributes(ExampleUpdate, { score: null }));
+    expect(score.errors[0]?.source).toEqual({ pointer: '/data/attributes/score' });
   });
 
   it('nullable 컬럼에는 null을 허용한다', async () => {
-    // body와 published_at은 nullable이다. 여기서 null은 "비운다"는 뜻이고,
+    // description은 nullable이다. 여기서 null은 "비운다"는 뜻이고,
     // README가 안내하는 부분 수정 방식이 이것이다.
-    const dto = await validateAttributes(ExampleUpdate, { body: null, publishedAt: null });
-    expect(dto.body).toBeNull();
-    expect(dto.publishedAt).toBeNull();
+    const dto = await validateAttributes(ExampleUpdate, { description: null });
+    expect(dto.description).toBeNull();
   });
 
   it('보내지 않은 title은 그대로 통과한다', async () => {
     // null 거부가 "title을 언제나 요구한다"로 번지면 부분 갱신이 깨진다.
-    const dto = await validateAttributes(ExampleUpdate, { body: '본문' });
+    const dto = await validateAttributes(ExampleUpdate, { description: '본문' });
     expect(dto.title).toBeUndefined();
   });
 });
 
 describe('ExampleReplace', () => {
   it('생성과 같은 필수 조건을 건다', async () => {
-    // PUT은 전체 교체이므로 보내지 않은 필드는 기본값으로 돌아간다.
+    // PUT은 전체 교체이므로 보내지 않은 필드는 기본값으로 돌아간다. title뿐 아니라
+    // status·score도 생성과 똑같이 필수다 — 하나라도 빠지면 거절해야 한다.
     await expect(validateAttributes(ExampleReplace, {})).rejects.toThrow(JsonApiErrors);
-    await expect(validateAttributes(ExampleReplace, { title: '제목' })).resolves.toBeInstanceOf(
-      ExampleReplace,
+    await expect(validateAttributes(ExampleReplace, { title: '제목' })).rejects.toThrow(
+      JsonApiErrors,
     );
+    await expect(
+      validateAttributes(ExampleReplace, { title: '제목', status: 'draft', score: 0 }),
+    ).resolves.toBeInstanceOf(ExampleReplace);
   });
 });
 

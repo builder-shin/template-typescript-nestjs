@@ -30,7 +30,7 @@ interface ResourceBody {
     relationships: Record<string, { data?: unknown }>;
     links: { self: string };
   };
-  included?: { type: string; id: string }[];
+  included?: { type: string; id: string; links?: { self: string } }[];
 }
 
 interface CollectionBody {
@@ -130,6 +130,13 @@ describe('Examples API', () => {
     return ids;
   }
 
+  /** Example을 `count`개 만든다. 기본 페이지 크기처럼 "여러 건" 단언에 쓴다. */
+  async function seedExamples(count: number): Promise<void> {
+    for (let index = 0; index < count; index += 1) {
+      await createExample({ title: `일괄 ${String(index)}`, status: 'draft', score: 0 });
+    }
+  }
+
   beforeAll(async () => {
     app = await createTestApp();
     dataSource = app.get(DataSource);
@@ -211,7 +218,7 @@ describe('Examples API', () => {
 
   describe('POST /api/v1/examples', () => {
     it('201과 Location, 그리고 자원 문서를 낸다', async () => {
-      const response = await createExample({ title: '제목' });
+      const response = await createExample({ title: '제목', status: 'draft', score: 40 });
 
       expect(response.status).toBe(201);
       expect(response.headers['content-type']).toBe(VENDOR);
@@ -219,13 +226,13 @@ describe('Examples API', () => {
       expect(response.headers.location).toBe(`/api/v1/examples/${body.data.id}`);
       expect(body.data.type).toBe('examples');
       expect(body.data.attributes.title).toBe('제목');
-      // DB 기본값이 응답에 반영돼야 한다.
       expect(body.data.attributes.status).toBe('draft');
+      expect(body.data.attributes.score).toBe(40);
       expect(body.data.links.self).toBe(`/api/v1/examples/${body.data.id}`);
     });
 
     it('검증 실패를 422로, 틀린 필드를 모두 낸다', async () => {
-      const response = await createExample({ title: '', status: 'unknown' });
+      const response = await createExample({ title: '', status: 'unknown', score: 0 });
 
       expect(response.status).toBe(422);
       const body = response.body as ErrorBody;
@@ -234,6 +241,12 @@ describe('Examples API', () => {
         '/data/attributes/status',
         '/data/attributes/title',
       ]);
+    });
+
+    it('score 범위 밖의 생성을 422로 거절한다', async () => {
+      const response = await createExample({ title: '범위 밖', status: 'draft', score: 101 });
+
+      expect(response.status).toBe(422);
     });
 
     it('타입이 다르면 409 TYPE_MISMATCH다', async () => {
@@ -268,13 +281,13 @@ describe('Examples API', () => {
       const categoryId = await seedCategory();
 
       const response = await createExample(
-        { title: '제목' },
-        { category: { data: { type: 'categories', id: categoryId } } },
+        { title: '제목', status: 'draft', score: 0 },
+        { category: { data: { type: 'exampleCategories', id: categoryId } } },
       );
 
       expect(response.status).toBe(201);
       expect((response.body as ResourceBody).data.relationships.category?.data).toEqual({
-        type: 'categories',
+        type: 'exampleCategories',
         id: categoryId,
       });
     });
@@ -285,8 +298,8 @@ describe('Examples API', () => {
       const tags = await seedTags();
 
       const response = await createExample(
-        { title: '제목' },
-        { tags: { data: tags.map((tagId) => ({ type: 'tags', id: tagId })) } },
+        { title: '제목', status: 'draft', score: 0 },
+        { tags: { data: tags.map((tagId) => ({ type: 'exampleTags', id: tagId })) } },
       );
 
       expect(response.status).toBe(201);
@@ -299,8 +312,8 @@ describe('Examples API', () => {
 
     it('없는 관계 대상은 404 RELATIONSHIP_RESOURCE_NOT_FOUND다', async () => {
       const response = await createExample(
-        { title: '제목' },
-        { category: { data: { type: 'categories', id: MISSING } } },
+        { title: '제목', status: 'draft', score: 0 },
+        { category: { data: { type: 'exampleCategories', id: MISSING } } },
       );
 
       expect(response.status).toBe(404);
@@ -311,8 +324,8 @@ describe('Examples API', () => {
       // 트랜잭션이 실제로 걸려 있는지 확인한다. 자원만 남고 관계가 비면
       // 클라이언트가 만든 적 없는 자원이 생긴다.
       await createExample(
-        { title: '제목' },
-        { category: { data: { type: 'categories', id: MISSING } } },
+        { title: '제목', status: 'draft', score: 0 },
+        { category: { data: { type: 'exampleCategories', id: MISSING } } },
       );
       const rows = await dataSource.query<{ count: string }[]>('SELECT COUNT(*) FROM examples');
       expect(rows[0]?.count).toBe('0');
@@ -327,8 +340,8 @@ describe('Examples API', () => {
     });
 
     it('목록과 페이지 링크를 낸다', async () => {
-      await createExample({ title: 'ㄱ' });
-      await createExample({ title: 'ㄴ' });
+      await createExample({ title: 'ㄱ', status: 'draft', score: 0 });
+      await createExample({ title: 'ㄴ', status: 'draft', score: 0 });
 
       const response = await api().get('/api/v1/examples?page[size]=1').set('Accept', VENDOR);
       const body = response.body as CollectionBody;
@@ -338,8 +351,8 @@ describe('Examples API', () => {
     });
 
     it('totals를 요청하면 총 개수와 last 링크를 낸다', async () => {
-      await createExample({ title: 'ㄱ' });
-      await createExample({ title: 'ㄴ' });
+      await createExample({ title: 'ㄱ', status: 'draft', score: 0 });
+      await createExample({ title: 'ㄴ', status: 'draft', score: 0 });
 
       const response = await api()
         .get('/api/v1/examples?page[size]=1&page[totals]=true')
@@ -350,11 +363,11 @@ describe('Examples API', () => {
     });
 
     it('filter와 sort를 적용한다', async () => {
-      await createExample({ title: 'ㄱ', status: 'published' });
-      await createExample({ title: 'ㄴ' });
+      await createExample({ title: 'ㄱ', status: 'active', score: 0 });
+      await createExample({ title: 'ㄴ', status: 'draft', score: 0 });
 
       const response = await api()
-        .get('/api/v1/examples?filter[status]=published&sort=title')
+        .get('/api/v1/examples?filter[status]=active&sort=title')
         .set('Accept', VENDOR);
       const body = response.body as CollectionBody;
       expect(body.data).toHaveLength(1);
@@ -366,11 +379,101 @@ describe('Examples API', () => {
       expect(response.status).toBe(400);
       expect((response.body as ErrorBody).errors[0]?.code).toBe('INVALID_QUERY_PARAMETER');
     });
+
+    it('제거된 publishedAt filter를 INVALID_FILTER로 거절한다', async () => {
+      const response = await api()
+        .get('/api/v1/examples?filter[publishedAt][gte]=2026-01-01T00:00:00Z')
+        .set('Accept', VENDOR);
+
+      expect(response.status).toBe(400);
+      expect((response.body as ErrorBody).errors[0]?.code).toBe('INVALID_FILTER');
+    });
+
+    it('구 공개 필터 이름 filter[category]를 INVALID_FILTER로 거절한다', async () => {
+      // 필터 이름이 category.id로 바뀌었다. 코드 경로는 같아 실질 위험은 없지만,
+      // 마이그레이션하는 클라이언트가 가장 먼저 부딪히는 이름이라 와이어에서 고정한다.
+      const response = await api()
+        .get(`/api/v1/examples?filter[category]=${MISSING}`)
+        .set('Accept', VENDOR);
+
+      expect(response.status).toBe(400);
+      expect((response.body as ErrorBody).errors[0]?.code).toBe('INVALID_FILTER');
+    });
+
+    it('제거된 publishedAt sort를 INVALID_SORT로 거절한다', async () => {
+      const response = await api().get('/api/v1/examples?sort=publishedAt').set('Accept', VENDOR);
+
+      expect(response.status).toBe(400);
+      expect((response.body as ErrorBody).errors[0]?.code).toBe('INVALID_SORT');
+    });
+
+    it('id를 공개 정렬로 받지 않는다', async () => {
+      // tie breaker 전용이다. 정본의 공개 정렬에 id가 없다.
+      const response = await api().get('/api/v1/examples?sort=id').set('Accept', VENDOR);
+
+      expect(response.status).toBe(400);
+      expect((response.body as ErrorBody).errors[0]?.code).toBe('INVALID_SORT');
+    });
+
+    it('정책이 여는 모든 필터·연산자 쌍과 모든 정렬이 전부 2xx다', async () => {
+      // 정책이 선언한 (필드, 연산자) 쌍을 하나도 빠짐없이 덮는다 — 하나라도 빠지면
+      // 그 쌍이 존재하지 않는 컬럼을 가리키게 되어도(이번 태스크가 고친 publishedAt
+      // 버그처럼) 이 테스트가 못 잡는다.
+      const queries = [
+        // title: exact, contains
+        'filter[title]=x',
+        'filter[title][contains]=x',
+        // status: exact, in
+        'filter[status]=draft',
+        'filter[status][in]=draft,active',
+        // score: exact, gt, gte, lt, lte, in
+        'filter[score]=10',
+        'filter[score][gt]=0',
+        'filter[score][gte]=0',
+        'filter[score][lt]=100',
+        'filter[score][lte]=100',
+        'filter[score][in]=10,20',
+        // category.id: exact, in, isNull
+        `filter[category.id]=${MISSING}`,
+        `filter[category.id][in]=${MISSING},${MISSING}`,
+        'filter[category.id][isNull]=true',
+        // createdAt: exact, gt, gte, lt, lte
+        'filter[createdAt]=2026-01-01T00:00:00Z',
+        'filter[createdAt][gt]=2026-01-01T00:00:00Z',
+        'filter[createdAt][gte]=2026-01-01T00:00:00Z',
+        'filter[createdAt][lt]=2026-01-01T00:00:00Z',
+        'filter[createdAt][lte]=2026-01-01T00:00:00Z',
+        // sorts: title, status, score, createdAt, updatedAt
+        'sort=title',
+        'sort=status',
+        'sort=score',
+        'sort=createdAt',
+        'sort=updatedAt',
+        'sort=-score,title',
+      ];
+
+      for (const query of queries) {
+        const response = await api().get(`/api/v1/examples?${query}`).set('Accept', VENDOR);
+
+        expect([query, response.status]).toEqual([query, 200]);
+      }
+    });
+
+    it('page[size] 없는 목록이 20건을 낸다', async () => {
+      // 21건 이상을 만들어 기본값이 실제로 자르는지 본다. 20건 이하면 정책이
+      // 25든 20이든 같은 결과가 나와 테스트가 아무것도 고정하지 못한다.
+      await seedExamples(21);
+
+      const response = await api().get('/api/v1/examples').set('Accept', VENDOR);
+
+      expect(response.status).toBe(200);
+      expect((response.body as CollectionBody).data).toHaveLength(20);
+    });
   });
 
   describe('GET /api/v1/examples/{id}', () => {
     it('자원 하나를 낸다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api().get(`/api/v1/examples/${id}`).set('Accept', VENDOR);
@@ -381,8 +484,8 @@ describe('Examples API', () => {
     it('include로 관계 자원을 함께 낸다', async () => {
       const categoryId = await seedCategory();
       const created = await createExample(
-        { title: '제목' },
-        { category: { data: { type: 'categories', id: categoryId } } },
+        { title: '제목', status: 'draft', score: 0 },
+        { category: { data: { type: 'exampleCategories', id: categoryId } } },
       );
       const id = (created.body as ResourceBody).data.id;
 
@@ -390,7 +493,44 @@ describe('Examples API', () => {
         .get(`/api/v1/examples/${id}?include=category`)
         .set('Accept', VENDOR);
       expect(response.body as ResourceBody).toHaveProperty('included');
-      expect((response.body as ResourceBody).included?.[0]?.type).toBe('categories');
+      expect((response.body as ResourceBody).included?.[0]?.type).toBe('exampleCategories');
+    });
+
+    it('include된 참조 자원이 self 링크를 낸다', async () => {
+      // Task 6이 CATEGORY_SERIALIZER·TAG_SERIALIZER에 resourcePath를 주면서 included[]에
+      // links.self가 붙었다 — 관측 가능한 계약 변경이다. 링크 문자열을 만드는 함수 자체는
+      // test/serializers/example.serializer.spec.ts가 고정하고, 여기서 보는 것은 그 결과가
+      // collectIncluded와 문서 조립을 지나 응답까지 그대로 실려 나가는가다.
+      const categoryId = await seedCategory();
+      const tagIds = await seedTags();
+      const created = await createExample(
+        { title: '제목', status: 'draft', score: 0 },
+        {
+          category: { data: { type: 'exampleCategories', id: categoryId } },
+          tags: { data: tagIds.map((tagId) => ({ type: 'exampleTags', id: tagId })) },
+        },
+      );
+      const id = (created.body as ResourceBody).data.id;
+
+      const response = await api()
+        .get(`/api/v1/examples/${id}?include=category,tags`)
+        .set('Accept', VENDOR);
+
+      expect(response.status).toBe(200);
+      const included = (response.body as ResourceBody).included ?? [];
+
+      // JSON:API type은 exampleCategories·exampleTags이고 링크는 URL 경로
+      // (/api/v1/categories·/api/v1/tags)를 쓴다. 둘이 다른 것이 이 브랜치의 결정이므로
+      // 그 차이를 여기서 함께 고정한다.
+      expect(included.find((item) => item.type === 'exampleCategories')?.links?.self).toBe(
+        `/api/v1/categories/${categoryId}`,
+      );
+      expect(
+        included
+          .filter((item) => item.type === 'exampleTags')
+          .map((item) => item.links?.self)
+          .sort(),
+      ).toEqual(tagIds.map((tagId) => `/api/v1/tags/${tagId}`).sort());
     });
 
     it('없는 자원은 404다', async () => {
@@ -409,7 +549,12 @@ describe('Examples API', () => {
 
   describe('PATCH /api/v1/examples/{id}', () => {
     it('보낸 필드만 바꾼다', async () => {
-      const created = await createExample({ title: '제목', body: '본문' });
+      const created = await createExample({
+        title: '제목',
+        description: '본문',
+        status: 'draft',
+        score: 0,
+      });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()
@@ -423,11 +568,16 @@ describe('Examples API', () => {
       const body = response.body as ResourceBody;
       expect(body.data.attributes.title).toBe('새 제목');
       // 보내지 않은 필드는 그대로여야 한다. 이것이 스펙 7.1의 계약이다.
-      expect(body.data.attributes.body).toBe('본문');
+      expect(body.data.attributes.description).toBe('본문');
     });
 
     it('null로 보낸 필드는 비운다', async () => {
-      const created = await createExample({ title: '제목', body: '본문' });
+      const created = await createExample({
+        title: '제목',
+        description: '본문',
+        status: 'draft',
+        score: 0,
+      });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()
@@ -435,15 +585,17 @@ describe('Examples API', () => {
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send(JSON.stringify({ data: { type: 'examples', id, attributes: { body: null } } }));
+        .send(
+          JSON.stringify({ data: { type: 'examples', id, attributes: { description: null } } }),
+        );
 
-      expect((response.body as ResourceBody).data.attributes.body).toBeNull();
+      expect((response.body as ResourceBody).data.attributes.description).toBeNull();
     });
 
     it('NOT NULL 컬럼을 null로 보내면 500이 아니라 422다', async () => {
       // `null`을 비우기로 읽는 것은 nullable 컬럼에서만 성립한다. title은 NOT NULL이라
       // 검증을 통과시키면 PostgreSQL이 거절해 사용자 입력 오류가 500으로 나간다.
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()
@@ -461,7 +613,7 @@ describe('Examples API', () => {
     });
 
     it('경로와 문서의 id가 다르면 409 ID_MISMATCH다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()
@@ -478,7 +630,7 @@ describe('Examples API', () => {
 
   describe('DELETE /api/v1/examples/{id}', () => {
     it('204를 내고 실제로 지운다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()
@@ -496,7 +648,7 @@ describe('Examples API', () => {
 
   describe('관계 라우트', () => {
     it('to-many linkage를 읽는다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()
@@ -507,7 +659,7 @@ describe('Examples API', () => {
     });
 
     it('to-many linkage를 교체하고 204를 낸다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
       const tags = await seedTags();
 
@@ -516,7 +668,7 @@ describe('Examples API', () => {
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send(JSON.stringify({ data: tags.map((tagId) => ({ type: 'tags', id: tagId })) }));
+        .send(JSON.stringify({ data: tags.map((tagId) => ({ type: 'exampleTags', id: tagId })) }));
 
       expect(response.status).toBe(204);
       expect(response.text).toBe('');
@@ -527,7 +679,7 @@ describe('Examples API', () => {
     });
 
     it('to-many에 더하고 뺀다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
       const tags = await seedTags();
       const [first, second] = tags;
@@ -541,7 +693,7 @@ describe('Examples API', () => {
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send(JSON.stringify({ data: [{ type: 'tags', id: first }] }));
+        .send(JSON.stringify({ data: [{ type: 'exampleTags', id: first }] }));
       expect(added.status).toBe(204);
       expect(added.text).toBe('');
 
@@ -555,7 +707,7 @@ describe('Examples API', () => {
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send(JSON.stringify({ data: [{ type: 'tags', id: first }] }));
+        .send(JSON.stringify({ data: [{ type: 'exampleTags', id: first }] }));
       expect(removed.status).toBe(204);
       expect(removed.text).toBe('');
 
@@ -566,7 +718,7 @@ describe('Examples API', () => {
     });
 
     it('to-one linkage를 교체하고 해제한다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
       const categoryId = await seedCategory();
 
@@ -575,7 +727,7 @@ describe('Examples API', () => {
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send(JSON.stringify({ data: { type: 'categories', id: categoryId } }));
+        .send(JSON.stringify({ data: { type: 'exampleCategories', id: categoryId } }));
       expect(replaced.status).toBe(204);
       expect(replaced.text).toBe('');
 
@@ -583,7 +735,7 @@ describe('Examples API', () => {
         .get(`/api/v1/examples/${id}/relationships/category`)
         .set('Accept', VENDOR);
       expect((between.body as { data: unknown }).data).toEqual({
-        type: 'categories',
+        type: 'exampleCategories',
         id: categoryId,
       });
 
@@ -603,7 +755,7 @@ describe('Examples API', () => {
     });
 
     it('related 자원 경로가 연결된 자원을 낸다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
       const tags = await seedTags();
       await api()
@@ -611,7 +763,7 @@ describe('Examples API', () => {
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send(JSON.stringify({ data: tags.map((tagId) => ({ type: 'tags', id: tagId })) }))
+        .send(JSON.stringify({ data: tags.map((tagId) => ({ type: 'exampleTags', id: tagId })) }))
         .expect(204);
 
       const response = await api().get(`/api/v1/examples/${id}/tags`).set('Accept', VENDOR);
@@ -625,7 +777,7 @@ describe('Examples API', () => {
     it('to-one related 경로가 연결된 자원을 낸다', async () => {
       // 400 경로만 확인하면 이 라우트의 성공 경로가 통째로 비어 있게 된다 —
       // 라우트는 열려 있는데 무엇을 내는지는 아무것도 고정하지 않은 상태가 된다.
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
       const categoryId = await seedCategory();
       await api()
@@ -633,18 +785,18 @@ describe('Examples API', () => {
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send(JSON.stringify({ data: { type: 'categories', id: categoryId } }))
+        .send(JSON.stringify({ data: { type: 'exampleCategories', id: categoryId } }))
         .expect(204);
 
       const response = await api().get(`/api/v1/examples/${id}/category`).set('Accept', VENDOR);
       expect(response.status).toBe(200);
       const body = response.body as { data: { type: string; id: string } };
-      expect(body.data.type).toBe('categories');
+      expect(body.data.type).toBe('exampleCategories');
       expect(body.data.id).toBe(categoryId);
     });
 
     it('연결이 없으면 to-one related 경로가 null을 낸다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api().get(`/api/v1/examples/${id}/category`).set('Accept', VENDOR);
@@ -653,7 +805,7 @@ describe('Examples API', () => {
     });
 
     it('to-one related 경로는 조회 파라미터를 거부한다', async () => {
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()
@@ -683,7 +835,7 @@ describe('Examples API', () => {
     it('본문을 싣는 DELETE의 Content-Type도 검사한다', async () => {
       // 관계 라우트의 DELETE는 linkage 본문을 싣는다. 협상을 메서드로만 판정하면
       // 이 경로만 검사에서 새어 나가 잘못된 미디어 타입이 성공(204)한다.
-      const created = await createExample({ title: '제목' });
+      const created = await createExample({ title: '제목', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
       const tags = await seedTags();
 
@@ -691,7 +843,7 @@ describe('Examples API', () => {
         .delete(`/api/v1/examples/${id}/relationships/tags`)
         .set('Accept', VENDOR)
         .set('Content-Type', 'application/json')
-        .send(JSON.stringify({ data: tags.map((tagId) => ({ type: 'tags', id: tagId })) }));
+        .send(JSON.stringify({ data: tags.map((tagId) => ({ type: 'exampleTags', id: tagId })) }));
 
       expect(response.status).toBe(415);
       expect((response.body as ErrorBody).errors[0]?.code).toBe('UNSUPPORTED_MEDIA_TYPE');
@@ -745,7 +897,7 @@ describe('Examples API', () => {
     it('토큰 없이 관계를 바꾸면 401이다', async () => {
       // 관계 쓰기 라우트도 `writeMethods`에 들어 있으므로 같은 가드가 붙어야 한다.
       // 이 스위트는 고정 id를 쓰지 않으므로 대상은 이 테스트가 직접 만든다.
-      const created = await createExample({ title: '관계 보호' });
+      const created = await createExample({ title: '관계 보호', status: 'draft', score: 0 });
       const id = (created.body as ResourceBody).data.id;
 
       const response = await api()
