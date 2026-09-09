@@ -217,6 +217,64 @@ describe('executeList — 필터', () => {
     });
   });
 
+  // 프론트엔드가 하루의 끝을 `T23:59:59.999999+00:00`으로 보낸다. 소수 초를
+  // 3자리로 막아 두었을 때는 이 요청이 통째로 400 이었고, 화면에는 0행으로
+  // 보였다(정본은 같은 요청에 두 행을 낸다).
+  //
+  // 마이크로초까지 실제로 비교되는지도 함께 잰다. 필터 값을 `Date`로 바꾸면
+  // `.999999`가 `.999`로 잘려, 아래 `.999500` 행이 상한 안에 있는데도 빠진다.
+  it('마이크로초 정밀도의 상한을 경계까지 지킨다', async () => {
+    await withRollback(dataSource, async (manager) => {
+      const { exampleIds } = await seedExamples(manager);
+      const [first] = exampleIds;
+      if (first === undefined) {
+        throw new Error('씨앗 행이 없다');
+      }
+      // TypeORM의 Date로는 마이크로초를 표현할 수 없으므로 직접 쓴다.
+      await manager.query(`UPDATE examples SET created_at = $1 WHERE id = $2`, [
+        '2026-08-30T23:59:59.999500+00:00',
+        first,
+      ]);
+
+      const idsFor = async (query: Record<string, string>): Promise<string[]> => {
+        const parsed = parseQuery(query, EXAMPLE_QUERY_POLICY, DECLARED);
+        const result = await executeList(
+          list(manager, exampleIds),
+          'e',
+          parsed,
+          EXAMPLE_SERIALIZER,
+        );
+        return result.items.map((item) => item.id);
+      };
+
+      // 상한이 행보다 뒤 - 들어온다.
+      await expect(
+        idsFor({ 'filter[createdAt][lte]': '2026-08-30T23:59:59.999999+00:00' }),
+      ).resolves.toContain(first);
+      // 상한이 행보다 앞 - 빠진다. `.999`로 잘리면 이 두 단언이 같은 답을 내
+      // 위쪽 단언이 속 빈 채로 통과한다.
+      await expect(
+        idsFor({ 'filter[createdAt][lte]': '2026-08-30T23:59:59.999000+00:00' }),
+      ).resolves.not.toContain(first);
+      // 경계 자기 자신은 포함이다(lte).
+      await expect(
+        idsFor({ 'filter[createdAt][lte]': '2026-08-30T23:59:59.999500+00:00' }),
+      ).resolves.toContain(first);
+    });
+  });
+
+  // 달력에 없는 날은 400 이어야 한다. 굴러간 값(2026-02-30 -> 03-02)으로 질의하면
+  // 사용자가 요청한 범위와 실제 범위가 조용히 달라진다.
+  it('달력에 없는 날짜를 DB까지 보내지 않는다', () => {
+    expect(() =>
+      parseQuery(
+        { 'filter[createdAt][lte]': '2026-02-30T00:00:00Z' },
+        EXAMPLE_QUERY_POLICY,
+        DECLARED,
+      ),
+    ).toThrow(JsonApiError);
+  });
+
   it('공개 이름 category.id가 FK 컬럼을 거른다', async () => {
     await withRollback(dataSource, async (manager) => {
       const { category, exampleIds } = await seedExamples(manager);
