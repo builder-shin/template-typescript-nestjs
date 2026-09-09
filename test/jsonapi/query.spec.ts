@@ -118,7 +118,7 @@ describe('parseQuery 거부', () => {
       parseQuery({ 'page[after]': '', sort: 'publishedAt' }, POLICY, DECLARED),
     );
     expect(error.code).toBe('INVALID_PAGE');
-    expect(error.detail).toMatch(/nullable sort/);
+    expect(error.source).toEqual({ parameter: 'page[after]' });
   });
 
   it('page[before]로 온 커서도 같은 규칙으로 거부한다', () => {

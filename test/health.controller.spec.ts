@@ -88,13 +88,13 @@ describe('HealthController', () => {
       .set('Accept-Language', 'en')
       .expect(404);
     const body = response.body as { errors: { title: string }[] };
-    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.HTTP_ERROR.en);
+    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.HTTP_ERROR.en.title);
   });
 
   it('Accept-Language가 없으면 오류 title이 한국어다', async () => {
     const response = await request(app.getHttpServer()).get('/health/nope').expect(404);
     const body = response.body as { errors: { title: string }[] };
-    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.HTTP_ERROR.ko);
+    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.HTTP_ERROR.ko.title);
   });
 
   it('readiness가 데이터베이스를 확인한다', async () => {
@@ -180,8 +180,10 @@ describe('HealthController.ready() 단위 테스트', () => {
       // 실패 원인(자격 증명, 호스트, 드라이버 오류 메시지 등)이 클라이언트로 새면 정보
       // 노출이 된다. `detail`은 카탈로그/컨트롤러가 고른 고정 문구여야 하고, DB가 실제로
       // 뭐라고 실패했는지는 절대 담기지 않아야 한다.
-      expect(error.detail).toBe('the database is not reachable');
-      expect(error.detail).not.toContain(internalMessage);
+      // 드라이버 메시지가 오류 객체 어디에도 실리지 않는다. 문구는 카탈로그가
+      // 갖고, 이 오류는 `source` 도 두지 않는다.
+      expect(JSON.stringify(error)).not.toContain(internalMessage);
+      expect(error.message).not.toContain(internalMessage);
     }
 
     // 응답에서 감춘 원인은 서버 로그에 남아야 한다. 양쪽을 함께 단언해야 "감췄다"가

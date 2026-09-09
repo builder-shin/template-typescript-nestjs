@@ -178,9 +178,7 @@ export class JsonApiNegotiationGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<NegotiableRequest>();
 
     if (!acceptsJsonApi(headerValue(request, 'accept'))) {
-      throw new JsonApiError('NOT_ACCEPTABLE', {
-        detail: `this endpoint only produces ${JSONAPI_MEDIA_TYPE}`,
-      });
+      throw new JsonApiError('NOT_ACCEPTABLE');
     }
 
     // 스펙 5.1: **본문이 있는 요청**은 vendor `Content-Type`을 요구한다. 판정 기준이
@@ -190,9 +188,7 @@ export class JsonApiNegotiationGuard implements CanActivate {
     const requiresJsonApiContentType =
       carriesBody(request) || BODY_REQUIRED_METHODS.has(request.method.toUpperCase());
     if (requiresJsonApiContentType && !isJsonApiContentType(headerValue(request, 'content-type'))) {
-      throw new JsonApiError('UNSUPPORTED_MEDIA_TYPE', {
-        detail: `this endpoint only consumes ${JSONAPI_MEDIA_TYPE} without media type parameters`,
-      });
+      throw new JsonApiError('UNSUPPORTED_MEDIA_TYPE');
     }
 
     return true;

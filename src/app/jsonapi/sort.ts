@@ -19,14 +19,14 @@ export interface ResolvedSort {
   readonly nullable: boolean;
 }
 
-function invalidSort(detail: string): JsonApiError {
-  return new JsonApiError('INVALID_SORT', { source: { parameter: 'sort' }, detail });
+function invalidSort(): JsonApiError {
+  return new JsonApiError('INVALID_SORT', { source: { parameter: 'sort' } });
 }
 
 function resolve(field: string, direction: SortDirection, policy: QueryPolicy): ResolvedSort {
   const declared = policy.sorts[field];
   if (declared === undefined) {
-    throw invalidSort(`"${field}" is not a sortable field`);
+    throw invalidSort();
   }
   return { field, property: declared.property, direction, nullable: declared.nullable };
 }
@@ -62,7 +62,7 @@ export function parseSort(
 ): ResolvedSort[] {
   const raw = query.sort;
   if (raw !== undefined && typeof raw !== 'string') {
-    throw invalidSort('the parameter must be given exactly once');
+    throw invalidSort();
   }
 
   const terms: ResolvedSort[] = [];
@@ -79,10 +79,10 @@ export function parseSort(
       const descending = trimmed.startsWith('-');
       const field = descending ? trimmed.slice(1) : trimmed;
       if (field === '') {
-        throw invalidSort('an empty sort field is not allowed');
+        throw invalidSort();
       }
       if (seen.has(field)) {
-        throw invalidSort(`"${field}" is given more than once`);
+        throw invalidSort();
       }
       seen.add(field);
       terms.push(resolve(field, descending ? 'DESC' : 'ASC', policy));

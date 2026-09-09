@@ -51,9 +51,7 @@ export class HealthController {
         'readiness check failed: database unreachable',
         error instanceof Error ? error.stack : String(error),
       );
-      throw new JsonApiError('INTERNAL_SERVER_ERROR', {
-        detail: 'the database is not reachable',
-      });
+      throw new JsonApiError('INTERNAL_SERVER_ERROR');
     }
     return { status: 'ok', database: 'ok' };
   }

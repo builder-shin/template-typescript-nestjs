@@ -626,7 +626,7 @@ describe('executeList — cursor 페이지네이션', () => {
         executeList(list(manager, exampleIds), 'e', changed, EXAMPLE_SERIALIZER),
       );
       expect(error.code).toBe('INVALID_PAGE');
-      expect(error.detail).toMatch(/different sort order/);
+      expect(error.source).toEqual({ parameter: 'page[after]' });
     });
   });
 
@@ -638,7 +638,7 @@ describe('executeList — cursor 페이지네이션', () => {
         executeList(list(manager, exampleIds), 'e', parsed, EXAMPLE_SERIALIZER),
       );
       expect(error.code).toBe('INVALID_PAGE');
-      expect(error.detail).toMatch(/malformed/);
+      expect(error.source).toEqual({ parameter: 'page[after]' });
     });
   });
 

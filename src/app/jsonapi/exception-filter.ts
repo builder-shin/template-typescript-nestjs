@@ -27,7 +27,8 @@ export interface JsonApiErrorObject {
   /** JSON:API는 status를 문자열로 요구한다. */
   readonly status: string;
   readonly title: string;
-  readonly detail?: string;
+  /** 정본과 같이 **항상** 낸다. 문구는 카탈로그에서 협상해 고른다. */
+  readonly detail: string;
   readonly source?: JsonApiErrorSource;
   readonly meta?: Record<string, unknown>;
 }
@@ -44,22 +45,23 @@ export function buildErrorDocument(
 ): ErrorDocument {
   return {
     errors: errors.map((error) => {
-      const entry = ERROR_CATALOG[error.code];
+      // title 과 detail 을 **둘 다** 카탈로그에서 고른 언어로 낸다. detail 을
+      // 던지는 쪽이 영문 문자열로 붙이던 때는 `Accept-Language: ko` 를 줘도
+      // detail 이 영문이었고 값에 따라 사용자 입력이 그대로 실렸다.
+      const message = ERROR_CATALOG[error.code][language];
       const object: {
         code: string;
         status: string;
         title: string;
-        detail?: string;
+        detail: string;
         source?: JsonApiErrorSource;
         meta?: Record<string, unknown>;
       } = {
         code: error.code,
         status: String(error.status),
-        title: language === 'ko' ? entry.ko : entry.en,
+        title: message.title,
+        detail: message.detail,
       };
-      if (error.detail !== undefined) {
-        object.detail = error.detail;
-      }
       if (error.source !== undefined) {
         object.source = error.source;
       }

@@ -59,7 +59,6 @@ export function canIdentify(
 export function unwritableRelationshipError(name: string): JsonApiError {
   return new JsonApiError('INVALID_JSONAPI_DOCUMENT', {
     source: { pointer: `/data/relationships/${name}` },
-    detail: `"${name}" is not a writable relationship`,
   });
 }
 
@@ -75,17 +74,11 @@ async function loadAll(
     return [];
   }
   if (ids.some((id) => !canIdentify(manager, rule.model, id))) {
-    throw new JsonApiError('RELATIONSHIP_RESOURCE_NOT_FOUND', {
-      source: { pointer },
-      detail: `one or more "${rule.type}" resources do not exist`,
-    });
+    throw new JsonApiError('RELATIONSHIP_RESOURCE_NOT_FOUND', { source: { pointer } });
   }
   const rows = await manager.find(rule.model, { where: { id: In(ids) } });
   if (rows.length !== ids.length) {
-    throw new JsonApiError('RELATIONSHIP_RESOURCE_NOT_FOUND', {
-      source: { pointer },
-      detail: `one or more "${rule.type}" resources do not exist`,
-    });
+    throw new JsonApiError('RELATIONSHIP_RESOURCE_NOT_FOUND', { source: { pointer } });
   }
   return rows;
 }

@@ -57,8 +57,8 @@ export function isPageKey(key: string): boolean {
 
 const INTEGER_PATTERN = /^-?\d+$/;
 
-function invalidPage(parameter: string, detail: string): JsonApiError {
-  return new JsonApiError('INVALID_PAGE', { source: { parameter }, detail });
+function invalidPage(parameter: string): JsonApiError {
+  return new JsonApiError('INVALID_PAGE', { source: { parameter } });
 }
 
 /**
@@ -85,12 +85,12 @@ function single(
   if (raw === undefined || typeof raw === 'string') {
     return raw;
   }
-  throw invalidPage(key, 'the parameter must be given exactly once');
+  throw invalidPage(key);
 }
 
 function integer(raw: string, key: string): number {
   if (!INTEGER_PATTERN.test(raw)) {
-    throw invalidPage(key, 'expected an integer');
+    throw invalidPage(key);
   }
   return Number.parseInt(raw, 10);
 }
@@ -112,30 +112,30 @@ export function parsePage(
   if (rawSize !== undefined) {
     size = integer(rawSize, 'page[size]');
     if (size < 1) {
-      throw invalidPage('page[size]', 'the page size must be at least 1');
+      throw invalidPage('page[size]');
     }
     if (size > MAX_PAGE_SIZE) {
-      throw invalidPage('page[size]', `the page size must be at most ${String(MAX_PAGE_SIZE)}`);
+      throw invalidPage('page[size]');
     }
   }
 
   let totals = false;
   if (rawTotals !== undefined) {
     if (rawTotals !== 'true' && rawTotals !== 'false') {
-      throw invalidPage('page[totals]', 'expected "true" or "false"');
+      throw invalidPage('page[totals]');
     }
     totals = rawTotals === 'true';
   }
 
   if (after !== undefined && before !== undefined) {
-    throw invalidPage('page[after]', 'page[after] and page[before] cannot be combined');
+    throw invalidPage('page[after]');
   }
 
   const cursor = after ?? before;
   if (cursor !== undefined) {
     // 두 모드가 섞이면 어느 쪽이 적용됐는지 응답만 보고는 알 수 없다.
     if (rawNumber !== undefined) {
-      throw invalidPage('page[number]', 'a cursor cannot be combined with page[number]');
+      throw invalidPage('page[number]');
     }
     return {
       mode: 'cursor',
@@ -149,7 +149,7 @@ export function parsePage(
   if (rawNumber !== undefined) {
     number = integer(rawNumber, 'page[number]');
     if (number < 1) {
-      throw invalidPage('page[number]', 'the page number must be at least 1');
+      throw invalidPage('page[number]');
     }
   }
 

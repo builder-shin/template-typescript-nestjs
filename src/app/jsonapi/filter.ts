@@ -101,8 +101,8 @@ function isRealCalendarDate(year: number, month: number, day: number): boolean {
   );
 }
 
-function invalidFilter(parameter: string, detail: string): JsonApiError {
-  return new JsonApiError('INVALID_FILTER', { source: { parameter }, detail });
+function invalidFilter(parameter: string): JsonApiError {
+  return new JsonApiError('INVALID_FILTER', { source: { parameter } });
 }
 
 function toBoolean(raw: string, parameter: string): boolean {
@@ -112,7 +112,7 @@ function toBoolean(raw: string, parameter: string): boolean {
   if (raw === 'false') {
     return false;
   }
-  throw invalidFilter(parameter, 'expected "true" or "false"');
+  throw invalidFilter(parameter);
 }
 
 function toScalar(raw: string, field: FilterFieldPolicy, parameter: string): ScalarFilterValue {
@@ -121,7 +121,7 @@ function toScalar(raw: string, field: FilterFieldPolicy, parameter: string): Sca
       return raw;
     case 'number': {
       if (!NUMBER_PATTERN.test(raw)) {
-        throw invalidFilter(parameter, 'expected a number');
+        throw invalidFilter(parameter);
       }
       return Number(raw);
     }
@@ -129,14 +129,14 @@ function toScalar(raw: string, field: FilterFieldPolicy, parameter: string): Sca
       return toBoolean(raw, parameter);
     case 'uuid': {
       if (!UUID_PATTERN.test(raw)) {
-        throw invalidFilter(parameter, 'expected a UUID');
+        throw invalidFilter(parameter);
       }
       return raw;
     }
     case 'timestamp': {
       const matched = TIMESTAMP_PATTERN.exec(raw);
       if (matched === null) {
-        throw invalidFilter(parameter, 'expected an ISO 8601 timestamp');
+        throw invalidFilter(parameter);
       }
       // 형식이 맞아도 실재하지 않는 순간이 있다. Postgres에 맡기면 400이 아니라
       // 500이 되고, 굴러가는 값(2026-02-30 -> 03-02)은 아무 오류도 없이 통과한다.
@@ -145,7 +145,7 @@ function toScalar(raw: string, field: FilterFieldPolicy, parameter: string): Sca
         !isRealCalendarDate(Number(year), Number(month), Number(day)) ||
         Number.isNaN(new Date(raw).getTime())
       ) {
-        throw invalidFilter(parameter, 'expected a valid ISO 8601 timestamp');
+        throw invalidFilter(parameter);
       }
       // `Date`가 아니라 **문자열**을 넘긴다. `Date`는 밀리초까지만 담아
       // `...59.999999`가 `...59.999`로 잘리고, 그러면 마이크로초 정밀도로 저장된
@@ -157,7 +157,7 @@ function toScalar(raw: string, field: FilterFieldPolicy, parameter: string): Sca
     case 'enum': {
       const values = field.values ?? [];
       if (!values.includes(raw)) {
-        throw invalidFilter(parameter, `expected one of: ${values.join(', ')}`);
+        throw invalidFilter(parameter);
       }
       return raw;
     }
@@ -170,7 +170,7 @@ function readSingle(value: string | readonly string[] | undefined, parameter: st
   }
   // 같은 키가 두 번 오면 Node가 배열로 준다. 조용히 하나만 쓰면 어느 쪽이 적용됐는지
   // 사용자가 알 수 없다.
-  throw invalidFilter(parameter, 'the parameter must be given exactly once');
+  throw invalidFilter(parameter);
 }
 
 function conditionFor(
@@ -182,10 +182,10 @@ function conditionFor(
 ): FilterCondition {
   const field = policy.filters[fieldName];
   if (field === undefined) {
-    throw invalidFilter(parameter, `"${fieldName}" is not a filterable field`);
+    throw invalidFilter(parameter);
   }
   if (!isFilterOperator(operatorName) || !field.operators.includes(operatorName)) {
-    throw invalidFilter(parameter, `"${operatorName}" is not allowed on "${fieldName}"`);
+    throw invalidFilter(parameter);
   }
   if (operatorName === 'contains' && field.type !== 'string') {
     // 컴파일러는 `contains`를 `ILIKE`로 옮긴다. 텍스트가 아닌 컬럼(enum 포함)에 걸면
@@ -210,7 +210,7 @@ function conditionFor(
   if (operatorName === 'in') {
     // 빈 IN은 언제나 거짓이라 결과가 항상 비는데, 사용자는 필터가 무시됐다고 읽는다.
     if (value === '') {
-      throw invalidFilter(parameter, 'the "in" operator requires at least one value');
+      throw invalidFilter(parameter);
     }
     const parts = value.split(',');
     return {
