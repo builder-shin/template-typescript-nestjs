@@ -7,15 +7,14 @@ import type { ErasedSerializer, ResourceObject, ResourceSerializer } from './ser
  *
  * `resourcePath`가 `TagsController`의 `@Controller` 경로와 같아야 하는 것,
  * JSON:API `type`이 URL 경로와 다른 것, 반대편 관계를 선언하지 않는 것 모두
- * `category.serializer.ts`의 주석과 같은 이유다.
+ * `category.serializer.ts`의 주석과 같은 이유다. `attributes`가 `name` 하나뿐인
+ * 것도 그 파일의 주석과 같은 이유다.
  */
 export const TAG_SERIALIZER: ResourceSerializer<Tag> = {
   type: 'exampleTags',
   resourcePath: '/api/v1/tags',
   attributes: {
     name: (tag) => tag.name,
-    createdAt: (tag) => tag.createdAt.toISOString(),
-    updatedAt: (tag) => tag.updatedAt.toISOString(),
   },
   relationships: {},
 };
