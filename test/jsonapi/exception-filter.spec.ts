@@ -69,7 +69,7 @@ describe('buildErrorDocument', () => {
     const error = firstOf(document.errors);
     expect(error.code).toBe('RESOURCE_NOT_FOUND');
     expect(error.status).toBe('404');
-    expect(error.title).toBe(ERROR_CATALOG.RESOURCE_NOT_FOUND.en);
+    expect(error.title).toBe(ERROR_CATALOG.RESOURCE_NOT_FOUND.en.title);
   });
 
   it('status를 문자열로 담는다 (JSON:API 규격)', () => {
@@ -82,8 +82,8 @@ describe('buildErrorDocument', () => {
   it('언어에 따라 title이 달라진다', () => {
     const ko = buildErrorDocument([new JsonApiError('INVALID_SORT')], 'ko');
     const en = buildErrorDocument([new JsonApiError('INVALID_SORT')], 'en');
-    expect(firstOf(ko.errors).title).toBe(ERROR_CATALOG.INVALID_SORT.ko);
-    expect(firstOf(en.errors).title).toBe(ERROR_CATALOG.INVALID_SORT.en);
+    expect(firstOf(ko.errors).title).toBe(ERROR_CATALOG.INVALID_SORT.ko.title);
+    expect(firstOf(en.errors).title).toBe(ERROR_CATALOG.INVALID_SORT.en.title);
   });
 
   it('source pointer를 보존한다', () => {
@@ -102,17 +102,22 @@ describe('buildErrorDocument', () => {
     expect(firstOf(document.errors).source).toEqual({ parameter: 'filter[x]' });
   });
 
-  it('detail을 보존한다', () => {
-    const document = buildErrorDocument(
-      [new JsonApiError('INVALID_PAGE', { detail: 'page[size] must be <= 100' })],
-      'ko',
-    );
-    expect(firstOf(document.errors).detail).toBe('page[size] must be <= 100');
+  // detail 도 title 과 함께 협상해 낸다. 정본·Rails 와 같이 **언제나** 낸다.
+  it('detail을 고른 언어의 카탈로그에서 낸다', () => {
+    const ko = buildErrorDocument([new JsonApiError('INVALID_PAGE')], 'ko');
+    const en = buildErrorDocument([new JsonApiError('INVALID_PAGE')], 'en');
+
+    expect(firstOf(ko.errors).detail).toBe(ERROR_CATALOG.INVALID_PAGE.ko.detail);
+    expect(firstOf(en.errors).detail).toBe(ERROR_CATALOG.INVALID_PAGE.en.detail);
+    expect(firstOf(ko.errors).detail).not.toBe(firstOf(en.errors).detail);
   });
 
-  it('detail이 없으면 멤버를 생략한다', () => {
-    const document = buildErrorDocument([new JsonApiError('RESOURCE_NOT_FOUND')], 'ko');
-    expect('detail' in firstOf(document.errors)).toBe(false);
+  it('detail 멤버를 생략하지 않는다', () => {
+    for (const language of ['ko', 'en'] as const) {
+      const document = buildErrorDocument([new JsonApiError('RESOURCE_NOT_FOUND')], language);
+      expect('detail' in firstOf(document.errors)).toBe(true);
+      expect(firstOf(document.errors).detail.length).toBeGreaterThan(0);
+    }
   });
 
   it('source가 없으면 멤버를 생략한다', () => {
@@ -201,21 +206,21 @@ describe('JsonApiExceptionFilter', () => {
     const { host, captured } = hostFor('ko');
     filter.catch(new JsonApiError('RESOURCE_NOT_FOUND'), host);
     const body = captured.body as { errors: { title: string }[] };
-    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.RESOURCE_NOT_FOUND.ko);
+    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.RESOURCE_NOT_FOUND.ko.title);
   });
 
   it('Accept-Language를 따라 en 메시지를 낸다', () => {
     const { host, captured } = hostFor('en');
     filter.catch(new JsonApiError('RESOURCE_NOT_FOUND'), host);
     const body = captured.body as { errors: { title: string }[] };
-    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.RESOURCE_NOT_FOUND.en);
+    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.RESOURCE_NOT_FOUND.en.title);
   });
 
   it('헤더가 없으면 ko가 기본이다', () => {
     const { host, captured } = hostFor();
     filter.catch(new JsonApiError('RESOURCE_NOT_FOUND'), host);
     const body = captured.body as { errors: { title: string }[] };
-    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.RESOURCE_NOT_FOUND.ko);
+    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.RESOURCE_NOT_FOUND.ko.title);
   });
 
   it('Accept-Language가 배열로 오면 첫 번째 값만 본다', () => {
@@ -225,7 +230,7 @@ describe('JsonApiExceptionFilter', () => {
     const { host, captured } = hostFor(['en', 'ko']);
     filter.catch(new JsonApiError('RESOURCE_NOT_FOUND'), host);
     const body = captured.body as { errors: { title: string }[] };
-    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.RESOURCE_NOT_FOUND.en);
+    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.RESOURCE_NOT_FOUND.en.title);
   });
 
   it('Nest HttpException을 HTTP_ERROR로 감싸고 status를 유지한다', () => {

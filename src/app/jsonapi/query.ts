@@ -24,8 +24,8 @@ export interface ParsedQuery {
   readonly page: PageRequest;
 }
 
-function invalidParameter(parameter: string, detail: string): JsonApiError {
-  return new JsonApiError('INVALID_QUERY_PARAMETER', { source: { parameter }, detail });
+function invalidParameter(parameter: string): JsonApiError {
+  return new JsonApiError('INVALID_QUERY_PARAMETER', { source: { parameter } });
 }
 
 function assertKnownKeys(
@@ -37,9 +37,9 @@ function assertKnownKeys(
     }
     if (key.startsWith('fields[')) {
       // 희소 필드셋은 스펙 1.1의 비목표다. 조용히 무시하면 클라이언트는 적용됐다고 읽는다.
-      throw invalidParameter(key, 'sparse fieldsets are not supported');
+      throw invalidParameter(key);
     }
-    throw invalidParameter(key, 'the query parameter is not supported');
+    throw invalidParameter(key);
   }
 }
 
@@ -87,7 +87,7 @@ export function parseRelatedCollectionQuery(
     if (key === 'page[number]' || key === 'page[size]' || key === 'page[totals]') {
       continue;
     }
-    throw invalidParameter(key, 'a related collection only supports page[number] and page[size]');
+    throw invalidParameter(key);
   }
 
   const page = parsePage(query, policy);
@@ -104,7 +104,7 @@ export function assertNoQueryParameters(
   query: Readonly<Record<string, string | readonly string[] | undefined>>,
 ): void {
   for (const key of Object.keys(query)) {
-    throw invalidParameter(key, 'this endpoint does not accept query parameters');
+    throw invalidParameter(key);
   }
 }
 
@@ -122,7 +122,7 @@ export function parseSingleResourceQuery(
 ): readonly string[] {
   for (const key of Object.keys(query)) {
     if (key !== 'include') {
-      throw invalidParameter(key, 'a single resource endpoint only supports include');
+      throw invalidParameter(key);
     }
   }
   return parseInclude(query, policy, declaredRelationships);

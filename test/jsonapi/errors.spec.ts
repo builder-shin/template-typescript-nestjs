@@ -42,19 +42,35 @@ describe('오류 카탈로그', () => {
     );
   });
 
-  it('모든 코드가 ko/en 메시지와 HTTP status를 가진다', () => {
+  it('모든 코드가 ko/en 의 title·detail 과 HTTP status를 가진다', () => {
     for (const code of ERROR_CODES) {
       const entry = ERROR_CATALOG[code];
-      expect(entry.ko.length).toBeGreaterThan(0);
-      expect(entry.en.length).toBeGreaterThan(0);
+      for (const message of [entry.ko, entry.en]) {
+        expect(message.title.length).toBeGreaterThan(0);
+        expect(message.detail.length).toBeGreaterThan(0);
+      }
       expect(entry.status).toBeGreaterThanOrEqual(400);
       expect(entry.status).toBeLessThan(600);
     }
   });
 
-  it('ko와 en 메시지가 서로 다르다', () => {
+  // title 과 detail 이 **둘 다** 언어별로 갈려야 한다. detail 만 한 언어에
+  // 머물면 한국어 사용자가 영문 설명을 읽는다 - 그것이 이 카탈로그를 고친 이유다.
+  it('ko와 en 이 title·detail 둘 다 서로 다르다', () => {
     for (const code of ERROR_CODES) {
-      expect(ERROR_CATALOG[code].ko).not.toBe(ERROR_CATALOG[code].en);
+      const entry = ERROR_CATALOG[code];
+      expect(entry.ko.title).not.toBe(entry.en.title);
+      expect(entry.ko.detail).not.toBe(entry.en.detail);
+    }
+  });
+
+  // 한국어 문구에 한글이 실제로 있는지 본다. 두 자리에 같은 영문을 넣어도 위
+  // 테스트는 통과하지만 여기서 죽는다.
+  it('ko 문구에 한글이 들어 있다', () => {
+    for (const code of ERROR_CODES) {
+      const entry = ERROR_CATALOG[code];
+      expect(entry.ko.title).toMatch(/[가-힣]/);
+      expect(entry.ko.detail).toMatch(/[가-힣]/);
     }
   });
 
@@ -86,7 +102,6 @@ describe('JsonApiError', () => {
     expect(error.code).toBe('RESOURCE_NOT_FOUND');
     expect(error.status).toBe(404);
     expect(error.source).toBeUndefined();
-    expect(error.detail).toBeUndefined();
   });
 
   it('Error를 상속하고 name이 클래스 이름이다', () => {
@@ -95,9 +110,9 @@ describe('JsonApiError', () => {
     expect(error.name).toBe('JsonApiError');
   });
 
-  it('message가 카탈로그의 en 메시지다', () => {
+  it('message가 카탈로그의 en title 이다', () => {
     const error = new JsonApiError('INVALID_SORT');
-    expect(error.message).toBe(ERROR_CATALOG.INVALID_SORT.en);
+    expect(error.message).toBe(ERROR_CATALOG.INVALID_SORT.en.title);
   });
 
   it('source pointer를 보존한다', () => {
@@ -114,9 +129,10 @@ describe('JsonApiError', () => {
     expect(error.source).toEqual({ parameter: 'filter[unknown]' });
   });
 
-  it('detail 재정의를 보존한다', () => {
-    const error = new JsonApiError('INVALID_PAGE', { detail: 'page[size] must be <= 100' });
-    expect(error.detail).toBe('page[size] must be <= 100');
+  // `detail` 재정의는 없앴다. 문구는 카탈로그가 언어별로 갖고, 무엇이
+  // 잘못됐는지는 `source` 가 말한다 - 자유 문자열은 협상되지 않는다.
+  it('detail 을 받는 통로가 없다', () => {
+    expect(Object.keys(new JsonApiError('INVALID_PAGE'))).not.toContain('detail');
   });
 
   it('HTTP_ERROR는 status 재정의를 받는다', () => {

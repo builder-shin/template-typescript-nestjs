@@ -18,7 +18,10 @@ interface CollectionBody {
 }
 
 interface SingleBody {
-  readonly data: { readonly links?: Readonly<Record<string, string>> };
+  readonly data: {
+    readonly links?: Readonly<Record<string, string>>;
+    readonly attributes: Readonly<Record<string, unknown>>;
+  };
 }
 
 interface ErrorBody {
@@ -100,6 +103,45 @@ describe('참조 자원 읽기 라우트', () => {
     expect(names).toEqual([...names].sort());
     expect(body.data.every((item) => item.type === 'exampleTags')).toBe(true);
   });
+
+  // 응답 attributes 의 키 집합은 `name` 하나뿐이다.
+  //
+  // 고치기 전에는 `createdAt`·`updatedAt` 이 더 나갔다. 정본(FastAPI)·Rails 는
+  // `name` 하나이고, 프론트엔드의 자원 선언은 그 정책을 손으로 옮긴 거울이라
+  // 키 집합이 갈리면 그 거울이 이 백엔드에서만 거짓이 된다.
+  //
+  // 시리얼라이저 단위 테스트가 선언을 지키고, 여기는 **문서로 나가는 것**을
+  // 지킨다 - 응답 조립이 다시 필드를 붙일 수 있는 자리다.
+  it.each([
+    ['/api/v1/categories', 'exampleCategories'],
+    ['/api/v1/tags', 'exampleTags'],
+  ])('%s 목록의 attributes 는 name 하나뿐이다', async (path, type) => {
+    const response = await request(app.getHttpServer()).get(path).set('Accept', JSONAPI);
+
+    expect(response.status).toBe(200);
+    const body = response.body as CollectionBody;
+    expect(body.data.length).toBeGreaterThan(0);
+    for (const item of body.data) {
+      expect(item.type).toBe(type);
+      expect(Object.keys(item.attributes)).toEqual(['name']);
+    }
+  });
+
+  it.each(['/api/v1/categories', '/api/v1/tags'])(
+    '%s 단건의 attributes 도 name 하나뿐이다',
+    async (path) => {
+      const list = await request(app.getHttpServer()).get(path).set('Accept', JSONAPI);
+      const id = (list.body as CollectionBody).data[0]?.id;
+      expect(id).toBeDefined();
+
+      const response = await request(app.getHttpServer())
+        .get(`${path}/${String(id)}`)
+        .set('Accept', JSONAPI);
+
+      expect(response.status).toBe(200);
+      expect(Object.keys((response.body as SingleBody).data.attributes)).toEqual(['name']);
+    },
+  );
 
   it('단건 조회가 self 링크를 낸다', async () => {
     const list = await request(app.getHttpServer())

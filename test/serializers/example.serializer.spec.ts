@@ -150,17 +150,24 @@ describe('CATEGORY_SERIALIZER / TAG_SERIALIZER', () => {
     expect(TAG_SERIALIZER.type).toBe('exampleTags');
   });
 
-  it('공개 attribute 목록을 고정한다', () => {
-    expect(Object.keys(CATEGORY_SERIALIZER.attributes).sort()).toEqual([
-      'createdAt',
-      'name',
-      'updatedAt',
-    ]);
-    expect(Object.keys(TAG_SERIALIZER.attributes).sort()).toEqual([
-      'createdAt',
-      'name',
-      'updatedAt',
-    ]);
+  // 참조 자원의 공개 속성은 `name` 하나뿐이다 - 정본(FastAPI)·Rails 와 같다.
+  // 이 목록이 늘면 프론트엔드의 자원 선언(백엔드 정책의 거울)이 이 백엔드에서만
+  // 거짓이 된다. 실제로 `createdAt`·`updatedAt` 이 더 나가고 있었다.
+  it('공개 attribute 목록을 고정한다 - name 하나뿐이다', () => {
+    expect(Object.keys(CATEGORY_SERIALIZER.attributes)).toEqual(['name']);
+    expect(Object.keys(TAG_SERIALIZER.attributes)).toEqual(['name']);
+  });
+
+  // 엔티티가 시각을 갖고 있다는 것과 그것이 응답에 나간다는 것은 다르다.
+  // 픽스처는 두 시각을 실제로 갖고 있으므로, 직렬화가 그것을 흘리면 여기서 죽는다.
+  it('엔티티가 시각을 갖고 있어도 문서에는 나가지 않는다', () => {
+    const categoryObject = serializeResource(CATEGORY_SERIALIZER, category('c1', '안내서'));
+    const tagObject = serializeResource(TAG_SERIALIZER, tag('t1', '라벨'));
+
+    expect(category('c1', '안내서').createdAt).toBeInstanceOf(Date);
+    expect(tag('t1', '라벨').createdAt).toBeInstanceOf(Date);
+    expect(categoryObject.attributes).toEqual({ name: '안내서' });
+    expect(tagObject.attributes).toEqual({ name: '라벨' });
   });
 
   it('self 링크와 함께 직렬화된다', () => {

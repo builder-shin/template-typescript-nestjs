@@ -59,31 +59,27 @@ function isRelationshipInput(value: unknown): value is RelationshipInput {
   return isPlainObject(value) && 'data' in value;
 }
 
-function invalidDocument(pointer?: string, detail?: string): JsonApiError {
+function invalidDocument(pointer?: string): JsonApiError {
   return new JsonApiError('INVALID_JSONAPI_DOCUMENT', {
     source: pointer === undefined ? undefined : { pointer },
-    detail,
   });
 }
 
 /** 하나의 linkage 항목을 검사한다. */
 function readIdentifier(value: unknown, expectedType: string, pointer: string): ResourceIdentifier {
   if (!isPlainObject(value)) {
-    throw invalidDocument(pointer, 'resource identifier must be an object');
+    throw invalidDocument(pointer);
   }
   const type = value.type;
   if (typeof type !== 'string' || type === '') {
-    throw invalidDocument(`${pointer}/type`, 'resource identifier requires a type');
+    throw invalidDocument(`${pointer}/type`);
   }
   if (type !== expectedType) {
-    throw new JsonApiError('TYPE_MISMATCH', {
-      source: { pointer: `${pointer}/type` },
-      detail: `expected type "${expectedType}" but received "${type}"`,
-    });
+    throw new JsonApiError('TYPE_MISMATCH', { source: { pointer: `${pointer}/type` } });
   }
   const id = value.id;
   if (typeof id !== 'string' || id === '') {
-    throw invalidDocument(`${pointer}/id`, 'resource identifier requires an id');
+    throw invalidDocument(`${pointer}/id`);
   }
   return { type, id };
 }
@@ -98,37 +94,31 @@ export function parseResourceInput(
   options: ParseResourceOptions,
 ): ParsedResourceInput {
   if (!isPlainObject(body)) {
-    throw invalidDocument(undefined, 'request body must be a JSON object');
+    throw invalidDocument(undefined);
   }
 
   const data = body.data;
   if (!isPlainObject(data)) {
-    throw invalidDocument('/data', 'the document requires a single resource object in "data"');
+    throw invalidDocument('/data');
   }
 
   const type = data.type;
   if (typeof type !== 'string' || type === '') {
-    throw invalidDocument('/data/type', 'the resource object requires a type');
+    throw invalidDocument('/data/type');
   }
   if (type !== options.expectedType) {
-    throw new JsonApiError('TYPE_MISMATCH', {
-      source: { pointer: '/data/type' },
-      detail: `expected type "${options.expectedType}" but received "${type}"`,
-    });
+    throw new JsonApiError('TYPE_MISMATCH', { source: { pointer: '/data/type' } });
   }
 
   let id: string | undefined;
   if (data.id !== undefined) {
     if (typeof data.id !== 'string' || data.id === '') {
-      throw invalidDocument('/data/id', 'the resource id must be a non-empty string');
+      throw invalidDocument('/data/id');
     }
     id = data.id;
     if (options.expectedId !== undefined) {
       if (id !== options.expectedId) {
-        throw new JsonApiError('ID_MISMATCH', {
-          source: { pointer: '/data/id' },
-          detail: `expected id "${options.expectedId}" but received "${id}"`,
-        });
+        throw new JsonApiError('ID_MISMATCH', { source: { pointer: '/data/id' } });
       }
     } else if (options.allowClientGeneratedId !== true) {
       throw new JsonApiError('CLIENT_GENERATED_ID_UNSUPPORTED', {
@@ -140,7 +130,7 @@ export function parseResourceInput(
   let attributes: Record<string, unknown> = {};
   if (data.attributes !== undefined) {
     if (!isPlainObject(data.attributes)) {
-      throw invalidDocument('/data/attributes', '"attributes" must be an object');
+      throw invalidDocument('/data/attributes');
     }
     attributes = data.attributes;
   }
@@ -148,14 +138,11 @@ export function parseResourceInput(
   const relationships: Record<string, RelationshipInput> = {};
   if (data.relationships !== undefined) {
     if (!isPlainObject(data.relationships)) {
-      throw invalidDocument('/data/relationships', '"relationships" must be an object');
+      throw invalidDocument('/data/relationships');
     }
     for (const [name, value] of Object.entries(data.relationships)) {
       if (!isRelationshipInput(value)) {
-        throw invalidDocument(
-          `/data/relationships/${name}`,
-          'a relationship requires a "data" member',
-        );
+        throw invalidDocument(`/data/relationships/${name}`);
       }
       relationships[name] = { data: value.data };
     }
@@ -197,10 +184,10 @@ export function parseLinkageInput(
   const pointer = options.pointer ?? '/data';
 
   if (!isPlainObject(body)) {
-    throw invalidDocument(undefined, 'request body must be a JSON object');
+    throw invalidDocument(undefined);
   }
   if (!('data' in body)) {
-    throw invalidDocument(pointer, 'the document requires a "data" member');
+    throw invalidDocument(pointer);
   }
 
   const data = body.data;
@@ -210,16 +197,13 @@ export function parseLinkageInput(
       return null;
     }
     if (Array.isArray(data)) {
-      throw invalidDocument(pointer, 'a to-one relationship requires a single resource identifier');
+      throw invalidDocument(pointer);
     }
     return readIdentifier(data, options.expectedType, pointer);
   }
 
   if (!Array.isArray(data)) {
-    throw invalidDocument(
-      pointer,
-      'a to-many relationship requires an array of resource identifiers',
-    );
+    throw invalidDocument(pointer);
   }
   return data.map((entry, index) =>
     readIdentifier(entry, options.expectedType, `${pointer}/${String(index)}`),

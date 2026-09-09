@@ -101,11 +101,29 @@ describe('parseFilters 값 변환', () => {
     expect(parseFilters({ 'filter[active]': 'false' }, POLICY)[0]?.value).toBe(false);
   });
 
-  it('timestamp를 Date로 바꾼다', () => {
-    const value = parseFilters({ 'filter[createdAt][gte]': '2026-08-30T00:00:00Z' }, POLICY)[0]
-      ?.value;
-    expect(value).toBeInstanceOf(Date);
-    expect(value instanceof Date ? value.toISOString() : '').toBe('2026-08-30T00:00:00.000Z');
+  // timestamp 는 `Date`가 아니라 **문자열 그대로** 넘어간다. `Date`는 밀리초까지만
+  // 담아 마이크로초 경계에서 정본과 다른 판정을 낸다 - 자세한 이유는
+  // `filter.ts`의 `case 'timestamp'` 주석.
+  it('timestamp를 문자열 그대로 넘긴다', () => {
+    expect(
+      parseFilters({ 'filter[createdAt][gte]': '2026-08-30T00:00:00Z' }, POLICY)[0]?.value,
+    ).toBe('2026-08-30T00:00:00Z');
+  });
+
+  // 정본(FastAPI)은 소수 초의 자릿수를 제한하지 않는다(실측: 1~9자리 전부 200).
+  // 프론트엔드가 하루의 끝을 `.999999`로 보내므로, 3자리로 막으면 날짜 범위
+  // 필터가 통째로 400 이 된다.
+  it.each(['1', '12', '123', '1234', '123456'])('소수 초 %s자리를 받는다', (fraction: string) => {
+    const raw = `2026-08-30T00:00:00.${fraction}Z`;
+    expect(parseFilters({ 'filter[createdAt][gte]': raw }, POLICY)[0]?.value).toBe(raw);
+  });
+
+  // 7자리 이상은 마이크로초까지 **자른다**. 그대로 넘기면 Postgres 가 반올림해
+  // 다음 초로 넘어가는데, 정본(파이썬 datetime)은 버린다.
+  it('마이크로초를 넘는 자리는 반올림하지 않고 자른다', () => {
+    expect(
+      parseFilters({ 'filter[createdAt][gte]': '2026-08-30T23:59:59.9999999Z' }, POLICY)[0]?.value,
+    ).toBe('2026-08-30T23:59:59.999999Z');
   });
 
   it('in은 쉼표로 나눠 배열로 만든다', () => {
@@ -181,6 +199,38 @@ describe('parseFilters 거부', () => {
     expect(
       caught(() => parseFilters({ 'filter[createdAt][gte]': '2026-13-40T00:00:00Z' }, POLICY)).code,
     ).toBe('INVALID_FILTER');
+  });
+
+  // `new Date('2026-02-30T00:00:00Z')`는 Invalid 가 아니라 3월 2일로 굴러간다.
+  // 굴러간 값을 쓰면 사용자가 요청한 범위와 실제 범위가 조용히 달라진다 -
+  // 정본은 이 값들을 전부 400 으로 거절한다(실측).
+  it.each([
+    '2026-02-30T00:00:00Z',
+    '2026-04-31T00:00:00Z',
+    '2026-00-01T00:00:00Z',
+    '2026-01-00T00:00:00Z',
+  ])('달력에 없는 날 %s 을 거부한다', (raw: string) => {
+    expect(caught(() => parseFilters({ 'filter[createdAt][gte]': raw }, POLICY)).code).toBe(
+      'INVALID_FILTER',
+    );
+  });
+
+  // 윤년은 반대 방향의 가드다 - 위 검사가 2월을 통째로 28일로 막아 버리면 여기서 죽는다.
+  it('윤년의 2월 29일은 받는다', () => {
+    expect(
+      parseFilters({ 'filter[createdAt][gte]': '2024-02-29T00:00:00Z' }, POLICY)[0]?.value,
+    ).toBe('2024-02-29T00:00:00Z');
+  });
+
+  it.each([
+    '2026-04-05T25:00:00Z',
+    '2026-04-05T00:60:00Z',
+    '2026-04-05T00:00:60Z',
+    '2026-04-05T00:00:00+24:00',
+  ])('실재하지 않는 시각·오프셋 %s 을 거부한다', (raw: string) => {
+    expect(caught(() => parseFilters({ 'filter[createdAt][gte]': raw }, POLICY)).code).toBe(
+      'INVALID_FILTER',
+    );
   });
 
   it('enum에 없는 값을 거부한다', () => {

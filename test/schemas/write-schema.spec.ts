@@ -95,9 +95,15 @@ describe('validateAttributes', () => {
     expect(aggregate.errors[0]?.source).toEqual({ pointer: '/data/attributes/extra' });
   });
 
-  it('detail에 실패 이유를 담는다', async () => {
+  // class-validator 의 영문 문구를 응답에 싣지 않는다. 그 문구는 협상되지 않아
+  // `Accept-Language: ko` 를 줘도 영문이 나갔고, 값을 끼워 넣는 제약에서는 사용자
+  // 입력이 그대로 실렸다. 어느 입력이 틀렸는지는 `source.pointer` 가 말한다.
+  it('class-validator 문구를 오류에 싣지 않는다', async () => {
     const aggregate = await caught(() => validateAttributes(Sample, { title: '' }));
-    expect(aggregate.errors[0]?.detail).toEqual(expect.stringContaining('title'));
+    const [error] = aggregate.errors;
+
+    expect(error?.source).toEqual({ pointer: '/data/attributes/title' });
+    expect(JSON.stringify(error)).not.toContain('must be longer');
   });
 
   it('던지는 것은 언제나 JsonApiErrors다', async () => {

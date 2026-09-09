@@ -19,7 +19,13 @@ const VENDOR = 'application/vnd.api+json';
 const MISSING = '0195c1a0-0000-7000-8000-0000000009ff';
 
 interface ErrorBody {
-  errors: { code: string; status: string; title: string; source?: { pointer?: string } }[];
+  errors: {
+    code: string;
+    status: string;
+    title: string;
+    detail: string;
+    source?: { pointer?: string; parameter?: string };
+  }[];
 }
 
 interface ResourceBody {
@@ -247,6 +253,74 @@ describe('Examples API', () => {
       const response = await createExample({ title: '범위 밖', status: 'draft', score: 101 });
 
       expect(response.status).toBe(422);
+    });
+
+    // Accept-Language 왕복. 프론트엔드는 detail 을 그대로 그리고 번역 사전을
+    // 두지 않는다(설계 스펙 9.2) - 협상이 빠지면 한국어 사용자가 영문 오류를 본다.
+    //
+    // 고치기 전에는 class-validator 의 영문 문구
+    // ("title must be longer than or equal to 1 characters")가 언어와 무관하게
+    // 그대로 나갔다. 문구를 상수로 박지 않고 **두 언어가 서로 다른가**와
+    // **한국어에 한글이 있는가**로 잰다 - 카탈로그 문구를 다듬어도 안 죽는다.
+    it('쓰기 검증 오류 문구가 Accept-Language 를 따른다', async () => {
+      const errorFor = async (language: string): Promise<ErrorBody['errors'][number]> => {
+        const response = await api()
+          .post('/api/v1/examples')
+          .set('Accept', VENDOR)
+          .set('Content-Type', VENDOR)
+          .set('Accept-Language', language)
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send(
+            JSON.stringify({
+              data: { type: 'examples', attributes: { title: '', status: 'draft', score: 0 } },
+            }),
+          );
+        expect(response.status).toBe(422);
+        const [error] = (response.body as ErrorBody).errors;
+        if (error === undefined) {
+          throw new Error('오류 객체가 없다');
+        }
+        return error;
+      };
+
+      const ko = await errorFor('ko');
+      const en = await errorFor('en');
+
+      expect(ko.source).toEqual({ pointer: '/data/attributes/title' });
+      expect(ko.detail).not.toBe(en.detail);
+      expect(ko.title).not.toBe(en.title);
+      expect(ko.detail).toMatch(/[가-힣]/);
+      expect(en.detail).not.toMatch(/[가-힣]/);
+      // class-validator 의 문구도, 사용자가 보낸 값도 응답에 실리지 않는다.
+      expect(JSON.stringify(ko)).not.toContain('must be longer');
+      expect(JSON.stringify(en)).not.toContain('must be longer');
+    });
+
+    it('조회 필터 오류 문구도 Accept-Language 를 따른다', async () => {
+      const errorFor = async (language: string): Promise<ErrorBody['errors'][number]> => {
+        const response = await api()
+          .get('/api/v1/examples?filter[status][exact]=probe-lab-undeclared')
+          .set('Accept', VENDOR)
+          .set('Accept-Language', language);
+        expect(response.status).toBe(400);
+        const [error] = (response.body as ErrorBody).errors;
+        if (error === undefined) {
+          throw new Error('오류 객체가 없다');
+        }
+        return error;
+      };
+
+      const ko = await errorFor('ko');
+      const en = await errorFor('en');
+
+      expect(ko.code).toBe('INVALID_FILTER');
+      expect(ko.source).toEqual({ parameter: 'filter[status][exact]' });
+      expect(ko.detail).not.toBe(en.detail);
+      expect(ko.detail).toMatch(/[가-힣]/);
+      expect(en.detail).not.toMatch(/[가-힣]/);
+      // 사용자가 보낸 값이 문구에 되비치지 않는다.
+      expect(JSON.stringify(ko)).not.toContain('probe-lab-undeclared');
+      expect(JSON.stringify(en)).not.toContain('probe-lab-undeclared');
     });
 
     it('타입이 다르면 409 TYPE_MISMATCH다', async () => {

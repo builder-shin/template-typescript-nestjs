@@ -12,8 +12,8 @@ import { JsonApiError } from './errors.js';
  * 허용 목록은 평평하다. `category.parent` 같은 중첩 경로는 목록에 없으므로 자연히
  * 걸린다 — 점을 특별히 다루는 규칙을 따로 두지 않는다.
  */
-function invalidInclude(detail: string): JsonApiError {
-  return new JsonApiError('INVALID_INCLUDE', { source: { parameter: 'include' }, detail });
+function invalidInclude(): JsonApiError {
+  return new JsonApiError('INVALID_INCLUDE', { source: { parameter: 'include' } });
 }
 
 /** 요청이 요구한 include 경로를 정책과 시리얼라이저에 대조해 돌려준다. */
@@ -27,7 +27,7 @@ export function parseInclude(
     return [];
   }
   if (typeof raw !== 'string') {
-    throw invalidInclude('the parameter must be given exactly once');
+    throw invalidInclude();
   }
   if (raw.trim() === '') {
     return [];
@@ -37,13 +37,13 @@ export function parseInclude(
   for (const entry of raw.split(',')) {
     const path = entry.trim();
     if (path === '') {
-      throw invalidInclude('an empty include path is not allowed');
+      throw invalidInclude();
     }
     if (!policy.includes.includes(path)) {
-      throw invalidInclude(`"${path}" is not an includable path`);
+      throw invalidInclude();
     }
     if (!declaredRelationships.includes(path)) {
-      throw invalidInclude(`"${path}" is not a declared relationship`);
+      throw invalidInclude();
     }
     if (!paths.includes(path)) {
       paths.push(path);

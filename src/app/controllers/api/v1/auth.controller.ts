@@ -117,10 +117,7 @@ export class AuthController {
         claims.sessionId,
         this.settings.refreshExpiresSeconds,
       );
-      return singleDocument(
-        this.serializeTokens(rotated.userId, rotated.id, rotated.expiresAt),
-        [],
-      );
+      return singleDocument(this.serializeTokens(rotated.userId, rotated.id), []);
     });
   }
 
@@ -148,20 +145,25 @@ export class AuthController {
 
   private async issue(manager: EntityManager, userId: string): Promise<ResourceObject> {
     const session = await issueSession(manager, userId, this.settings.refreshExpiresSeconds);
-    return this.serializeTokens(userId, session.id, session.expiresAt);
+    return this.serializeTokens(userId, session.id);
   }
 
-  private serializeTokens(
-    userId: string,
-    sessionId: string,
-    refreshTokenExpiresAt: Date,
-  ): ResourceObject {
+  /**
+   * 두 수명 모두 **설정값 그대로** 내보낸다.
+   *
+   * 세션 행의 `expiresAt`에서 남은 초를 다시 계산하지 않는다 - 발급·회전 직후라
+   * 값은 같은데 `Date.now()`가 한 번 더 흐르는 만큼 2591999 같은 값이 나와,
+   * 같은 요청이 같은 답을 내지 못하게 된다. `issueSession`·`rotateSession`이
+   * 만료 시각을 바로 이 설정값으로 계산하므로 둘은 같은 수를 가리킨다 -
+   * 그 둘이 어긋나지 않는지는 통합 테스트가 DB의 `expires_at`과 대조해 지킨다.
+   */
+  private serializeTokens(userId: string, sessionId: string): ResourceObject {
     const tokens: AuthTokens = {
       id: sessionId,
       accessToken: this.tokens.signAccessToken(userId),
       refreshToken: this.tokens.signRefreshToken(userId, sessionId),
       accessTokenExpiresIn: this.settings.accessExpiresSeconds,
-      refreshTokenExpiresAt,
+      refreshTokenExpiresIn: this.settings.refreshExpiresSeconds,
     };
     return serializeResource(AUTH_TOKENS_SERIALIZER, tokens);
   }

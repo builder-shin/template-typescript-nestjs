@@ -14,7 +14,7 @@ export interface AuthTokens {
   readonly accessToken: string;
   readonly refreshToken: string;
   readonly accessTokenExpiresIn: number;
-  readonly refreshTokenExpiresAt: Date;
+  readonly refreshTokenExpiresIn: number;
 }
 
 export const AUTH_TOKENS_SERIALIZER: ResourceSerializer<AuthTokens> = {
@@ -26,7 +26,13 @@ export const AUTH_TOKENS_SERIALIZER: ResourceSerializer<AuthTokens> = {
     // 내보내는 편이 낫다 — 받는 쪽이 문자열을 하드코딩하지 않아도 된다.
     tokenType: () => 'Bearer',
     expiresIn: (tokens) => tokens.accessTokenExpiresIn,
-    refreshTokenExpiresAt: (tokens) => tokens.refreshTokenExpiresAt.toISOString(),
+    // refresh token 의 **남은 수명(초)**이다. 만료 시각(ISO)이 아니다.
+    //
+    // 프론트엔드는 이 값으로 세션 쿠키 둘의 만료를 정한다. 값이 없으면 수명을
+    // 정할 근거가 없어 만료 없는 브라우저 세션 쿠키가 되고, 그러면 **브라우저를
+    // 닫는 순간 로그인이 풀린다.** 정본(FastAPI)·Rails 가 내는 이름과 단위가
+    // 이것이다(실측: refreshExpiresIn = 2592000).
+    refreshExpiresIn: (tokens) => tokens.refreshTokenExpiresIn,
   },
   relationships: {},
 };

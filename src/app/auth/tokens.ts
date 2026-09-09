@@ -112,7 +112,7 @@ export class TokenService {
     }
 
     if (payload.typ !== kind) {
-      throw new JsonApiError('INVALID_TOKEN', { detail: `expected a ${kind} token` });
+      throw new JsonApiError('INVALID_TOKEN');
     }
     return payload;
   }
@@ -128,7 +128,7 @@ export class TokenService {
 function claimString(payload: Record<string, unknown>, name: string): string {
   const value = payload[name];
   if (typeof value !== 'string') {
-    throw new JsonApiError('INVALID_TOKEN', { detail: `token is missing ${name}` });
+    throw new JsonApiError('INVALID_TOKEN');
   }
   return value;
 }

@@ -17,18 +17,20 @@ import type { RelationshipCardinality } from '../serializers/serializer.js';
  * 잡는 쪽이 "하나인가 여럿인가"로 분기하지 않는다.
  */
 
-/** `ValidationError` 하나를 JSON:API 오류로 옮긴다. */
-function toJsonApiError(failure: ValidationError, path: readonly string[]): JsonApiError {
-  const constraints = failure.constraints ?? {};
-  const [detail] = Object.values(constraints);
+/**
+ * `ValidationError` 하나를 JSON:API 오류로 옮긴다.
+ *
+ * **class-validator 의 문구를 응답에 싣지 않는다.** 그 문구는 영문 고정이라
+ * `Accept-Language: ko` 를 줘도 영문이 나갔고, 값을 끼워 넣는 제약에서는 사용자
+ * 입력이 그대로 응답에 실렸다. 정본·Rails 는 카탈로그의 일반 문구를 협상해 낸다 -
+ * 무엇이 잘못됐는지는 `source.pointer` 가 말한다.
+ */
+function toJsonApiError(_failure: ValidationError, path: readonly string[]): JsonApiError {
   return new JsonApiError('VALIDATION_ERROR', {
     // 중첩 필드는 부모까지 담아야 클라이언트가 고칠 곳을 찾는다. class-validator는
     // 배열 원소의 property를 인덱스 문자열로 주므로 `tags/0/name` 같은 경로도
     // 그대로 올바른 JSON Pointer가 된다.
     source: { pointer: `/data/attributes/${path.join('/')}` },
-    // 제약이 여러 개 걸린 필드는 첫 메시지만 싣는다. 나머지는 같은 필드를 고치면
-    // 함께 사라지므로, 한 필드에 여러 줄을 내는 것보다 필드당 한 줄이 읽기 쉽다.
-    detail: detail ?? `"${path.join('.')}" is invalid`,
   });
 }
 

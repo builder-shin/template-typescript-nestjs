@@ -129,6 +129,46 @@ describe('인증 API', () => {
     expect(typeof body.data.attributes.refreshToken).toBe('string');
   });
 
+  // 프론트엔드는 이 값으로 세션 쿠키 둘의 만료를 정한다. 없으면 수명을 정할
+  // 근거가 없어 만료 없는 브라우저 세션 쿠키가 되고, 그러면 브라우저를 닫는
+  // 순간 로그인이 풀린다 - 기능이 아니라 사용자가 겪는 동작의 차이다.
+  //
+  // 값을 상수로 적지 않고 **DB에 커밋된 `expires_at`과 대조한다.** 응답의 초와
+  // 세션 행의 만료가 서로 다른 곳에서 계산되므로, 둘이 어긋나기 시작하면
+  // 여기서 죽어야 한다. 상수를 적으면 설정만 바꿔도 둘 다 통과해 버린다.
+  it.each([
+    ['로그인', 'auth-쿠키수명-로그인@example.test'] as const,
+    ['회전', 'auth-쿠키수명-회전@example.test'] as const,
+  ])('%s 응답의 refreshExpiresIn 이 커밋된 세션 만료와 맞는다', async (kind, email) => {
+    await register(email).expect(201);
+    let body = (await login(email).expect(200)).body as TokensBody;
+    if (kind === '회전') {
+      body = (await refresh(String(body.data.attributes.refreshToken)).expect(200))
+        .body as TokensBody;
+    }
+
+    const refreshExpiresIn = body.data.attributes.refreshExpiresIn;
+    expect(typeof refreshExpiresIn).toBe('number');
+    expect(refreshExpiresIn).toBeGreaterThan(0);
+    // 만료 시각(ISO)을 내던 옛 이름이 남아 있으면 안 된다.
+    expect(body.data.attributes).not.toHaveProperty('refreshTokenExpiresAt');
+
+    const rows = await dataSource.query<{ expires_at: Date }[]>(
+      `SELECT expires_at FROM refresh_sessions WHERE id = $1`,
+      [body.data.id],
+    );
+    expect(rows).toHaveLength(1);
+    const [row] = rows;
+    if (row === undefined) {
+      throw new Error('발급한 세션 행을 찾지 못했다');
+    }
+
+    const remainingSeconds = (row.expires_at.getTime() - Date.now()) / 1000;
+    // 요청 왕복만큼의 차이만 허용한다. 단위가 초가 아니거나(밀리초·시각)
+    // 다른 수명(access)을 흘리면 이 폭 안에 들어오지 못한다.
+    expect(Math.abs(remainingSeconds - Number(refreshExpiresIn))).toBeLessThan(60);
+  });
+
   it('없는 계정과 틀린 비밀번호가 같은 오류를 낸다', async () => {
     // 두 답이 다르면 응답만 보고 계정 존재를 알아낼 수 있다.
     await register('auth-같은오류@example.test').expect(201);

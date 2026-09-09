@@ -114,14 +114,14 @@ export function CrudActions<
      */
     private assertIdShape(manager: EntityManager, id: string): void {
       if (!canIdentify(manager, model, id)) {
-        throw this.notFound(id);
+        throw this.notFound();
       }
     }
 
-    private notFound(id: string): JsonApiError {
-      return new JsonApiError('RESOURCE_NOT_FOUND', {
-        detail: `no "${serializer.type}" resource with id "${id}"`,
-      });
+    private notFound(): JsonApiError {
+      // 요청한 id 를 문구에 싣지 않는다. 문구는 카탈로그가 언어별로 갖고,
+      // 사용자가 보낸 값을 응답에 되비추지 않는다.
+      return new JsonApiError('RESOURCE_NOT_FOUND');
     }
 
     /** 자원 하나를 include와 함께 읽는다. 없으면 404. */
@@ -147,7 +147,7 @@ export function CrudActions<
       }
       const entity = await builder.getOne();
       if (entity === null) {
-        throw this.notFound(id);
+        throw this.notFound();
       }
       return entity;
     }
