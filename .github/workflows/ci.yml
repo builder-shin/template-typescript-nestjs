@@ -37,3 +37,12 @@ jobs:
 
       - name: 운영 runtime 이미지 빌드
         run: docker build --target runtime --tag template-typescript-nestjs:ci .
+
+      - name: Compose 스택 기동
+        run: docker compose up -d --build --wait
+
+      - name: Compose 스택 정리
+        # `up`이 실패해도(예: 헬스체크 타임아웃) 러너에 컨테이너를 남기지 않도록
+        # 항상 실행한다.
+        if: always()
+        run: docker compose down -v

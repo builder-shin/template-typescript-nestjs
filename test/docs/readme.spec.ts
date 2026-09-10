@@ -1,22 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { VERIFICATION_COMMANDS, extractSection } from './verification-section.js';
 
 const repoRoot = new URL('../../', import.meta.url);
 const readmePath = fileURLToPath(new URL('README.md', repoRoot));
 const readme = readFileSync(readmePath, 'utf8');
-
-/**
- * 스펙이 정한 전체 검증 명령. README의 `## 검증` 절과 문자열 단위로 같아야 한다.
- * Phase 8에서 AGENTS.md가 추가되면 그 문서까지 같은 목록을 공유하는지 확인한다.
- */
-const VERIFICATION_COMMANDS = [
-  'pnpm install --frozen-lockfile',
-  './scripts/check.sh',
-  'docker compose config --quiet',
-  'docker build --target runtime --tag template-typescript-nestjs:verify .',
-  'docker compose up -d --build --wait',
-  'docker compose down -v',
-];
 
 const HEADING = '## 검증';
 
@@ -28,15 +17,13 @@ const HEADING = '## 검증';
  * 그렇다고 다른 절의 표기를 비틀면 같은 동작을 한 문서 안에서 두 가지로 적게 된다.
  * 단언해야 할 것은 "이 절이 이 목록을 이 순서로 담는가"이지
  * "이 문자열들이 문서 어디서 처음 나오는가"가 아니다.
+ *
+ * `extractSection`은 `test/docs/verification-section.ts`가 소유한다 —
+ * `test/docs/agents.spec.ts`가 루트 `AGENTS.md`의 같은 절을 확인할 때 이 함수와
+ * `VERIFICATION_COMMANDS`를 그대로 다시 쓴다.
  */
 function verificationSection(): string {
-  const start = readme.indexOf(HEADING);
-  if (start < 0) {
-    return '';
-  }
-  const rest = readme.slice(start + HEADING.length);
-  const next = rest.indexOf('\n## ');
-  return next < 0 ? rest : rest.slice(0, next);
+  return extractSection(readme, HEADING);
 }
 
 const STRUCTURE_HEADING = '## 구조';
@@ -44,11 +31,22 @@ const STRUCTURE_HEADING = '## 구조';
 /**
  * `## 구조` 코드 펜스 안의 각 줄에서 경로 토큰만 뽑아낸다.
  *
- * 이 블록은 `## 검증` 절과 달리 테스트로 고정돼 있지 않아 드리프트하기 쉽다
+ * `## 검증` 절과 달리 이 블록은 원래 테스트로 고정돼 있지 않아 드리프트하기 쉬웠다
  * (커밋 f0d703d 참고). `src/db/`, 그다음 `test/`와 `src/app/`이 차례로 실제와
- * 어긋났던 전례가 있고, Phase 2·6이 새 디렉터리를 만들 때 다시 어긋나기 쉽다.
- * 줄의 모양은 `path/          # 설명`이므로 각 줄의 선행 공백을 제외한 첫
- * 토큰을 경로로 본다.
+ * 어긋났던 전례가 있어 이 함수와 아래 테스트로 고정한다 — Phase 2·6이 새 디렉터리를
+ * 만들 때 다시 어긋나기 쉽기 때문이다. 줄의 모양은 `path/          # 설명`이므로
+ * 각 줄의 선행 공백을 제외한 첫 토큰을 경로로 본다.
+ *
+ * **의도적인 한계: `#` 뒤의 설명은 검사하지 않는다.** 검사가 넓어지지 못하는
+ * 것이 아니라, 넓힐 수 있는 기계적 근거가 없다 — 설명은 그 디렉터리가 소유하는
+ * 것을 사람이 요약한 자유 서술이고, 파일 이름만으로는 그 요약이 맞는지 정할 수
+ * 없다(`schemas/`가 조회 정책만 갖는지 쓰기 DTO도 함께 갖는지는 각 파일의 내용을
+ * 읽어야 알지 이름으로는 구분되지 않는다). 그래서 설명이 실제와 어긋나는 것은
+ * 이 테스트가 아니라 사람이 리뷰에서 잡아야 한다 — 실제로 세 번 그랬다(`src/app/`·
+ * `src/app/schemas/`·`test/` 세 줄의 설명이 각각 실제와 달랐고, 경로 자체는
+ * 맞았으므로 이 테스트는 셋 다 통과시켰다). `test/docs/agents.spec.ts`의
+ * `referencedPaths`가 경로 존재만 보고 산문의 정확성은 보지 않는 것과 같은
+ * 이유·같은 한계다.
  */
 function structurePaths(): string[] {
   const start = readme.indexOf(STRUCTURE_HEADING);
@@ -103,5 +101,38 @@ describe('README', () => {
   it('ESM 상대 import 제약을 명시한다', () => {
     expect(readme).toContain('.js');
     expect(readme).toContain('ESM');
+  });
+});
+
+describe('README 환경 변수 문서', () => {
+  it('필수 환경 변수를 모두 문서화한다', () => {
+    const readme = readFileSync(join(process.cwd(), 'README.md'), 'utf8');
+    // "필수"는 `settings.ts`/`test/db/fixture.ts`가 기본값 없이 `requireEnv`류로
+    // 읽는 변수를 뜻한다 — 없으면 프로세스가 아예 시작하지 않는다(`DATABASE_URL`·
+    // `JWT_SECRET_KEY`·`REDIS_URL`) 또는 테스트가 아예 시작하지 않는다
+    // (`TEST_DATABASE_URL`·`TEST_REDIS_URL`). `DB_POOL_MAX`·`PORT`는 기본값이 있어
+    // 엄밀히는 필수가 아니지만, Phase 2부터 이 목록에 있었고 README도 여전히
+    // 문서화하므로 남긴다 — 이 목록이 하던 일(README 표기가 실제 환경 변수와
+    // 어긋나지 않는지)을 계속하게 두는 것이 우선이다. 이 목록이 한때 네 개로 고정된
+    // 채 `REDIS_URL`·`TEST_REDIS_URL`이 늘어난 뒤에도 갱신되지 않아 "모두
+    // 문서화한다"는 이름과 실제로 4개만 보는 동작이 어긋났었다(Phase 7 전체 리뷰가
+    // 잡음) — 새 필수 변수가 생기면 여기도 함께 늘린다.
+    for (const name of [
+      'DATABASE_URL',
+      'JWT_SECRET_KEY',
+      'REDIS_URL',
+      'DB_POOL_MAX',
+      'PORT',
+      'TEST_DATABASE_URL',
+      'TEST_REDIS_URL',
+    ]) {
+      expect(readme).toContain(name);
+    }
+  });
+
+  it('마이그레이션과 시드 명령을 문서화한다', () => {
+    const readme = readFileSync(join(process.cwd(), 'README.md'), 'utf8');
+    expect(readme).toContain('pnpm migrate');
+    expect(readme).toContain('pnpm seed');
   });
 });

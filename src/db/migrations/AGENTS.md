@@ -1,0 +1,130 @@
+<!-- Parent: ../AGENTS.md -->
+<!-- Generated: 2026-09-11 | Updated: 2026-09-11 -->
+
+# migrations 안내
+
+## 목적
+
+PostgreSQL 스키마 변경 SQL과 TypeORM 등록 배열을 관리합니다. 현재 스키마는 전체 이력을 순서대로 적용한 결과입니다.
+
+## 주요 파일
+
+| 파일                                                       | 설명                                                                                          |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `index.ts`                                                 | MigrationClass 타입과 명시적인 MIGRATIONS 배열.                                               |
+| `20260829000000-create-example-schema.ts`                  | Category/Tag/Example와 조인 테이블의 초기 스키마 및 역변경.                                   |
+| `20260830000000-add-example-sort-indexes.ts`               | 당시 Example 정렬 컬럼의 복합 인덱스 추가/제거.                                               |
+| `20260902000000-create-auth-schema.ts`                     | User와 refresh session 테이블, 제약과 인덱스.                                                 |
+| `20260902164541-add-refresh-sessions-replaced-by-index.ts` | 세션 자기참조 FK 정리에 필요한 replaced_by_id 인덱스.                                         |
+| `20260904000000-align-example-schema-with-canon.ts`        | body를 description으로 전환하고 score/범위 제약과 active 상태를 반영하며 published_at을 제거. |
+
+## 작업·검증 지침
+
+- 적용된 파일을 수정하지 말고 새 파일과 `MIGRATIONS` 등록, 대응 엔티티 선언을 함께 추가합니다.
+- UTC 파일명과 epoch millis 클래스명은 같은 시각을 가리켜야 합니다.
+- `down()`은 실제 스키마를 되돌립니다. 삭제된 컬럼 데이터까지 복구한다는 뜻은 아닙니다.
+- 저장소 루트에서 `pnpm test:quick --runInBand test/db/migration-naming.spec.ts`로 이름/등록을 검사합니다.
+- 전용 `TEST_DATABASE_URL`을 설정하고 다음 명령으로 실제 up/down 및 드리프트를 검사합니다.
+
+```bash
+pnpm test:quick --runInBand --runTestsByPath test/integration/migrations.spec.ts test/integration/migration-revert.spec.ts
+```
+
+전체 인프라 준비와 검증은 `./scripts/check.sh`를 사용합니다.
+
+## 의존성
+
+`src/config/database.ts`가 등록 배열을 소비하고 `src/app/models/`가 같은 스키마를 선언합니다.
+TypeORM MigrationInterface/QueryRunner와 PostgreSQL SQL을 사용합니다.
+
+<!-- MANUAL: 기존 main의 상세 계약을 보존합니다. 이 줄 아래는 자동 재생성하지 않습니다. -->
+
+# src/db/migrations/ — 스키마 변경 이력
+
+이 디렉터리는 스키마 변경을 SQL로 기록한 마이그레이션 파일과, 그 파일들을
+`DataSource`에 등록하는 `index.ts`를 소유한다. 시드 데이터(`src/db/seeds.ts`)는
+여기 없다 — 스키마와 데이터는 생명주기가 다르다.
+
+## 파일명과 클래스명의 타임스탬프는 같은 시각을 가리켜야 한다
+
+파일명 접두어(14자리 UTC `yyyyMMddHHmmss`)와 클래스명 접미어(13자리 epoch
+millis)는 같은 순간을 UTC로 가리켜야 한다. TypeORM이 마이그레이션 실행 순서를
+정하는 것은 파일 정렬이 아니라 이 epoch millis이므로, 둘이 어긋나면 "파일
+이름으로 보이는 순서"와 "실제로 실행되는 순서"가 갈라진다.
+`test/db/migration-naming.spec.ts`가 둘을 비교해 고정한다.
+
+이 저장소는 이것을 실제로 한 번 어겼다 — `create-auth-schema` 마이그레이션을
+처음 커밋했을 때 클래스명 끝이 파일명(`20260902000000`, 2026-09-02T00:00:00Z)과
+다른, 하루 밀린 시각(2026-09-03T00:00:00Z)을 가리켰다.
+`test/db/migration-naming.spec.ts`가 그 자리에서 잡아 값을 바로잡았다.
+
+이 실수가 나기 쉬운 조건이 하나 더 있다 — 로컬 셸의 날짜와 UTC의 날짜가 갈리는
+시각이다. 이 저장소는 UTC+9 환경에서 개발되므로 로컬 자정부터 오전 9시
+사이에는 로컬 날짜가 UTC보다 하루 앞선다.
+`add-refresh-sessions-replaced-by-index` 마이그레이션을 만든 시점이 정확히 그
+구간이었다(로컬 셸은 이미 다음 날짜, UTC는 아직 전날 16시대). 이때는 로컬
+셸의 날짜를 그대로 베끼지 않고 `node -e "new Date().toISOString()"`으로 UTC를
+직접 읽어 타임스탬프를 정했다 — 그래서 이번에는 사고로 이어지지 않았지만, 이
+구간에 새 마이그레이션을 만들 때는 이 명령으로 UTC를 직접 확인하는 습관이
+안전하다.
+
+## `MIGRATIONS` 배열에 손으로 등록한다
+
+`src/db/migrations/index.ts`의 `MIGRATIONS`가 `DataSource`에 실제로 실행되는
+마이그레이션의 유일한 목록이다. 파일을 디렉터리에 두는 것과 이 배열에
+등록하는 것은 별개다 — 등록하지 않으면 파일이 있어도 실행되지 않는다.
+`test/db/migration-naming.spec.ts`가 디렉터리의 파일 수와 배열의 길이를
+비교해 이 배열이 디렉터리를 빠짐없이 담는지 고정한다. 배열 안의 나열 순서
+자체는 의미가 없다 — 실행 순서는 위에서 설명한 epoch millis가 정한다.
+
+## `down()`은 선언만으로 끝나지 않는다 — 실제로 실행된다
+
+`test/db/migration-naming.spec.ts`는 `up`/`down`이 함수로 **존재하는지**만
+본다. 실제로 되돌리는지는 `test/integration/migration-revert.spec.ts`가 전용
+스키마 위에서 모든 마이그레이션을 `up()`한 뒤 역순으로 `down()`해, 테이블·
+enum·인덱스가 하나도 남지 않는지를 실제 PostgreSQL에서 확인한다. 한 번도
+이렇게 실행되지 않은 `down()`은 배포 롤백이 실제로 필요한 순간 처음
+실행되는 셈이다 — `down()`을 비워 두거나(되돌릴 수 없는 마이그레이션은 받지
+않는다) SQL을 대충 쓰면 이 스펙이 잡는다.
+
+## 스키마 드리프트 검사가 잡는 것
+
+`test/integration/migrations.spec.ts`의 "엔티티 메타데이터가 실제 스키마와
+어긋나지 않는다" 테스트는 `dataSource.driver.createSchemaBuilder().log()`를
+불러 `synchronize`가 만들려는 SQL이 비어 있는지 본다 — TypeORM이 엔티티
+메타데이터를 실제 DB 스키마와 비교해 그 차이를 메우려는 쿼리를 계산하는
+경로이고, 그 계산 결과가 비어 있어야 "엔티티가 선언한 것"과 "마이그레이션이
+실제로 만든 것"이 일치한다는 뜻이다.
+
+이 비교에는 방향이 있다는 것이 중요하다. **엔티티에는 없는데 DB(마이그레이션)
+에만 있는 인덱스나 제약은 "지워야 할 차이"로 잡힌다.** TypeORM 입장에서는
+엔티티 메타데이터가 진실이므로, 마이그레이션이 만든 인덱스를 엔티티의
+`@Index`나 `@Column({ unique: true })` 등으로 선언하지 않으면 그 인덱스는
+"동기화하려면 지워야 할 것"으로 제안된다. 이 검사가 이 저장소에서 실제로
+두 번 잡은 구체적인 사례는 루트 `AGENTS.md`의 DB 규칙 절에 있다. 그래서
+마이그레이션에 인덱스나 제약을 추가할 때는 반드시 대응하는 엔티티 데코레이터
+(`src/app/models/`)를 같은 커밋에 추가한다 — 이름까지 글자 단위로 같아야
+한다(다르면 TypeORM이 해시 이름을 만들어 또 다른 드리프트가 된다).
+
+## 함께 고쳐야 하는 파일
+
+- **새 마이그레이션을 추가할 때.** 파일 자체와 `src/db/migrations/index.ts`의
+  `MIGRATIONS` 등록, 그리고 그 마이그레이션이 만드는 컬럼·인덱스·제약을
+  선언하는 `src/app/models/`의 엔티티를 같은 커밋에 넣는다. 셋 중 하나라도
+  빠지면 "실행되지 않는 파일"이 되거나(등록 누락) "지워야 할 드리프트"로
+  잡힌다(엔티티 누락).
+- **적용된 마이그레이션의 SQL을 고치고 싶을 때.** 고치지 않는다 — 새
+  마이그레이션을 추가한다. 이미 그 마이그레이션을 적용한 환경(스테이징 등)은
+  `MIGRATIONS` 배열에 새 항목이 생기기 전까지는 옛 스키마 그대로이므로, 파일을
+  직접 고치면 "이 마이그레이션을 언제 적용했는가"에 따라 같은 코드베이스가
+  서로 다른 스키마를 갖게 된다. `add-refresh-sessions-replaced-by-index`
+  마이그레이션이 이 규칙을 실제로 지킨 예다 — 적용된
+  `create-auth-schema` 마이그레이션의 SQL은 건드리지 않고 인덱스 하나를 새
+  마이그레이션으로 추가했다.
+- **정렬·필터가 여는 컬럼 조합에 인덱스가 필요해질 때.** 왜 인덱스를 만드는
+  변경과 그것을 필요하게 만드는 변경이 같은 커밋에 있어야 하는지는 루트
+  `AGENTS.md`의 DB 규칙 절이 근거(Phase 7의 `replaced_by_id` cascade 사고)를
+  든다. 이 디렉터리에서 그 규칙은 구체적으로 새 마이그레이션 파일 하나로
+  나타난다 — 인덱스를 기존 마이그레이션에 끼워 넣지 않고, 이름을 대응
+  엔티티의 `@Index`와 글자 단위로 맞춘 새 파일을 추가한다(위 "스키마 드리프트
+  검사가 잡는 것" 참고).

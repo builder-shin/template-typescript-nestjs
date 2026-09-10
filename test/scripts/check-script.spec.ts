@@ -42,6 +42,25 @@ describe('scripts/check.sh', () => {
     expect(script).toContain('TEST_DB_PORT=0');
   });
 
+  it('이미 주어진 TEST_REDIS_URL을 존중한다', () => {
+    // db와 redis는 서로 독립적으로 판단해야 한다 — 한쪽만 주어졌을 때 그 서비스는
+    // 건너뛰고 나머지 하나만 띄워야 한다.
+    expect(script).toContain('if [[ -z "${TEST_REDIS_URL:-}" ]]; then');
+  });
+
+  it('임의 포트로 임시 Redis를 띄운다', () => {
+    expect(script).toContain('TEST_REDIS_PORT=0');
+  });
+
+  it('db나 redis 중 하나라도 띄웠으면 종료 시 정리한다', () => {
+    // `down -v`는 컴포즈 프로젝트 전체를 내리므로 서비스별 플래그를 따로 둘 필요가
+    // 없다 — "무엇이든 하나라도 띄웠는가"만 알면 정리 여부를 결정하기에 충분하다.
+    // 대신 플래그 이름이 db 전용으로 읽히면 안 되므로 두 서비스를 함께 가리키는
+    // 이름을 쓴다.
+    expect(cleanupBody()).toContain('started_test_services');
+    expect(script).not.toContain('started_test_database');
+  });
+
   it('다섯 가지 검사를 순서대로 실행한다', () => {
     const checks = [
       'pnpm exec eslint .',

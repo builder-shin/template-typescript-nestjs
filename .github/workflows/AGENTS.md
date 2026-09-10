@@ -6,7 +6,7 @@
 ## 목적
 
 GitHub Actions에서 의존성 설치, 공통 검증 게이트, Compose 설정 검사와 운영 이미지
-빌드를 실행합니다.
+빌드 및 전체 스택 기동·정리를 실행합니다.
 
 ## 주요 파일
 
@@ -23,6 +23,8 @@ GitHub Actions에서 의존성 설치, 공통 검증 게이트, Compose 설정 �
 - frozen 설치 후 `./scripts/check.sh`를 호출합니다. 검사 목록을 CI에 별도로 복제하지 않습니다.
 - 이어 `docker compose config --quiet`와 `docker build --target runtime`을 실행합니다.
   CI 이미지 태그는 `template-typescript-nestjs:ci`이고 README 검증 예시는 `:verify`입니다.
+- 이미지 빌드 후 `docker compose up -d --build --wait`로 스택을 확인하고,
+  `if: always()` 정리 단계에서 `docker compose down -v`를 실행합니다.
 - GitHub Actions 파일은 YAML이고 단계 이름은 기존 한국어 표현을 따릅니다.
 
 ### 테스트 요구사항
@@ -35,7 +37,7 @@ GitHub Actions에서 의존성 설치, 공통 검증 게이트, Compose 설정 �
 ### 공통 패턴
 
 checkout → pnpm 설정 → Node 설정 및 pnpm 캐시 → frozen 설치 → 공통 검사 →
-Compose 설정 검증 → runtime 이미지 빌드 순서입니다.
+Compose 설정 검증 → runtime 이미지 빌드 → 스택 기동 → 항상 실행하는 정리 순서입니다.
 
 ## 의존성
 
