@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { In } from 'typeorm';
 import type { DataSource } from 'typeorm';
 import { Category } from '../../src/app/models/category.entity.js';
@@ -92,12 +93,13 @@ describe('결정적 시드', () => {
     });
   });
 
-  it('시드 선언에 없는 조인 행은 다음 실행에서 사라진다', async () => {
+  it('시드 선언에 없는 조인 행도 다음 실행에서 보존한다', async () => {
     await withRollback(dataSource, async (manager) => {
       await seed(manager);
 
-      const exampleId = SEED_EXAMPLE_IDS.gettingStarted;
-      const strayTagId = SEED_TAG_IDS.postgres; // gettingStarted가 선언하지 않은 태그
+      const exampleId = Object.values(SEED_EXAMPLE_IDS)[0];
+      const strayTag = await manager.save(Tag, { name: `extra-${randomUUID()}` });
+      const strayTagId = strayTag.id;
 
       await manager.query(`INSERT INTO example_tags (example_id, tag_id) VALUES ($1, $2)`, [
         exampleId,
@@ -118,7 +120,7 @@ describe('결정적 시드', () => {
         `SELECT tag_id FROM example_tags WHERE example_id = $1`,
         [exampleId],
       );
-      expect(after.map((row) => row.tag_id)).not.toContain(strayTagId);
+      expect(after.map((row) => row.tag_id)).toContain(strayTagId);
       // 선언된 관계는 그대로 남아야 한다 — 전부 지우고 마는 구현도 위 단언은 통과한다.
       expect(after).toHaveLength(2);
     });
@@ -169,5 +171,26 @@ describe('결정적 시드', () => {
         where: { id: In(Object.values(SEED_EXAMPLE_IDS)) },
       }),
     ).toBe(0);
+  });
+  it('uses the shared seed graph and preserves unchanged timestamps', async () => {
+    await withRollback(dataSource, async (manager) => {
+      await seed(manager);
+      const exampleId = '00000000-0000-4000-8000-000000000003';
+      const value = await manager.findOneOrFail(Example, {
+        where: { id: exampleId },
+        relations: { category: true, tags: true },
+      });
+      expect(value).toMatchObject({ title: 'JSON:API \uc608\uc2dc', status: 'active', score: 90 });
+      expect(value.category?.id).toBe('00000000-0000-4000-8000-000000000001');
+      expect(value.tags?.map((tag) => tag.id)).toEqual(['00000000-0000-4000-8000-000000000002']);
+      await manager.query(
+        "UPDATE examples SET updated_at = '2020-01-01 00:00:00+00' WHERE id = $1",
+        [exampleId],
+      );
+      await seed(manager);
+      expect(
+        (await manager.findOneByOrFail(Example, { id: exampleId })).updatedAt.toISOString(),
+      ).toBe('2020-01-01T00:00:00.000Z');
+    });
   });
 });

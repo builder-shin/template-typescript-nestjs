@@ -16,7 +16,7 @@ const LINKS = { self: '/api/v1/examples?page[number]=1&page[size]=25' };
 
 describe('singleDocument', () => {
   it('data를 담는다', () => {
-    expect(singleDocument(RESOURCE, [])).toEqual({ data: RESOURCE });
+    expect(singleDocument(RESOURCE, [])).toEqual({ jsonapi: { version: '1.1' }, data: RESOURCE });
   });
 
   it('included가 비면 멤버를 생략한다', () => {

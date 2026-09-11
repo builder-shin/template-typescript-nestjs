@@ -23,7 +23,7 @@ export interface ResourceObject {
   readonly type: string;
   readonly id: string;
   readonly attributes: Record<string, unknown>;
-  readonly relationships: Record<string, RelationshipObject>;
+  readonly relationships?: Record<string, RelationshipObject>;
   readonly links?: { readonly self: string };
 }
 
@@ -74,6 +74,7 @@ export interface ResourceSerializer<T extends { id: string }> {
    * `src/app/serializers/AGENTS.md`의 "`resourcePath`가 선택인 이유" 참고.
    */
   readonly resourcePath?: string;
+  readonly selfLink?: (entity: T) => string;
   readonly attributes: Readonly<Record<string, (entity: T) => unknown>>;
   readonly relationships: Readonly<Record<string, RelationshipDefinition<T>>>;
 }
@@ -117,7 +118,8 @@ export function serializeResource<T extends { id: string }>(
   }
 
   const path = serializer.resourcePath;
-  const self = path === undefined ? undefined : `${path}/${entity.id}`;
+  const self =
+    serializer.selfLink?.(entity) ?? (path === undefined ? undefined : `${path}/${entity.id}`);
 
   const relationships: Record<string, RelationshipObject> = {};
   for (const [name, definition] of Object.entries(serializer.relationships)) {
@@ -140,7 +142,7 @@ export function serializeResource<T extends { id: string }>(
     type: serializer.type,
     id: entity.id,
     attributes,
-    relationships,
+    ...(Object.keys(relationships).length === 0 ? {} : { relationships }),
     ...(self === undefined ? {} : { links: { self } }),
   };
 }

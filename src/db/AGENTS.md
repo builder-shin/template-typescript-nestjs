@@ -46,17 +46,16 @@ TypeORM EntityManager/DataSource 및 Node URL API를 사용합니다.
 절차는 같은 시드를 몇 번이고 다시 돌릴 수 있어야 안전하므로, `src/db/seeds.ts`는
 이것을 세 가지 장치로 보장한다.
 
-- **고정 UUID.** `CATEGORY_ID_LITERALS`·`TAG_ID_LITERALS`·`EXAMPLE_ID_LITERALS`가
+- **고정 UUID.** `SEED_CATEGORY_IDS`·`SEED_TAG_IDS`·`SEED_EXAMPLE_IDS`가
   각 행의 id를 리터럴로 못박는다. 테이블 쪽 `DEFAULT gen_random_uuid()`에
   맡기면 실행마다 다른 행이 태어나 "두 번째 실행"이라는 것 자체가 의미를 잃는다.
 - **PostgreSQL upsert(`ON CONFLICT` 기반 `orUpdate`).** 같은 id가 이미 있으면
   선언한 컬럼 값으로 덮어쓴다. 그래서 시드 실행 뒤 손으로 고친 행이 있어도
   다음 시드가 선언 값으로 되돌린다 — "결정적"은 "다시 돌리면 항상 선언대로
   돌아온다"는 뜻이지 "기존 행을 건드리지 않는다"는 뜻이 아니다.
-- **조인 행은 지우고 다시 넣는다.** `example_tags`는 `Example` 하나마다 먼저
-  `DELETE`한 뒤 선언된 관계만 다시 `INSERT`한다. upsert만으로는 "이번 선언에서
-  뺀 관계"를 지울 수 없기 때문이다 — upsert는 있는 것을 갱신할 뿐 없어져야 할
-  것을 알지 못한다.
+- **변경 없는 행과 추가 관계를 보존한다.** upsert는 값이 달라질 때만 갱신하여
+  `updated_at`을 유지한다. `example_tags`는 `ON CONFLICT DO NOTHING`으로
+  선언된 관계를 보충하고 사용자가 추가한 관계를 삭제하지 않는다.
 
 ## 트랜잭션은 호출자가 소유한다
 

@@ -5,6 +5,7 @@ import type { ValidationError } from 'class-validator';
 import type { EntityTarget, ObjectLiteral } from 'typeorm';
 import { JsonApiError, JsonApiErrors } from '../jsonapi/errors.js';
 import type { RelationshipCardinality } from '../serializers/serializer.js';
+import { pointerSegment } from '../jsonapi/document.js';
 
 /**
  * 쓰기 DTO 검증.
@@ -30,7 +31,7 @@ function toJsonApiError(_failure: ValidationError, path: readonly string[]): Jso
     // 중첩 필드는 부모까지 담아야 클라이언트가 고칠 곳을 찾는다. class-validator는
     // 배열 원소의 property를 인덱스 문자열로 주므로 `tags/0/name` 같은 경로도
     // 그대로 올바른 JSON Pointer가 된다.
-    source: { pointer: `/data/attributes/${path.join('/')}` },
+    source: { pointer: `/data/attributes/${path.map(pointerSegment).join('/')}` },
   });
 }
 
@@ -67,13 +68,27 @@ export async function validateAttributes<D extends object>(
   schema: ClassConstructor<D>,
   attributes: Record<string, unknown>,
 ): Promise<D> {
-  const instance = plainToInstance(schema, attributes);
+  // Check raw own keys before class-transformer can discard prototype names.
+  const allowed = new Set(schemaProperties(schema));
+  const entries = Object.entries(attributes);
+  const unknownErrors = entries
+    .filter(([key]) => !allowed.has(key))
+    .map(
+      ([key]) =>
+        new JsonApiError('VALIDATION_ERROR', {
+          source: { pointer: `/data/attributes/${pointerSegment(key)}` },
+        }),
+    );
+  const instance = plainToInstance(
+    schema,
+    Object.fromEntries(entries.filter(([key]) => allowed.has(key))),
+  );
   const failures = await validate(instance, {
     whitelist: true,
     forbidNonWhitelisted: true,
     forbidUnknownValues: true,
   });
-  const errors = flatten(failures);
+  const errors = [...flatten(failures), ...unknownErrors];
   if (errors.length > 0) {
     throw new JsonApiErrors(errors);
   }

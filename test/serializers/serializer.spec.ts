@@ -90,7 +90,7 @@ describe('serializeResource', () => {
 
   it('관계마다 self와 related 링크를 낸다', () => {
     const object = serializeResource(POST_SERIALIZER, post());
-    const author = object.relationships.author;
+    const author = object.relationships?.author;
     if (author === undefined) {
       throw new Error('author 관계가 없다');
     }
@@ -131,7 +131,7 @@ describe('serializeResource', () => {
       },
     };
     const object = serializeResource(pathless, post({ author: { id: 'a1', name: '글쓴이' } }));
-    const author = object.relationships.author;
+    const author = object.relationships?.author;
     if (author === undefined) {
       throw new Error('author 관계가 없다');
     }
@@ -143,7 +143,7 @@ describe('serializeResource', () => {
     // 로드하지 않은 것과 "없음"은 다르다. undefined는 모른다는 뜻이므로 linkage를
     // 지어내지 않는다 — 지어내면 클라이언트가 관계가 비었다고 오해한다.
     const object = serializeResource(POST_SERIALIZER, post());
-    const author = object.relationships.author;
+    const author = object.relationships?.author;
     if (author === undefined) {
       throw new Error('author 관계가 없다');
     }
@@ -152,7 +152,7 @@ describe('serializeResource', () => {
 
   it('to-one 관계가 null이면 data도 null이다', () => {
     const object = serializeResource(POST_SERIALIZER, post({ author: null }));
-    expect(object.relationships.author?.data).toBeNull();
+    expect(object.relationships?.author?.data).toBeNull();
   });
 
   it('to-one 관계의 linkage를 담는다', () => {
@@ -160,7 +160,7 @@ describe('serializeResource', () => {
       POST_SERIALIZER,
       post({ author: { id: 'a1', name: '글쓴이' } }),
     );
-    expect(object.relationships.author?.data).toEqual({ type: 'authors', id: 'a1' });
+    expect(object.relationships?.author?.data).toEqual({ type: 'authors', id: 'a1' });
   });
 
   it('to-many 관계의 linkage를 배열로 담는다', () => {
@@ -173,7 +173,7 @@ describe('serializeResource', () => {
         ],
       }),
     );
-    expect(object.relationships.reviewers?.data).toEqual([
+    expect(object.relationships?.reviewers?.data).toEqual([
       { type: 'authors', id: 'a1' },
       { type: 'authors', id: 'a2' },
     ]);
@@ -181,7 +181,7 @@ describe('serializeResource', () => {
 
   it('빈 to-many 관계는 빈 배열이다', () => {
     const object = serializeResource(POST_SERIALIZER, post({ reviewers: [] }));
-    expect(object.relationships.reviewers?.data).toEqual([]);
+    expect(object.relationships?.reviewers?.data).toEqual([]);
   });
 });
 

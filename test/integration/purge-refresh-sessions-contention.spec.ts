@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { QueryFailedError } from 'typeorm';
 import { RefreshSession } from '../../src/app/models/refresh-session.entity.js';
 import { User } from '../../src/app/models/user.entity.js';
@@ -191,6 +192,7 @@ describe('purgeExpiredRefreshSessions 경합', () => {
     extra: { revokedAt?: Date | null; replacedById?: string | null } = {},
   ): Promise<string> {
     const session = await dataSource.manager.save(RefreshSession, {
+      tokenHash: randomBytes(32).toString('hex'),
       userId,
       expiresAt,
       revokedAt: extra.revokedAt ?? null,

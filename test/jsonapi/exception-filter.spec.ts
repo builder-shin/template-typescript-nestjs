@@ -33,6 +33,9 @@ function hostFor(acceptLanguage?: string | string[]): {
       captured.headers[name.toLowerCase()] = value;
       return this;
     },
+    removeHeader(name: string) {
+      Reflect.deleteProperty(captured.headers, name.toLowerCase());
+    },
     json(body: unknown) {
       captured.body = body;
       return this;
@@ -202,6 +205,13 @@ describe('JsonApiExceptionFilter', () => {
     expect(captured.headers['content-type']).toBe(JSONAPI_MEDIA_TYPE);
   });
 
+  it('removes success Location headers when the action fails', () => {
+    const { host, captured } = hostFor();
+    captured.headers.location = '/api/v1/users/me';
+    filter.catch(new JsonApiError('VALIDATION_ERROR'), host);
+    expect(captured.headers.location).toBeUndefined();
+  });
+
   it('Accept-Language를 따라 ko 메시지를 낸다', () => {
     const { host, captured } = hostFor('ko');
     filter.catch(new JsonApiError('RESOURCE_NOT_FOUND'), host);
@@ -233,13 +243,13 @@ describe('JsonApiExceptionFilter', () => {
     expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.RESOURCE_NOT_FOUND.en.title);
   });
 
-  it('Nest HttpException을 HTTP_ERROR로 감싸고 status를 유지한다', () => {
+  it('Nest 404를 RESOURCE_NOT_FOUND로 감싸고 status를 유지한다', () => {
     const { host, captured } = hostFor();
     filter.catch(new NotFoundException(), host);
     expect(captured.status).toBe(404);
     const body = captured.body as { errors: { code: string; status: string }[] };
     const error = firstOf(body.errors);
-    expect(error.code).toBe('HTTP_ERROR');
+    expect(error.code).toBe('RESOURCE_NOT_FOUND');
     expect(error.status).toBe('404');
   });
 
@@ -316,7 +326,7 @@ describe('JsonApiExceptionFilter', () => {
   it('5xx HttpException은 남긴다', () => {
     const { host } = hostFor();
     filter.catch(new HttpException('gateway', HttpStatus.BAD_GATEWAY), host);
-    expect(String(firstOf(logged).message)).toBe('GET /api/v1/examples -> HTTP_ERROR');
+    expect(String(firstOf(logged).message)).toBe('GET /api/v1/examples -> INTERNAL_SERVER_ERROR');
   });
 
   it('집합 오류를 여러 오류 객체로 펼친다', () => {

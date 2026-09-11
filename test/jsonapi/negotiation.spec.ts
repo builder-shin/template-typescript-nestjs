@@ -47,6 +47,25 @@ function rejectsAsUnsupportedMediaType(context: ExecutionContext): boolean {
 }
 
 describe('acceptsJsonApi', () => {
+  it.each([
+    ['application/vnd.api+json;q=0', false],
+    ['application/vnd.api+json;q=0, */*;q=1', false],
+    ['application/*;q=0, */*;q=1', false],
+    ['application/vnd.api+json;q=0, application/vnd.api+json;q=0.5', true],
+    ['application/vnd.api+json;profile="https://example.test/a;b,c"', true],
+    ['application/vnd.api+json;profile="a\\"b"', true],
+    ['application/vnd.api+json;ext="https://example.test/e", */*', false],
+    ['application/vnd.api+json;profile="unterminated', false],
+    ['application/vnd.api+json;q=1.001', false],
+    ['application/vnd.api+json;q=0.0001', false],
+    ['application/vnd.api+json;q="1"', false],
+    ['application/vnd.api+json;q=0;q=1', false],
+    ['application/vnd.api+json;q =1', false],
+    ['application/vnd.api+json;q= 1', false],
+    ['*/*;profile="ignored"', false],
+  ])('negotiates quality and quoted parameters: %s', (header, accepted) => {
+    expect(acceptsJsonApi(header)).toBe(accepted);
+  });
   it('헤더가 없으면 허용한다', () => {
     expect(acceptsJsonApi(undefined)).toBe(true);
   });
@@ -311,6 +330,17 @@ describe('SkipJsonApiNegotiation', () => {
 });
 
 describe('JsonApiNegotiationGuard 경계 사례', () => {
+  it.each(['GET', 'HEAD'])('ignores the body media type on bodyless %s routes', (method) => {
+    const context = contextFor({
+      method,
+      headers: {
+        accept: 'application/vnd.api+json',
+        'content-type': 'text/plain',
+        'content-length': '5',
+      },
+    });
+    expect(guard().canActivate(context)).toBe(true);
+  });
   it('Accept가 배열로 오면 첫 번째 값만 본다', () => {
     const request = {
       method: 'GET',
@@ -339,11 +369,11 @@ describe('JsonApiNegotiationGuard 경계 사례', () => {
     throw new Error('expected NOT_ACCEPTABLE');
   });
 
-  it('Accept 후보가 트레일링 세미콜론만 가지면 파라미터 없음으로 보고 허용한다', () => {
+  it('rejects malformed trailing semicolons', () => {
     const context = contextFor({
       method: 'GET',
       headers: { accept: 'application/vnd.api+json;' },
     });
-    expect(guard().canActivate(context)).toBe(true);
+    expect(() => guard().canActivate(context)).toThrow(JsonApiError);
   });
 });

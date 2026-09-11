@@ -1,22 +1,26 @@
-import { Body, Controller, HttpCode, Inject, Post, UseGuards } from '@nestjs/common';
+import { getExactEntities } from '../../../jsonapi/exact-timestamps.js';
+import { Body, Controller, HttpCode, Header, Inject, Post, UseGuards } from '@nestjs/common';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { DataSource, QueryFailedError } from 'typeorm';
 import { hashPassword, verifyDummyPassword, verifyPassword } from '../../../auth/password.js';
-import { issueSession, revokeSession, rotateSession } from '../../../auth/refresh-session.js';
+import {
+  issueSession,
+  lockUser,
+  revokeSession,
+  rotateSession,
+} from '../../../auth/refresh-session.js';
 import { JWT_SETTINGS_TOKEN, TokenService } from '../../../auth/tokens.js';
 import { JsonApiError } from '../../../jsonapi/errors.js';
 import { JsonApiNegotiationGuard } from '../../../jsonapi/negotiation.js';
 import { User } from '../../../models/user.entity.js';
 import { AUTH_TOKENS_SERIALIZER, USER_SERIALIZER } from '../../../serializers/index.js';
 import { AuthCredentials, RefreshTokenInput, UserRegister } from '../../../schemas/index.js';
-import { parseWriteDocument } from '../../concerns/document-parsing.js';
-import { unwritableRelationshipError } from '../../concerns/relationship-resolver.js';
+import { parseAuthWriteDocument } from '../../concerns/document-parsing.js';
 import { serializeResource } from '../../../serializers/serializer.js';
 import { singleDocument } from '../../concerns/documents.js';
 import type { AuthTokens } from '../../../serializers/index.js';
 import type { EntityManager } from 'typeorm';
 import type { JwtSettings } from '../../../../config/settings.js';
-import type { RelationshipInput } from '../../../jsonapi/document.js';
 import type { ResourceObject } from '../../../serializers/serializer.js';
 import type { SingleDocument } from '../../concerns/documents.js';
 
@@ -44,16 +48,28 @@ export class AuthController {
    * 통과한다. 유니크 제약이 실제로 막게 두고 그 오류만 409로 옮긴다.
    */
   @Post('register')
+  @Header('Location', '/api/v1/users/me')
   async register(@Body() body: unknown): Promise<SingleDocument> {
-    const parsed = await parseWriteDocument(body, UserRegister, { expectedType: 'users' });
-    rejectRelationships(parsed.relationships);
+    const parsed = await parseAuthWriteDocument(body, UserRegister, 'users');
     const passwordHash = await hashPassword(parsed.attributes.password);
 
     try {
-      const user = await this.dataSource
-        .getRepository(User)
-        .save({ email: parsed.attributes.email, passwordHash, isActive: true });
-      return singleDocument(serializeResource(USER_SERIALIZER, user), []);
+      return await this.dataSource.transaction(async (manager) => {
+        const saved = await manager.save(User, {
+          email: parsed.attributes.email,
+          passwordHash,
+          isActive: true,
+        });
+        const [user] = await getExactEntities(
+          manager
+            .getRepository(User)
+            .createQueryBuilder('auth_user')
+            .where('auth_user.id = :id', { id: saved.id }),
+        );
+        if (user === undefined)
+          throw new TypeError('Newly registered user must remain visible in its transaction');
+        return singleDocument(serializeResource(USER_SERIALIZER, user), []);
+      });
     } catch (error: unknown) {
       if (isEmailConflict(error)) {
         // 카탈로그(`errors.ts`)의 `EMAIL_ALREADY_REGISTERED` 메시지가 이미 이 상황을
@@ -77,10 +93,7 @@ export class AuthController {
   @Post('login')
   @HttpCode(200)
   async login(@Body() body: unknown): Promise<SingleDocument> {
-    const parsed = await parseWriteDocument(body, AuthCredentials, {
-      expectedType: 'authCredentials',
-    });
-    rejectRelationships(parsed.relationships);
+    const parsed = await parseAuthWriteDocument(body, AuthCredentials, 'authCredentials');
     const { email, password } = parsed.attributes;
 
     const user = await this.dataSource.getRepository(User).findOneBy({ email });
@@ -95,9 +108,12 @@ export class AuthController {
       throw new JsonApiError('USER_INACTIVE');
     }
 
-    return this.dataSource.transaction(async (manager) =>
-      singleDocument(await this.issue(manager, user.id), []),
-    );
+    return this.dataSource.transaction(async (manager) => {
+      const locked = await lockUser(manager, user.id);
+      if (locked === null) throw new JsonApiError('INVALID_CREDENTIALS');
+      if (!locked.isActive) throw new JsonApiError('USER_INACTIVE');
+      return singleDocument(await this.issue(manager, locked.id), []);
+    });
   }
 
   /**
@@ -109,16 +125,15 @@ export class AuthController {
   @Post('refresh')
   @HttpCode(200)
   async refresh(@Body() body: unknown): Promise<SingleDocument> {
-    const claims = this.tokens.verifyRefreshToken(await this.readRefreshToken(body));
-
-    return this.dataSource.transaction(async (manager) => {
-      const rotated = await rotateSession(
-        manager,
-        claims.sessionId,
-        this.settings.refreshExpiresSeconds,
-      );
-      return singleDocument(this.serializeTokens(rotated.userId, rotated.id), []);
-    });
+    const rawToken = await this.readRefreshToken(body);
+    const rotated = await this.dataSource.transaction((manager) =>
+      rotateSession(manager, rawToken, this.settings.refreshExpiresSeconds, this.tokens),
+    );
+    if (rotated instanceof JsonApiError) throw rotated;
+    return singleDocument(
+      this.serializeTokens(rotated.userId, rotated.id, rotated.refreshToken),
+      [],
+    );
   }
 
   /**
@@ -131,21 +146,26 @@ export class AuthController {
   @Post('logout')
   @HttpCode(204)
   async logout(@Body() body: unknown): Promise<void> {
-    const claims = this.tokens.verifyRefreshToken(await this.readRefreshToken(body));
-    await this.dataSource.transaction((manager) => revokeSession(manager, claims.sessionId));
+    const rawToken = await this.readRefreshToken(body);
+    const result = await this.dataSource.transaction((manager) =>
+      revokeSession(manager, rawToken, this.tokens),
+    );
+    if (result instanceof JsonApiError) throw result;
   }
 
   private async readRefreshToken(body: unknown): Promise<string> {
-    const parsed = await parseWriteDocument(body, RefreshTokenInput, {
-      expectedType: 'refreshTokens',
-    });
-    rejectRelationships(parsed.relationships);
+    const parsed = await parseAuthWriteDocument(body, RefreshTokenInput, 'refreshTokens');
     return parsed.attributes.refreshToken;
   }
 
   private async issue(manager: EntityManager, userId: string): Promise<ResourceObject> {
-    const session = await issueSession(manager, userId, this.settings.refreshExpiresSeconds);
-    return this.serializeTokens(userId, session.id);
+    const session = await issueSession(
+      manager,
+      userId,
+      this.settings.refreshExpiresSeconds,
+      this.tokens,
+    );
+    return this.serializeTokens(userId, session.id, session.refreshToken);
   }
 
   /**
@@ -157,11 +177,11 @@ export class AuthController {
    * 만료 시각을 바로 이 설정값으로 계산하므로 둘은 같은 수를 가리킨다 -
    * 그 둘이 어긋나지 않는지는 통합 테스트가 DB의 `expires_at`과 대조해 지킨다.
    */
-  private serializeTokens(userId: string, sessionId: string): ResourceObject {
+  private serializeTokens(userId: string, sessionId: string, refreshToken: string): ResourceObject {
     const tokens: AuthTokens = {
       id: sessionId,
       accessToken: this.tokens.signAccessToken(userId),
-      refreshToken: this.tokens.signRefreshToken(userId, sessionId),
+      refreshToken,
       accessTokenExpiresIn: this.settings.accessExpiresSeconds,
       refreshTokenExpiresIn: this.settings.refreshExpiresSeconds,
     };
@@ -180,12 +200,6 @@ export class AuthController {
  * 쓰는 사람이 어느 쪽이 규칙인지 알 수 없다. `unwritableRelationshipError`를 그대로
  * 써서 오류 코드·pointer·detail까지 그 경로와 완전히 같게 맞춘다.
  */
-function rejectRelationships(relationships: Readonly<Record<string, RelationshipInput>>): void {
-  const [name] = Object.keys(relationships);
-  if (name !== undefined) {
-    throw unwritableRelationshipError(name);
-  }
-}
 
 /**
  * 이메일 유니크 제약 위반인지 본다.

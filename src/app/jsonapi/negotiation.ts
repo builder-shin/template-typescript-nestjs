@@ -4,22 +4,6 @@ import { Reflector } from '@nestjs/core';
 import { JsonApiError } from './errors.js';
 import { JSONAPI_MEDIA_TYPE } from './media-type.js';
 
-/**
- * JSON:API 미디어 타입 협상.
- *
- * JSON:API 1.1은 vendor 타입에 미디어 타입 파라미터를 붙이는 것을 금지한다
- * (`ext`와 `profile`만 예외). 따라서 `application/vnd.api+json; charset=utf-8`은
- * 규격 위반이고, 받아주면 클라이언트가 규격을 벗어난 채로 굳는다.
- *
- * `q`는 HTTP 협상 파라미터이지 미디어 타입 파라미터가 아니므로 허용한다. 다만 그 **값**은
- * 해석하지 않는다 — `application/vnd.api+json;q=0`(RFC 9110에서 명시적 거부)도 통과한다.
- * 값을 해석하려면 range 사이의 우선순위 규칙(구체적인 range가 와일드카드를 이긴다)까지
- * 함께 구현해야 하는데, 이 엔드포인트가 내는 미디어 타입은 하나뿐이라 "받아들이는가"는
- * 언제나 예/아니오 하나로 끝난다. 실제로 보내지지 않는 헤더를 위해 순위 해석기를 들이는
- * 대신 이 한계를 여기 적어 둔다. 언어 협상은 후보가 여럿이라 사정이 다르고, 그래서
- * `language.ts`는 `q`를 실제로 해석한다.
- */
-
 /** 협상을 끄는 메타데이터 키. */
 export const NEGOTIATE_ACCEPT_KEY = 'jsonapi:skip-negotiation';
 
@@ -42,77 +26,105 @@ export function SkipJsonApiNegotiation(): MethodDecorator & ClassDecorator {
  */
 const BODY_REQUIRED_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH']);
 
-/**
- * 미디어 타입 파라미터 하나(`q=0.9` 형태)의 키를 소문자로 뽑는다. `=`가 없으면 전체가 키다.
- *
- * `parameter.split('=')[0]` 대신 `indexOf`/`slice`를 쓴다 — `noUncheckedIndexedAccess`가
- * 잡을 인덱스 접근 자체가 없고, `slice`는 항상 `string`을 돌려주므로 좁힐 것이 없다.
- */
-function parameterKey(parameter: string): string {
-  const equalsIndex = parameter.indexOf('=');
-  const key = equalsIndex === -1 ? parameter : parameter.slice(0, equalsIndex);
-  return key.trim().toLowerCase();
+/** Split HTTP parameters while preserving delimiters inside quoted strings. */
+function splitQuoted(value: string, delimiter: string): string[] | undefined {
+  const parts: string[] = [];
+  let current = '';
+  let quoted = false;
+  let escaped = false;
+  for (const character of value) {
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+    if (quoted && character === '\\') {
+      current += character;
+      escaped = true;
+      continue;
+    }
+    if (character === '"') {
+      current += character;
+      quoted = !quoted;
+      continue;
+    }
+    if (character === delimiter && !quoted) {
+      parts.push(current);
+      current = '';
+      continue;
+    }
+    current += character;
+  }
+  if (quoted || escaped) return undefined;
+  parts.push(current);
+  return parts;
 }
 
-/**
- * `Accept` 후보 하나가 JSON:API 응답을 받아들이는지 판정한다.
- *
- * `range.split(';')` 구조분해 대신 `indexOf`/`slice`로 미디어 타입과 파라미터를 나눈다.
- * 구조분해는 배열 타입에서 각 자리를 인덱싱하는 것과 같아서 `noUncheckedIndexedAccess`
- * 아래에서는 첫 자리도 `string | undefined`가 된다.
- */
-function isJsonApiRange(range: string): boolean {
-  const separator = range.indexOf(';');
-  const mediaType = (separator === -1 ? range : range.slice(0, separator)).trim().toLowerCase();
+const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+const QUALITY = /^(?:0(?:\.\d{0,3})?|1(?:\.0{0,3})?)$/;
 
-  if (mediaType === '*/*' || mediaType === 'application/*') {
-    return true;
+function validParameter(value: string): boolean {
+  if (!value.startsWith('"')) return TOKEN.test(value);
+  if (value.length < 2 || !value.endsWith('"')) return false;
+  let escaped = false;
+  for (const character of value.slice(1, -1)) {
+    if (escaped) escaped = false;
+    else if (character === '\\') escaped = true;
+    else if (character === '"') return false;
   }
-  if (mediaType !== JSONAPI_MEDIA_TYPE) {
-    return false;
-  }
-  if (separator === -1) {
-    return true;
-  }
-  // vendor 타입에는 q 이외의 파라미터를 허용하지 않는다. 빈 파라미터(트레일링 `;`)는 무시한다.
-  return range
-    .slice(separator + 1)
-    .split(';')
-    .every((parameter) => {
-      const key = parameterKey(parameter);
-      return key === '' || key === 'q';
-    });
+  return !escaped;
 }
 
-/** `Accept` 헤더가 JSON:API 응답을 받아들이는지 판정한다. */
+function parseMedia(value: string): { media: string; parameters: Map<string, string> } | undefined {
+  const parts = splitQuoted(value, ';');
+  const media = parts?.shift()?.trim().toLowerCase();
+  if (!media || parts === undefined) return undefined;
+  const parameters = new Map<string, string>();
+  for (const part of parts) {
+    const parameter = part.replace(/^[ \t]+/, '');
+    const equals = parameter.indexOf('=');
+    if (equals === -1) return undefined;
+    const name = parameter.slice(0, equals).toLowerCase();
+    const raw = parameter.slice(equals + 1);
+    if (!TOKEN.test(name) || !validParameter(raw) || parameters.has(name)) return undefined;
+    parameters.set(name, raw);
+  }
+  return { media, parameters };
+}
+
 export function acceptsJsonApi(header: string | undefined): boolean {
-  if (header === undefined || header.trim() === '') {
-    return true;
+  if (header === undefined || header.trim() === '') return true;
+  const qualities = new Map<number, number[]>();
+  for (const entry of splitQuoted(header, ',') ?? []) {
+    const parsed = parseMedia(entry);
+    if (parsed === undefined) continue;
+    const { media, parameters } = parsed;
+    const rawQuality = parameters.get('q') ?? '1';
+    if (!QUALITY.test(rawQuality)) continue;
+    const specificity =
+      media === JSONAPI_MEDIA_TYPE ? 2 : media === 'application/*' ? 1 : media === '*/*' ? 0 : -1;
+    if (specificity === -1) continue;
+    const allowed = media === JSONAPI_MEDIA_TYPE ? ['q', 'profile'] : ['q'];
+    const unsupported = [...parameters.keys()].some((name) => !allowed.includes(name));
+    if (unsupported && specificity !== 2) continue;
+    const values = qualities.get(specificity) ?? [];
+    values.push(unsupported ? 0 : Number(rawQuality));
+    qualities.set(specificity, values);
   }
-  return header.split(',').some((range) => isJsonApiRange(range));
+  for (const specificity of [2, 1, 0]) {
+    const values = qualities.get(specificity);
+    if (values !== undefined) return Math.max(...values) > 0;
+  }
+  return false;
 }
 
-/**
- * `Content-Type` 헤더가 정확히 vendor 타입인지 판정한다.
- *
- * 여기도 구조분해 대신 `indexOf`/`slice`를 쓰는 이유는 `isJsonApiRange`와 같다.
- */
-function isJsonApiContentType(header: string | undefined): boolean {
-  if (header === undefined) {
-    return false;
-  }
-  const separator = header.indexOf(';');
-  const mediaType = (separator === -1 ? header : header.slice(0, separator)).trim().toLowerCase();
-  if (mediaType !== JSONAPI_MEDIA_TYPE) {
-    return false;
-  }
-  if (separator === -1) {
-    return true;
-  }
-  return header
-    .slice(separator + 1)
-    .split(';')
-    .every((parameter) => parameter.trim() === '');
+export function isJsonApiContentType(header: string | undefined): boolean {
+  if (header === undefined) return false;
+  const parsed = parseMedia(header.trim());
+  return (
+    parsed?.media === JSONAPI_MEDIA_TYPE &&
+    [...parsed.parameters.keys()].every((name) => name === 'profile')
+  );
 }
 
 interface NegotiableRequest {
@@ -178,7 +190,7 @@ export class JsonApiNegotiationGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<NegotiableRequest>();
 
     if (!acceptsJsonApi(headerValue(request, 'accept'))) {
-      throw new JsonApiError('NOT_ACCEPTABLE');
+      throw new JsonApiError('NOT_ACCEPTABLE', { source: { header: 'Accept' } });
     }
 
     // 스펙 5.1: **본문이 있는 요청**은 vendor `Content-Type`을 요구한다. 판정 기준이
@@ -186,9 +198,10 @@ export class JsonApiNegotiationGuard implements CanActivate {
     // 없지만 `DELETE /examples/{id}/relationships/tags`는 linkage 본문을 싣는다.
     // `POST`/`PUT`/`PATCH`는 프로토콜상 본문이 필수라, 본문 없이 와도 요구를 유지한다.
     const requiresJsonApiContentType =
-      carriesBody(request) || BODY_REQUIRED_METHODS.has(request.method.toUpperCase());
+      !['GET', 'HEAD'].includes(request.method.toUpperCase()) &&
+      (carriesBody(request) || BODY_REQUIRED_METHODS.has(request.method.toUpperCase()));
     if (requiresJsonApiContentType && !isJsonApiContentType(headerValue(request, 'content-type'))) {
-      throw new JsonApiError('UNSUPPORTED_MEDIA_TYPE');
+      throw new JsonApiError('UNSUPPORTED_MEDIA_TYPE', { source: { header: 'Content-Type' } });
     }
 
     return true;

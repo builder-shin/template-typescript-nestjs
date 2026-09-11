@@ -19,28 +19,25 @@ interface CursorPayload {
 
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 
-function invalidCursor(): JsonApiError {
-  // `source`는 언제나 `page[after]`로 둔다. `before`로 온 커서도 같은 규칙을 어긴
-  // 것이고, 두 파라미터를 갈라 적으면 오류 문구만 늘고 진단은 나아지지 않는다.
-  return new JsonApiError('INVALID_PAGE', { source: { parameter: 'page[after]' } });
+function invalidCursor(parameter = 'page[after]'): JsonApiError {
+  return new JsonApiError('INVALID_PAGE', { source: { parameter } });
 }
 
-/** 정렬 서명과 값으로 커서를 만든다. */
 export function encodeCursor(signature: string, values: readonly string[]): string {
   const payload: CursorPayload = { sort: signature, values };
   return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
 }
 
-function readPayload(raw: string): CursorPayload {
-  if (raw === '' || !BASE64URL_PATTERN.test(raw)) {
-    throw invalidCursor();
+function readPayload(raw: string, parameter: string): CursorPayload {
+  if (raw === '' || raw.length > 4096 || !BASE64URL_PATTERN.test(raw)) {
+    throw invalidCursor(parameter);
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
   } catch {
-    throw invalidCursor();
+    throw invalidCursor(parameter);
   }
 
   if (
@@ -49,16 +46,16 @@ function readPayload(raw: string): CursorPayload {
     !('sort' in parsed) ||
     !('values' in parsed)
   ) {
-    throw invalidCursor();
+    throw invalidCursor(parameter);
   }
   const sort = parsed.sort;
   const values = parsed.values;
   if (typeof sort !== 'string' || !Array.isArray(values)) {
-    throw invalidCursor();
+    throw invalidCursor(parameter);
   }
   const entries: unknown[] = values;
   if (!entries.every((entry) => typeof entry === 'string')) {
-    throw invalidCursor();
+    throw invalidCursor(parameter);
   }
   // `every`가 좁혀 주지 않으므로 한 번 더 걸러 문자열 배열을 만든다.
   const strings = entries.filter((entry): entry is string => typeof entry === 'string');
@@ -74,13 +71,14 @@ export function decodeCursor(
   raw: string,
   expectedSignature: string,
   expectedLength: number,
+  parameter = 'page[after]',
 ): readonly string[] {
-  const payload = readPayload(raw);
+  const payload = readPayload(raw, parameter);
   if (payload.sort !== expectedSignature) {
-    throw invalidCursor();
+    throw invalidCursor(parameter);
   }
   if (payload.values.length !== expectedLength) {
-    throw invalidCursor();
+    throw invalidCursor(parameter);
   }
   return payload.values;
 }
@@ -91,10 +89,13 @@ export function decodeCursor(
  * NULL을 허용하는 컬럼이 섞이면 `컬럼 > 값` 비교가 NULL 행에서 unknown이 되어 그 행이
  * 조용히 빠진다. 조용히 빠지느니 거부한다(스펙 8.2).
  */
-export function assertCursorSortable(sort: readonly ResolvedSort[]): void {
+export function assertCursorSortable(
+  sort: readonly ResolvedSort[],
+  parameter = 'page[after]',
+): void {
   for (const term of sort) {
     if (term.nullable) {
-      throw invalidCursor();
+      throw invalidCursor(parameter);
     }
   }
 }

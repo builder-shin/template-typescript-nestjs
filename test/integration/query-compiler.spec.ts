@@ -141,13 +141,13 @@ describe('executeList — 필터', () => {
     await withRollback(dataSource, async (manager) => {
       const { exampleIds } = await seedExamples(manager);
       const percent = await manager.save(
-        manager.create(Example, { title: '할인 50% 적용', score: 0 }),
+        manager.create(Example, { title: '할인 50% 적용', status: 'draft', score: 0 }),
       );
       const underscore = await manager.save(
-        manager.create(Example, { title: 'snake_case 규칙', score: 0 }),
+        manager.create(Example, { title: 'snake_case 규칙', status: 'draft', score: 0 }),
       );
       const backslash = await manager.save(
-        manager.create(Example, { title: '경로 C:\\temp 안내', score: 0 }),
+        manager.create(Example, { title: '경로 C:\\temp 안내', status: 'draft', score: 0 }),
       );
       const ids = [...exampleIds, percent.id, underscore.id, backslash.id];
 
@@ -387,14 +387,13 @@ describe('executeList — 정렬과 include', () => {
     });
   });
 
-  it('include하지 않은 관계는 읽지 않는다', async () => {
-    // 로드되지 않은 관계는 undefined여야 시리얼라이저가 linkage를 생략한다.
+  it('loads relationship linkage even without include', async () => {
     await withRollback(dataSource, async (manager) => {
       const { exampleIds } = await seedExamples(manager);
       const parsed = parseQuery({}, EXAMPLE_QUERY_POLICY, DECLARED);
       const result = await executeList(list(manager, exampleIds), 'e', parsed, EXAMPLE_SERIALIZER);
-      expect(result.items[0]?.category).toBeUndefined();
-      expect(result.items[0]?.tags).toBeUndefined();
+      expect(result.items[0]?.category).toBeNull();
+      expect(result.items[0]?.tags).toEqual([]);
     });
   });
 
@@ -501,6 +500,23 @@ describe('executeList — cursor 페이지네이션', () => {
     await dataSource.destroy();
   });
 
+  it('quotes metadata identifiers when retaining exact timestamps', async () => {
+    await withRollback(dataSource, async (manager) => {
+      const { exampleIds } = await seedExamples(manager);
+      const builder = manager
+        .createQueryBuilder(Example, 'user')
+        .where('user.id IN (:...ids)', { ids: exampleIds });
+      const parsed = parseQuery(
+        { 'page[after]': '', 'page[size]': '1' },
+        EXAMPLE_QUERY_POLICY,
+        DECLARED,
+      );
+      const result = await executeList(builder, 'user', parsed, EXAMPLE_SERIALIZER);
+      expect(result.items).toHaveLength(1);
+      expect(result.lastCursor).toBeDefined();
+    });
+  });
+
   it('빈 after는 컬렉션 처음부터 읽는다', async () => {
     await withRollback(dataSource, async (manager) => {
       const { exampleIds } = await seedExamples(manager);
@@ -568,7 +584,7 @@ describe('executeList — cursor 페이지네이션', () => {
       const page1 = await executeList(list(manager, exampleIds), 'e', first, EXAMPLE_SERIALIZER);
 
       const inserted = await manager.save(
-        manager.create(Example, { title: '끼어든 것', score: 0 }),
+        manager.create(Example, { title: '끼어든 것', status: 'draft', score: 0 }),
       );
       await manager.update(Example, { id: inserted.id }, { createdAt: at(99) });
       // `inserted`는 이 테스트가 일부러 만든, 커서 이후에 끼어드는 행이다 — 범위에서

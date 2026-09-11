@@ -68,23 +68,29 @@ linkage·included를 소유하며 입력 검증이나 SQL 필터 해석은 하�
 ## `resourcePath`가 선택인 이유
 
 `resourcePath`는 `self` 링크와 관계 링크(`links.self`·`links.related`)의
-기준 경로다. 스펙 16장의 공개 API 표면에 자신을 다시 가리키는 라우트가 없는
-자원 — `AuthTokens`(발급 응답 전용이라 다시 가리킬 라우트가 없다)와
-`User`(`GET /api/v1/users/{id}`가 없다) — 은 가리킬 URL이 애초에 없다.
-`resourcePath`를 억지로 채우면 존재하지 않는 라우트를 가리키는 링크를 응답에
-실어 보내게 되고, 그 링크를 따라간 클라이언트는 404를 받는다. 그래서
-`src/app/serializers/auth-tokens.serializer.ts`와
-`src/app/serializers/user.serializer.ts`는 이 필드를 아예 생략한다 —
-`serializeResource`(`src/app/serializers/serializer.ts`)는 `resourcePath`가
-없으면 `links` 자체를 응답에서 뺀다. 새 자원이 전용 라우트 없이 `include`
-대상으로만 시작한다면, `resourcePath`를 빈 문자열이나 추측값으로 채우지
-않는다.
+기준 경로다. `AuthTokens`는 발급 응답 전용이라 가리킬 라우트가 없으므로
+`resourcePath`와 `selfLink`를 생략하고 응답에도 `links`를 내지 않는다.
+`User`는 ID별 경로 대신 `selfLink: () => '/api/v1/users/me'`를 선언한다.
+`serializeResource`는 이 함수를 우선하고, 없으면 `resourcePath`와 ID를 조합한다.
+두 선언 모두 없으면 링크를 생략한다. 존재하지 않는 경로를 추측해서 채우지 않는다.
 
 `Category`·`Tag`는 한때 이 규칙의 예시였다 — `Example`의 `include`로만
 노출되고 전용 라우트가 없었을 때는. 참조 자원 라우트(`GET
 /api/v1/categories`·`GET /api/v1/tags`)가 생기면서 그 둘은 규칙의 반대편으로
 옮겨 갔다 — 라우트가 생긴 바로 그 변경에서 `resourcePath`도 함께 선언됐다.
 "라우트가 생기면 `resourcePath`도 같은 변경에서 생긴다"가 이 규칙의 대우다.
+
+## 관계 linkage와 시각 정밀도
+
+CRUD 조회는 선언된 관계를 `include` 없이도 읽어 linkage를 항상 제공한다.
+`include`는 연관 리소스 전체를 `included`에 싣는지 결정한다. serializer 자체는
+`undefined`(로드하지 않음)와 `null`(관계 없음)을 구분하므로, 컨트롤러가 필요한
+관계를 로드할 책임을 지운 채 임의의 빈 linkage를 만들지 않는다.
+
+공개 timestamp는 `jsonapi/exact-timestamps.ts`의 `serializeTimestamp`를 사용한다.
+DB 조회는 `getExactEntities`로 원본 마이크로초를 보존해야 한다. UTC의 소수 초가
+0이면 생략하고, 그 외에는 여섯 자리로 직렬화한다. 저장 후의 응답도 필요한 경우
+정확한 DB 값을 다시 읽는다. 단순 `Date.toISOString()`은 밀리초까지만 표현한다.
 
 ## `SERIALIZERS` 배열은 "저장소가 아는 시리얼라이저 전부"가 아니다
 

@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import type { DataSource } from 'typeorm';
 import { RefreshSession } from '../../src/app/models/refresh-session.entity.js';
 import { User } from '../../src/app/models/user.entity.js';
@@ -30,6 +31,7 @@ describe('인증 스키마', () => {
       const user = await manager.save(User, { email: 'ㄴ@example.test', passwordHash: 'x' });
       await manager.insert(RefreshSession, {
         userId: user.id,
+        tokenHash: randomBytes(32).toString('hex'),
         expiresAt: new Date(Date.now() + 60_000),
         revokedAt: null,
         replacedById: null,
@@ -49,12 +51,14 @@ describe('인증 스키마', () => {
       const expiresAt = new Date(Date.now() + 60_000);
       const next = await manager.save(RefreshSession, {
         userId: user.id,
+        tokenHash: randomBytes(32).toString('hex'),
         expiresAt,
         revokedAt: null,
         replacedById: null,
       });
       const previous = await manager.save(RefreshSession, {
         userId: user.id,
+        tokenHash: randomBytes(32).toString('hex'),
         expiresAt,
         revokedAt: new Date(),
         replacedById: next.id,
@@ -74,6 +78,7 @@ describe('인증 스키마', () => {
       await expect(
         manager.insert(RefreshSession, {
           userId: user.id,
+          tokenHash: randomBytes(32).toString('hex'),
           expiresAt: new Date(Date.now() + 60_000),
           revokedAt: null,
           replacedById: '00000000-0000-4000-8000-000000000000',

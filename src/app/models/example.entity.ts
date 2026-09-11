@@ -29,17 +29,19 @@ export const EXAMPLE_STATUSES: readonly ExampleStatus[] = ['draft', 'active', 'a
  * `(created_at, id)`·`(title, id)` 인덱스: 스펙 8.3에 따라 모든 정렬 뒤에 `id ASC`가
  * tie breaker로 덧붙으므로, 정렬이 실제로 인덱스를 타려면 두 컬럼이 함께 있어야 한다.
  *
- * 정책이 여는 정렬 전부에 인덱스를 만들지는 않는다. 이 불일치는 의도된 것이며 그
- * 근거는 `example.query-policy.ts`의 선언부 주석에 있다 — 정본도 기본 정렬 하나와
- * FK만 인덱싱한다.
+ * 세 백엔드는 기본 정렬(created_at DESC, id ASC), title 정렬, category FK의
+ * 접근 경로를 공유한다. 나머지 정렬은 별도 인덱스 없이 동작한다.
  *
  * 이름을 명시하는 이유: 이름을 생략하면 TypeORM이 해시 이름을 만들어 마이그레이션이
  * 만든 `IDX_examples_created_at_id`와 어긋난다. `test/integration/migrations.spec.ts`의
  * "엔티티 메타데이터가 실제 스키마와 어긋나지 않는다" 테스트가 그 어긋남을 잡아낸다.
  * `@Check`의 이름도 같은 이유로 명시한다.
  */
-@Index('IDX_examples_created_at_id', ['createdAt', 'id'])
+// TypeORM does not model PostgreSQL per-column index directions. Keep the
+// migration-owned index and verify its complete definition in migrations.spec.ts.
+@Index('IDX_examples_created_at_id', { synchronize: false })
 @Index('IDX_examples_title_id', ['title', 'id'])
+@Index('IDX_examples_category_id', ['categoryId'])
 @Check('CHK_examples_score_range', `"score" >= 0 AND "score" <= 100`)
 @Entity({ name: 'examples' })
 export class Example {
@@ -57,7 +59,6 @@ export class Example {
     type: 'enum',
     enum: EXAMPLE_STATUSES,
     enumName: 'example_status',
-    default: 'draft',
   })
   status!: ExampleStatus;
 

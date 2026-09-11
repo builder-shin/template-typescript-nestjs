@@ -1,5 +1,9 @@
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import type { IncomingMessage } from 'node:http';
 import { JSONAPI_MEDIA_TYPE } from '../app/jsonapi/media-type.js';
+import { JsonApiError } from '../app/jsonapi/errors.js';
+import { isJsonApiContentType } from '../app/jsonapi/negotiation.js';
+import { parseRawQuery } from '../app/jsonapi/query-input.js';
 
 /**
  * 프로덕션과 테스트가 함께 쓰는 HTTP 계층 설정.
@@ -15,7 +19,37 @@ export function configureHttp(app: NestExpressApplication): void {
   // `application/json` 본문이 통째로 `{}`가 된다. 지금은 JSON:API 아닌 본문을 받는
   // 라우트가 없지만, 기본 파서를 조용히 죽여 두면 그런 라우트를 처음 추가하는 사람이
   // 원인을 찾는 데 오래 걸린다.
-  app.useBodyParser('json', { type: ['application/json', JSONAPI_MEDIA_TYPE] });
+  app.useBodyParser('json', {
+    strict: false,
+    type: (request: IncomingMessage) => {
+      const method = request.method ?? '';
+      if (
+        ['GET', 'HEAD'].includes(method) ||
+        (method === 'DELETE' && !request.url?.split('?')[0]?.includes('/relationships/'))
+      )
+        return false;
+      const mediaType = request.headers['content-type']?.split(';')[0]?.trim().toLowerCase();
+      return mediaType === 'application/json' || mediaType === JSONAPI_MEDIA_TYPE;
+    },
+  });
+  app.use(
+    (
+      error: unknown,
+      request: { headers: { 'content-type'?: string } },
+      _response: unknown,
+      next: (error: unknown) => void,
+    ) => {
+      if (error instanceof SyntaxError && 'type' in error && error.type === 'entity.parse.failed') {
+        next(
+          isJsonApiContentType(request.headers['content-type'])
+            ? new JsonApiError('VALIDATION_ERROR')
+            : new JsonApiError('UNSUPPORTED_MEDIA_TYPE', { source: { header: 'Content-Type' } }),
+        );
+        return;
+      }
+      next(error);
+    },
+  );
 
   // Express 5의 기본값과 같지만 명시한다. `src/app/jsonapi/`의 파서들이 대괄호를
   // 그대로 가진 평평한 질의 객체를 전제로 쓰여 있고, 이 값이 `extended`로 바뀌면
@@ -26,5 +60,5 @@ export function configureHttp(app: NestExpressApplication): void {
   // 타입이 해석되지 않고, `strictTypeChecked`의 `no-unsafe-call`이 막는다. `app.set`은
   // Nest가 제공하는 `express.set()` 래퍼이고 같은 인스턴스에 같은 값을 쓴다 —
   // 실제로 Express 인스턴스에 기록되는지는 `test/config/http.spec.ts`가 확인한다.
-  app.set('query parser', 'simple');
+  app.set('query parser', parseRawQuery);
 }

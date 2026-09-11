@@ -25,7 +25,7 @@ export class User {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: 'email', type: 'varchar', length: 320, unique: true })
+  @Column({ name: 'email', type: 'varchar', length: 254, unique: true })
   email!: string;
 
   @Column({ name: 'password_hash', type: 'text' })

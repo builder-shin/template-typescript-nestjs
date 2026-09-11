@@ -10,10 +10,10 @@ describe('UserRegister', () => {
     // 대소문자만 다른 두 계정이 생기면 로그인이 어느 쪽으로 붙을지 입력에 따라 갈리고,
     // 그 상태는 유니크 제약으로 되돌릴 수 없다. 정규화 지점은 이 스키마 하나뿐이다.
     const parsed = await validateAttributes(UserRegister, {
-      email: 'Ko@Example.Test',
+      email: 'Ko@Example.Com',
       password: '충분히-긴-비밀번호12',
     });
-    expect(parsed.email).toBe('ko@example.test');
+    expect(parsed.email).toBe('ko@example.com');
   });
 
   it('이메일 모양이 아니면 거절한다', async () => {
@@ -25,13 +25,13 @@ describe('UserRegister', () => {
   it('비밀번호가 12자보다 짧으면 거절한다', async () => {
     // 스펙 9장이 정한 하한이다.
     await expect(
-      validateAttributes(UserRegister, { email: 'a@example.test', password: '짧다' }),
+      validateAttributes(UserRegister, { email: 'a@example.com', password: '짧다' }),
     ).rejects.toBeDefined();
   });
 
   it('비밀번호가 128자를 넘으면 거절한다', async () => {
     await expect(
-      validateAttributes(UserRegister, { email: 'a@example.test', password: 'a'.repeat(129) }),
+      validateAttributes(UserRegister, { email: 'a@example.com', password: 'a'.repeat(129) }),
     ).rejects.toBeDefined();
   });
 
@@ -39,7 +39,7 @@ describe('UserRegister', () => {
     // `isActive`를 가입 요청으로 넣을 수 있으면 누구나 자기 계정을 활성화한다.
     await expect(
       validateAttributes(UserRegister, {
-        email: 'a@example.test',
+        email: 'a@example.com',
         password: '충분히-긴-비밀번호12',
         isActive: true,
       }),
@@ -48,22 +48,18 @@ describe('UserRegister', () => {
 });
 
 describe('AuthCredentials', () => {
-  it('길이 정책을 강제하지 않는다', async () => {
-    // 정책이 나중에 강해져도 기존 사용자가 로그인할 수 있어야 하고, 길이 위반을
-    // 422로 알려 주면 공격자에게 정책을 알려 주는 셈이다. 대조는 argon2가 한다.
-    const parsed = await validateAttributes(AuthCredentials, {
-      email: 'a@example.test',
-      password: '짧다',
-    });
-    expect(parsed.password).toBe('짧다');
+  it('requires the same password limits as registration', async () => {
+    await expect(
+      validateAttributes(AuthCredentials, { email: 'a@example.com', password: 'short' }),
+    ).rejects.toBeDefined();
   });
 
   it('상한은 둔다', async () => {
     // 무한히 긴 문자열을 해시하게 두면 그것이 곧 부하 공격이다.
     await expect(
       validateAttributes(AuthCredentials, {
-        email: 'a@example.test',
-        password: 'a'.repeat(1025),
+        email: 'a@example.com',
+        password: 'a'.repeat(129),
       }),
     ).rejects.toBeDefined();
   });
@@ -71,10 +67,10 @@ describe('AuthCredentials', () => {
   it('이메일을 소문자로 정규화한다', async () => {
     // 가입과 같은 규칙이어야 저장된 행을 찾을 수 있다.
     const parsed = await validateAttributes(AuthCredentials, {
-      email: 'KO@EXAMPLE.TEST',
-      password: '충분히-긴-비밀번호',
+      email: 'KO@EXAMPLE.COM',
+      password: 'canonical-password-123',
     });
-    expect(parsed.email).toBe('ko@example.test');
+    expect(parsed.email).toBe('ko@example.com');
   });
 });
 
@@ -86,5 +82,25 @@ describe('RefreshTokenInput', () => {
 
   it('빈 문자열을 거절한다', async () => {
     await expect(validateAttributes(RefreshTokenInput, { refreshToken: '' })).rejects.toBeDefined();
+  });
+});
+
+describe('canonical email normalization', () => {
+  it.each([
+    ['  Stra\u00dfe@EXAMPLE.COM  ', 'strasse@example.com'],
+    ['\u03a3\u03c2@example.com', '\u03c3\u03c3@example.com'],
+  ])('normalizes %s', async (email, expected) => {
+    const parsed = await validateAttributes(UserRegister, {
+      email,
+      password: 'canonical-password-123',
+    });
+    expect(parsed.email).toBe(expected);
+  });
+  it('rejects addresses longer than 254 characters', async () => {
+    const email =
+      'a'.repeat(64) + '@' + 'b'.repeat(63) + '.' + 'c'.repeat(63) + '.' + 'd'.repeat(60) + '.test';
+    await expect(
+      validateAttributes(UserRegister, { email, password: 'canonical-password-123' }),
+    ).rejects.toBeDefined();
   });
 });

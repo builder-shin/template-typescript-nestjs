@@ -1,4 +1,4 @@
-import { JsonApiError } from './errors.js';
+import { JsonApiError, JsonApiErrors } from './errors.js';
 
 /**
  * JSON:API 요청 문서의 구조 판정.
@@ -40,8 +40,102 @@ export interface ParseResourceOptions {
   readonly expectedType: string;
   /** 경로에서 온 id. 문서가 id를 보냈고 이 값과 다르면 `ID_MISMATCH`. */
   readonly expectedId?: string;
+  readonly requireId?: boolean;
   /** 클라이언트가 생성한 id를 받을지. 기본은 거부. */
   readonly allowClientGeneratedId?: boolean;
+  readonly relationships?: Readonly<Record<string, { readonly cardinality: 'one' | 'many' }>>;
+}
+
+export function pointerSegment(value: string): string {
+  return value.replaceAll('~', '~0').replaceAll('/', '~1');
+}
+
+/** Schema failures are collected before semantic type/id or database checks. */
+export function collectResourceValidation(
+  body: unknown,
+  options: ParseResourceOptions,
+): JsonApiError[] {
+  const errors: JsonApiError[] = [];
+  const add = (pointer?: string): void => {
+    errors.push(
+      new JsonApiError('VALIDATION_ERROR', {
+        source: pointer === undefined ? undefined : { pointer },
+      }),
+    );
+  };
+  if (!isPlainObject(body)) {
+    add();
+    return errors;
+  }
+  const data = body.data;
+  if (!isPlainObject(data)) add('/data');
+  else {
+    if (typeof data.type !== 'string') add('/data/type');
+    const updating = options.expectedId !== undefined;
+    if ((updating || options.requireId === true) && !('id' in data)) add('/data/id');
+    else if ('id' in data && typeof data.id !== 'string') add('/data/id');
+    if (
+      'attributes' in data
+        ? !isPlainObject(data.attributes)
+        : !updating || options.requireId === true
+    )
+      add('/data/attributes');
+    if ('relationships' in data) {
+      if (!isPlainObject(data.relationships) || Object.keys(data.relationships).length === 0)
+        add('/data/relationships');
+      else
+        for (const [name, relationship] of Object.entries(data.relationships)) {
+          const pointer = `/data/relationships/${pointerSegment(name)}`;
+          if (options.relationships !== undefined && !Object.hasOwn(options.relationships, name)) {
+            add(pointer);
+            continue;
+          }
+          if (!isPlainObject(relationship)) {
+            add(pointer);
+            continue;
+          }
+          if (!('data' in relationship)) add(`${pointer}/data`);
+          else {
+            const cardinality = options.relationships?.[name]?.cardinality;
+            const linkage = relationship.data;
+            if (
+              (cardinality === 'many' && !Array.isArray(linkage)) ||
+              (cardinality === 'one' && Array.isArray(linkage))
+            )
+              add(`${pointer}/data`);
+            else if (Array.isArray(linkage))
+              linkage.forEach((entry: unknown, index: number) =>
+                errors.push(...identifierValidation(entry, `${pointer}/data/${String(index)}`)),
+              );
+            else if (linkage !== null)
+              errors.push(...identifierValidation(linkage, `${pointer}/data`));
+          }
+          for (const key of Object.keys(relationship))
+            if (key !== 'data') add(`${pointer}/${pointerSegment(key)}`);
+        }
+    }
+    for (const key of Object.keys(data))
+      if (!['type', 'id', 'attributes', 'relationships'].includes(key))
+        add(`/data/${pointerSegment(key)}`);
+  }
+  for (const key of Object.keys(body)) if (key !== 'data') add(`/${pointerSegment(key)}`);
+  return errors;
+}
+
+function identifierValidation(value: unknown, pointer: string): JsonApiError[] {
+  const errors: JsonApiError[] = [];
+  const add = (path: string): void => {
+    errors.push(new JsonApiError('VALIDATION_ERROR', { source: { pointer: path } }));
+  };
+  if (!isPlainObject(value)) {
+    add(pointer);
+    return errors;
+  }
+  for (const key of ['type', 'id']) if (typeof value[key] !== 'string') add(`${pointer}/${key}`);
+  if ('meta' in value && !isPlainObject(value.meta)) add(`${pointer}/meta`);
+  for (const key of Object.keys(value))
+    if (!['type', 'id', 'meta'].includes(key)) add(`${pointer}/${pointerSegment(key)}`);
+  return errors;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -66,19 +160,28 @@ function invalidDocument(pointer?: string): JsonApiError {
 }
 
 /** 하나의 linkage 항목을 검사한다. */
-function readIdentifier(value: unknown, expectedType: string, pointer: string): ResourceIdentifier {
+function readIdentifier(
+  value: unknown,
+  expectedType: string | undefined,
+  pointer: string,
+): ResourceIdentifier {
   if (!isPlainObject(value)) {
     throw invalidDocument(pointer);
   }
+  for (const key of Object.keys(value)) {
+    if (!['type', 'id', 'meta'].includes(key)) {
+      throw new JsonApiError('VALIDATION_ERROR', { source: { pointer: `${pointer}/${key}` } });
+    }
+  }
   const type = value.type;
-  if (typeof type !== 'string' || type === '') {
+  if (typeof type !== 'string') {
     throw invalidDocument(`${pointer}/type`);
   }
-  if (type !== expectedType) {
+  if (expectedType !== undefined && type !== expectedType) {
     throw new JsonApiError('TYPE_MISMATCH', { source: { pointer: `${pointer}/type` } });
   }
   const id = value.id;
-  if (typeof id !== 'string' || id === '') {
+  if (typeof id !== 'string') {
     throw invalidDocument(`${pointer}/id`);
   }
   return { type, id };
@@ -103,16 +206,19 @@ export function parseResourceInput(
   }
 
   const type = data.type;
-  if (typeof type !== 'string' || type === '') {
+  if (typeof type !== 'string') {
     throw invalidDocument('/data/type');
   }
   if (type !== options.expectedType) {
     throw new JsonApiError('TYPE_MISMATCH', { source: { pointer: '/data/type' } });
   }
 
+  if (options.requireId && data.id === undefined) {
+    throw new JsonApiError('VALIDATION_ERROR', { source: { pointer: '/data/id' } });
+  }
   let id: string | undefined;
   if (data.id !== undefined) {
-    if (typeof data.id !== 'string' || data.id === '') {
+    if (typeof data.id !== 'string') {
       throw invalidDocument('/data/id');
     }
     id = data.id;
@@ -159,6 +265,8 @@ export function parseResourceInput(
 
 /** `parseLinkageInput` 옵션. */
 export interface ParseLinkageOptions {
+  /** The ORM resolver validates type, normalized ID and duplicates together in input order. */
+  readonly deferModelSemantics?: boolean;
   readonly expectedType: string;
   readonly cardinality: 'one' | 'many';
   /**
@@ -180,8 +288,32 @@ export interface ParseLinkageOptions {
 export function parseLinkageInput(
   body: unknown,
   options: ParseLinkageOptions,
+  beforeSemantics?: () => void,
 ): ResourceIdentifier | ResourceIdentifier[] | null {
   const pointer = options.pointer ?? '/data';
+
+  const failures: JsonApiError[] = [];
+  const add = (path?: string): void => {
+    failures.push(
+      new JsonApiError('VALIDATION_ERROR', {
+        source: path === undefined ? undefined : { pointer: path },
+      }),
+    );
+  };
+  if (!isPlainObject(body)) add();
+  else {
+    if (!('data' in body)) add(pointer);
+    else if (options.cardinality === 'many') {
+      if (!Array.isArray(body.data)) add(pointer);
+      else
+        body.data.forEach((entry: unknown, index: number) =>
+          failures.push(...identifierValidation(entry, `${pointer}/${String(index)}`)),
+        );
+    } else if (body.data !== null) failures.push(...identifierValidation(body.data, pointer));
+    for (const key of Object.keys(body)) if (key !== 'data') add(`/${pointerSegment(key)}`);
+  }
+  if (failures.length > 0) throw new JsonApiErrors(failures);
+  beforeSemantics?.();
 
   if (!isPlainObject(body)) {
     throw invalidDocument(undefined);
@@ -199,13 +331,28 @@ export function parseLinkageInput(
     if (Array.isArray(data)) {
       throw invalidDocument(pointer);
     }
-    return readIdentifier(data, options.expectedType, pointer);
+    return readIdentifier(
+      data,
+      options.deferModelSemantics === true ? undefined : options.expectedType,
+      pointer,
+    );
   }
 
   if (!Array.isArray(data)) {
     throw invalidDocument(pointer);
   }
-  return data.map((entry, index) =>
-    readIdentifier(entry, options.expectedType, `${pointer}/${String(index)}`),
+  const identifiers = data.map((entry, index) =>
+    readIdentifier(
+      entry,
+      options.deferModelSemantics === true ? undefined : options.expectedType,
+      `${pointer}/${String(index)}`,
+    ),
   );
+  if (options.deferModelSemantics === true) return identifiers;
+  const seen = new Set<string>();
+  for (const [index, identifier] of identifiers.entries()) {
+    if (seen.has(identifier.id)) throw invalidDocument(`${pointer}/${String(index)}/id`);
+    seen.add(identifier.id);
+  }
+  return identifiers;
 }

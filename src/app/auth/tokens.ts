@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+import { uuidClaim } from './uuid-claim.js';
 import { Inject, Injectable } from '@nestjs/common';
 import { JsonWebTokenError, JwtService, TokenExpiredError } from '@nestjs/jwt';
 import { JsonApiError } from '../jsonapi/errors.js';
@@ -50,9 +52,11 @@ export class TokenService {
 
   signAccessToken(userId: string): string {
     return this.jwt.sign(
-      { typ: ACCESS },
+      { type: ACCESS },
       {
         subject: userId,
+        algorithm: 'HS256',
+        jwtid: randomUUID(),
         issuer: this.settings.issuer,
         audience: this.settings.audience,
         expiresIn: this.settings.accessExpiresSeconds,
@@ -60,11 +64,16 @@ export class TokenService {
     );
   }
 
-  signRefreshToken(userId: string, sessionId: string): string {
+  signRefreshToken(
+    userId: string,
+    sessionId: string,
+    issuedAt = Math.floor(Date.now() / 1000),
+  ): string {
     return this.jwt.sign(
-      { typ: REFRESH },
+      { type: REFRESH, iat: issuedAt },
       {
         subject: userId,
+        algorithm: 'HS256',
         jwtid: sessionId,
         issuer: this.settings.issuer,
         audience: this.settings.audience,
@@ -90,12 +99,24 @@ export class TokenService {
    * `any`라 반환값이 그대로 `any`가 되고, `strictTypeChecked` 아래에서 뒤따르는 모든
    * 접근이 오류가 된다.
    */
-  private verify(token: string, kind: TokenKind): Record<string, unknown> {
+  verifyExpiredRefreshToken(token: string): RefreshTokenClaims {
+    const payload = this.verify(token, REFRESH, true);
+    return { userId: claimString(payload, 'sub'), sessionId: claimString(payload, 'jti') };
+  }
+
+  private verify(
+    token: string,
+    kind: TokenKind,
+    ignoreExpiration = false,
+  ): Record<string, unknown> {
     let payload: Record<string, unknown>;
     try {
       payload = this.jwt.verify<Record<string, unknown>>(token, {
         issuer: this.settings.issuer,
         audience: this.settings.audience,
+        algorithms: ['HS256'],
+        ignoreExpiration: true,
+        ignoreNotBefore: true,
         clockTolerance: this.settings.leewaySeconds,
       });
     } catch (error: unknown) {
@@ -111,9 +132,43 @@ export class TokenService {
       throw error;
     }
 
-    if (payload.typ !== kind) {
+    // Match the canonical datetime range (years 1 through 9999), not merely JS finite numbers.
+    if (
+      payload.type !== kind ||
+      typeof payload.sub !== 'string' ||
+      payload.sub === '' ||
+      typeof payload.jti !== 'string' ||
+      uuidClaim(payload.jti) === undefined ||
+      typeof payload.iat !== 'number' ||
+      !Number.isFinite(payload.iat) ||
+      payload.iat < -62135596800 ||
+      payload.iat >= 253402300800 ||
+      typeof payload.exp !== 'number' ||
+      !Number.isFinite(payload.exp) ||
+      payload.exp < -62135596800 ||
+      payload.exp >= 253402300800 ||
+      ('nbf' in payload &&
+        (typeof payload.nbf !== 'number' ||
+          !Number.isFinite(payload.nbf) ||
+          payload.nbf < -62135596800 ||
+          payload.nbf >= 253402300800)) ||
+      payload.aud !== this.settings.audience
+    ) {
       throw new JsonApiError('INVALID_TOKEN');
     }
+    const now = Date.now() / 1000;
+    if (
+      Math.trunc(payload.iat) > now + this.settings.leewaySeconds ||
+      (typeof payload.nbf === 'number' &&
+        Math.trunc(payload.nbf) > now + this.settings.leewaySeconds)
+    ) {
+      throw new JsonApiError('INVALID_TOKEN');
+    }
+    if (!ignoreExpiration && Math.trunc(payload.exp) <= now - this.settings.leewaySeconds) {
+      throw new JsonApiError('TOKEN_EXPIRED');
+    }
+    payload.jti = uuidClaim(payload.jti);
+    payload.sub = uuidClaim(payload.sub) ?? payload.sub;
     return payload;
   }
 }

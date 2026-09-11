@@ -1,10 +1,12 @@
 import { Category } from './category.entity.js';
+import { EmailIdentityBackup } from './email-identity-backup.entity.js';
 import { Example } from './example.entity.js';
 import { RefreshSession } from './refresh-session.entity.js';
 import { Tag } from './tag.entity.js';
 import { User } from './user.entity.js';
 
 export { Category } from './category.entity.js';
+export { EmailIdentityBackup } from './email-identity-backup.entity.js';
 export { Example, EXAMPLE_STATUSES } from './example.entity.js';
 export type { ExampleStatus } from './example.entity.js';
 export { RefreshSession } from './refresh-session.entity.js';
@@ -23,4 +25,11 @@ export { User } from './user.entity.js';
  * `buildDataSourceOptions`에 넘길 때 다시 넓혀야 한다.
  */
 // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type -- TypeORM의 entities 옵션 타입이 Function이다
-export const ENTITIES: readonly Function[] = [Example, Category, Tag, User, RefreshSession];
+export const ENTITIES: readonly Function[] = [
+  Example,
+  Category,
+  Tag,
+  User,
+  RefreshSession,
+  EmailIdentityBackup,
+];

@@ -72,20 +72,12 @@ export interface CrudDeclaration<
   /**
    * 쓰기 라우트를 등록할지. 기본은 등록한다.
    *
-   * 거짓이면 `create`·`update`·`destroy`·`replace`와 관계 mutation 라우트가 생기지
-   * 않고, `createSchema`·`updateSchema`·`relationshipsSchema`를 선언하지 않아도 된다.
-   * 참조 데이터처럼 서버가 관리하는 자원을 위한 것이다.
+   * 거짓이면 create·update·destroy·replace와 관계 변경 라우트를 등록하지 않는다.
+   * 서버가 관리하는 읽기 전용 자원에 사용한다.
    *
-   * 쓰기 메서드는 라우트 자체가 없어 404가 나간다. Express는 `router.post(path, fn)`
-   * 마다 별개의 Route/Layer를 만들 뿐 경로 단위로 메서드를 묶지 않으므로
-   * method-not-allowed를 판정할 지점이 없고, 매치되는 메서드가 없으면 Nest의
-   * not-found 핸들러로 떨어진다 — `APP_FILTER`가 그것을 JSON:API 오류 문서
-   * (`HTTP_ERROR`)로 정규화한다. 켜지 않은 자원의 `PUT`이 404인 것(위
-   * `enableUpsert`)과 같은 기제다.
-   *
-   * 정본(FastAPI/Starlette)은 이 자리에서 405다 — Starlette은 경로를 먼저 매치한 뒤
-   * 메서드를 본다. 오류 문서의 `code`는 양쪽 모두 `HTTP_ERROR`라 갈리는 것은 상태
-   * 코드뿐이다. 실측과 그 근거는 `test/integration/reference-resources.spec.ts`에 있다.
+   * Existing paths with unsupported methods return 405 HTTP_ERROR with Allow.
+   * RouteMethods reads only already registered controller metadata; disabled
+   * actions remain unregistered and are not implicitly enabled.
    */
   readonly enableWrites?: boolean;
   /**

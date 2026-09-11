@@ -1,3 +1,4 @@
+import { getExactEntities } from '../jsonapi/exact-timestamps.js';
 import { Inject, Injectable, createParamDecorator } from '@nestjs/common';
 import { getDataSourceToken } from '@nestjs/typeorm';
 import { canIdentify } from '../controllers/concerns/relationship-resolver.js';
@@ -62,13 +63,24 @@ export async function authenticateRequest(
   request: AuthenticatedRequest,
   tokens: TokenService,
   manager: EntityManager,
+  requireActive = true,
 ): Promise<User> {
   const token = bearerToken(request.headers.authorization);
   if (token === undefined) {
-    throw new JsonApiError('AUTHENTICATION_REQUIRED');
+    throw new JsonApiError(
+      request.headers.authorization === undefined ? 'AUTHENTICATION_REQUIRED' : 'INVALID_TOKEN',
+      { source: { header: 'Authorization' } },
+    );
   }
 
-  const claims = tokens.verifyAccessToken(token);
+  let claims;
+  try {
+    claims = tokens.verifyAccessToken(token);
+  } catch (error: unknown) {
+    if (error instanceof JsonApiError)
+      throw new JsonApiError(error.code, { source: { header: 'Authorization' } });
+    throw error;
+  }
 
   // uuid 모양을 먼저 거른다. uuid 컬럼에 uuid가 아닌 문자열로 조회하면 PostgreSQL이
   // 22P02로 죽어 401이어야 할 것이 500이 된다. `userId`는 우리가 서명한 token에서
@@ -76,15 +88,20 @@ export async function authenticateRequest(
   // `lockSession`이 세션 id에 쓰는 것과 같은 방어이고, 같은 `canIdentify`를 그대로
   // 쓴다 — 두 곳이 각자 판정하면 한쪽만 고쳐지는 날이 온다.
   if (!canIdentify(manager, User, claims.userId)) {
-    throw new JsonApiError('INVALID_TOKEN');
+    throw new JsonApiError('INVALID_TOKEN', { source: { header: 'Authorization' } });
   }
 
-  const user = await manager.findOneBy(User, { id: claims.userId });
-  if (user === null) {
+  const [user] = await getExactEntities(
+    manager
+      .getRepository(User)
+      .createQueryBuilder('auth_user')
+      .where('auth_user.id = :id', { id: claims.userId }),
+  );
+  if (user === undefined) {
     // 서명은 맞는데 가리키는 사용자가 없다. 계정이 지워진 뒤에도 살아 있는 token이다.
-    throw new JsonApiError('INVALID_TOKEN');
+    throw new JsonApiError('INVALID_TOKEN', { source: { header: 'Authorization' } });
   }
-  if (!user.isActive) {
+  if (requireActive && !user.isActive) {
     throw new JsonApiError('USER_INACTIVE');
   }
   return user;
@@ -100,6 +117,24 @@ export class JwtActiveUserGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     request.currentUser = await authenticateRequest(request, this.tokens, this.dataSource.manager);
+    return true;
+  }
+}
+
+@Injectable()
+export class JwtUserGuard implements CanActivate {
+  constructor(
+    private readonly tokens: TokenService,
+    @Inject(getDataSourceToken()) private readonly dataSource: DataSource,
+  ) {}
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
+    request.currentUser = await authenticateRequest(
+      request,
+      this.tokens,
+      this.dataSource.manager,
+      false,
+    );
     return true;
   }
 }

@@ -64,7 +64,7 @@ describe('TokenService', () => {
     // 좁힌다 — `claimString` 도달성 테스트에서 이미 쓴 방식(같은 비밀 키로 JwtService를
     // 직접 써서 서명)을 그대로 쓴다.
     const raw = new JwtService({ secret: BASE.secret }).sign(
-      { typ: 'access' },
+      { type: 'access' },
       {
         subject: USER,
         jwtid: SESSION,
@@ -147,9 +147,41 @@ describe('TokenService', () => {
     // 않고, 이 프로젝트의 직접 의존성인 `@nestjs/jwt`의 `JwtService`로 같은 비밀
     // 키를 써서 그 모양을 재현한다.
     const raw = new JwtService({ secret: BASE.secret }).sign(
-      { typ: 'access' },
+      { type: 'access' },
       { issuer: BASE.issuer, audience: BASE.audience, expiresIn: BASE.accessExpiresSeconds },
     );
     expect(codeOf(() => service().verifyAccessToken(raw))).toBe('INVALID_TOKEN');
+  });
+  it.each(['sub', 'jti', 'type', 'iat', 'exp', 'iss', 'aud'])(
+    'requires the %s claim',
+    (missing) => {
+      const jwt = new JwtService({ secret: BASE.secret });
+      const claims = jwt.decode<Record<string, unknown>>(service().signAccessToken(USER));
+      Reflect.deleteProperty(claims, missing);
+      const raw = jwt.sign(claims, { noTimestamp: missing === 'iat' });
+      expect(codeOf(() => service().verifyAccessToken(raw))).toBe('INVALID_TOKEN');
+    },
+  );
+  it.each([
+    { aud: [BASE.audience] },
+    { sub: '' },
+    { jti: 'invalid' },
+    { type: 'refresh' },
+    { iat: Math.floor(Date.now() / 1000) + 3600 },
+    { exp: 1e100 },
+    { iat: -1e100 },
+  ])('rejects invalid typed claims %p', (invalid) => {
+    const jwt = new JwtService({ secret: BASE.secret });
+    const claims = jwt.decode<Record<string, unknown>>(service().signAccessToken(USER));
+    expect(codeOf(() => service().verifyAccessToken(jwt.sign({ ...claims, ...invalid })))).toBe(
+      'INVALID_TOKEN',
+    );
+  });
+  it('rejects other HMAC algorithms', () => {
+    const jwt = new JwtService({ secret: BASE.secret });
+    const claims = jwt.decode<Record<string, unknown>>(service().signAccessToken(USER));
+    expect(
+      codeOf(() => service().verifyAccessToken(jwt.sign(claims, { algorithm: 'HS512' }))),
+    ).toBe('INVALID_TOKEN');
   });
 });

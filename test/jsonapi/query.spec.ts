@@ -83,7 +83,7 @@ describe('parseQuery 거부', () => {
 
   it('알 수 없는 page 하위 키를 거부한다', () => {
     expect(caught(() => parseQuery({ 'page[offset]': '10' }, POLICY, DECLARED)).code).toBe(
-      'INVALID_QUERY_PARAMETER',
+      'INVALID_PAGE',
     );
   });
 
@@ -135,45 +135,40 @@ describe('parseRelatedCollectionQuery', () => {
         mode: 'offset',
         size: 5,
         number: 2,
-        totals: true,
+        totals: false,
       },
     );
   });
 
   it('총 개수를 언제나 낸다', () => {
     // 스펙 8.2: to-many 관계 URL은 meta.totalCount와 페이지 링크를 반환한다.
-    expect(parseRelatedCollectionQuery({}, POLICY).totals).toBe(true);
+    expect(parseRelatedCollectionQuery({}, POLICY).totals).toBe(false);
   });
 
-  it('자기가 만든 링크의 파라미터를 되받는다', () => {
-    // 이 엔드포인트가 내는 링크에는 언제나 page[totals]=true가 붙는다. 그것을
-    // 거부하면 self 링크를 따라간 클라이언트가 400을 받는다.
-    expect(
-      parseRelatedCollectionQuery(
-        { 'page[number]': '1', 'page[size]': '25', 'page[totals]': 'true' },
-        POLICY,
-      ).totals,
-    ).toBe(true);
+  it('rejects totals on related collections', () => {
+    const error = caught(() => parseRelatedCollectionQuery({ 'page[totals]': 'true' }, POLICY));
+    expect(error.code).toBe('INVALID_PAGE');
+    expect(error.source).toEqual({ parameter: 'page[totals]' });
   });
 
   it('filter를 거부한다', () => {
     const error = caught(() => parseRelatedCollectionQuery({ 'filter[status]': 'draft' }, POLICY));
-    expect(error.code).toBe('INVALID_QUERY_PARAMETER');
+    expect(error.code).toBe('INVALID_FILTER');
     expect(error.source).toEqual({ parameter: 'filter[status]' });
   });
 
   it('sort와 include를 거부한다', () => {
     expect(caught(() => parseRelatedCollectionQuery({ sort: 'createdAt' }, POLICY)).code).toBe(
-      'INVALID_QUERY_PARAMETER',
+      'INVALID_SORT',
     );
     expect(caught(() => parseRelatedCollectionQuery({ include: 'category' }, POLICY)).code).toBe(
-      'INVALID_QUERY_PARAMETER',
+      'INVALID_INCLUDE',
     );
   });
 
   it('커서 파라미터를 거부한다', () => {
     expect(caught(() => parseRelatedCollectionQuery({ 'page[after]': '' }, POLICY)).code).toBe(
-      'INVALID_QUERY_PARAMETER',
+      'INVALID_PAGE',
     );
   });
 });
@@ -208,9 +203,14 @@ describe('parseSingleResourceQuery', () => {
 
   it('include 외의 파라미터를 거부한다', () => {
     // 단건 조회에 filter·sort·page는 뜻이 없다.
-    for (const key of ['filter[status]', 'sort', 'page[size]', 'q']) {
+    for (const [key, code] of Object.entries({
+      'filter[status]': 'INVALID_FILTER',
+      sort: 'INVALID_SORT',
+      'page[size]': 'INVALID_PAGE',
+      q: 'INVALID_QUERY_PARAMETER',
+    })) {
       const error = caught(() => parseSingleResourceQuery({ [key]: 'x' }, POLICY, DECLARED));
-      expect(error.code).toBe('INVALID_QUERY_PARAMETER');
+      expect(error.code).toBe(code);
       expect(error.source).toEqual({ parameter: key });
     }
   });

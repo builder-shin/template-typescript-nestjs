@@ -1,3 +1,4 @@
+import { getExactEntities } from '../../jsonapi/exact-timestamps.js';
 import { Inject, UseGuards } from '@nestjs/common';
 import type { Type } from '@nestjs/common';
 import { getDataSourceToken } from '@nestjs/typeorm';
@@ -20,7 +21,12 @@ import { collectionDocument, singleDocument } from './documents.js';
 import type { CollectionDocument, LinkageDocument, SingleDocument } from './documents.js';
 import { applyAttributes, parseWriteDocument } from './document-parsing.js';
 import { assertResourcePath } from './jsonapi-controller.js';
-import { canIdentify, resolveOne, resolveRelationships } from './relationship-resolver.js';
+import {
+  canIdentify,
+  normalizeModelId,
+  resolveOne,
+  resolveRelationships,
+} from './relationship-resolver.js';
 import type { ResolvedLinkage } from './relationship-resolver.js';
 import { RESOURCE_ALIAS, registerRoutes } from './route-registrar.js';
 import type { RelationshipDelegates } from './route-registrar.js';
@@ -129,13 +135,24 @@ export function CrudActions<
       manager: EntityManager,
       id: string,
       include: readonly string[],
+      forUpdate = false,
     ): Promise<T> {
       this.assertIdShape(manager, id);
       const builder = manager
         .getRepository(model)
         .createQueryBuilder(RESOURCE_ALIAS)
-        .where(`${RESOURCE_ALIAS}.id = :id`, { id });
-      for (const path of include) {
+        .where(`${RESOURCE_ALIAS}.id = :id`, { id: normalizeModelId(manager, model, id) });
+      if (forUpdate) {
+        // Lock before association hydration: a joined SELECT can retain stale
+        // relationship rows while it waits, and nullable joins cannot all be locked.
+        const parent = await builder
+          .clone()
+          .select(`${RESOURCE_ALIAS}.id`)
+          .setLock('pessimistic_write')
+          .getOne();
+        if (parent === null) throw this.notFound();
+      }
+      for (const path of new Set([...declaredRelationships, ...include])) {
         const definition = serializer.relationships[path];
         if (definition === undefined) {
           throw new TypeError(`선언되지 않은 관계 경로다: ${path}`);
@@ -145,8 +162,8 @@ export function CrudActions<
           definition.eagerLoad,
         );
       }
-      const entity = await builder.getOne();
-      if (entity === null) {
+      const [entity] = await getExactEntities(builder);
+      if (entity === undefined) {
         throw this.notFound();
       }
       return entity;
@@ -179,7 +196,13 @@ export function CrudActions<
               result.lastCursor,
               result.hasMore,
             );
-      return collectionDocument(data, included, links, result.totalCount);
+      return collectionDocument(
+        data,
+        included,
+        links,
+        result.totalCount,
+        query.include !== undefined,
+      );
     }
 
     async show(id: string, query: QueryRecord): Promise<SingleDocument> {
@@ -188,16 +211,29 @@ export function CrudActions<
       return singleDocument(
         serializeResource(serializer, entity),
         collectIncluded(serializer, [entity], include),
+        query.include !== undefined,
       );
     }
 
-    async create(body: unknown, response: HeaderWritableResponse): Promise<SingleDocument> {
+    async create(
+      body: unknown,
+      response: HeaderWritableResponse,
+      query: QueryRecord = {},
+    ): Promise<SingleDocument> {
       if (createSchema === undefined) {
         throw new TypeError('createSchema 없이 create 라우트가 등록됐다');
       }
-      const parsed = await parseWriteDocument(body, createSchema, {
-        expectedType: serializer.type,
-      });
+      const parsed = await parseWriteDocument(
+        body,
+        createSchema,
+        {
+          expectedType: serializer.type,
+          relationships: relationshipsSchema,
+        },
+        () => {
+          assertNoQueryParameters(query);
+        },
+      );
 
       const saved = await this.dataSource.transaction(async (manager) => {
         const entity = manager.getRepository(model).create();
@@ -224,17 +260,25 @@ export function CrudActions<
       return singleDocument(serializeResource(serializer, reloaded), []);
     }
 
-    async update(id: string, body: unknown): Promise<SingleDocument> {
+    async update(id: string, body: unknown, query: QueryRecord = {}): Promise<SingleDocument> {
       if (updateSchema === undefined) {
         throw new TypeError('updateSchema 없이 update 라우트가 등록됐다');
       }
-      const parsed = await parseWriteDocument(body, updateSchema, {
-        expectedType: serializer.type,
-        expectedId: id,
-      });
+      const parsed = await parseWriteDocument(
+        body,
+        updateSchema,
+        {
+          expectedType: serializer.type,
+          expectedId: id,
+          relationships: relationshipsSchema,
+        },
+        () => {
+          assertNoQueryParameters(query);
+        },
+      );
 
       await this.dataSource.transaction(async (manager) => {
-        const entity = await this.findOne(manager, id, Object.keys(parsed.relationships));
+        const entity = await this.findOne(manager, id, Object.keys(parsed.relationships), true);
         // 보낸 필드만 바꾼다. 스펙 7.1의 부분 갱신이 여기서 지켜진다.
         applyAttributes(entity, parsed.attributes, parsed.presentKeys);
         this.applyLinkage(
@@ -254,7 +298,8 @@ export function CrudActions<
       return singleDocument(serializeResource(serializer, reloaded), []);
     }
 
-    async destroy(id: string): Promise<void> {
+    async destroy(id: string, query: QueryRecord = {}): Promise<void> {
+      assertNoQueryParameters(query);
       await this.dataSource.transaction(async (manager) => {
         const entity = await this.findOne(manager, id, []);
         await declaration.beforeDestroy?.(entity, manager);
@@ -273,16 +318,26 @@ export function CrudActions<
       id: string,
       body: unknown,
       response: HeaderWritableResponse & { status(code: number): unknown },
+      query: QueryRecord = {},
     ): Promise<SingleDocument> {
       const schema = declaration.replaceSchema;
       if (schema === undefined) {
         throw new TypeError('replaceSchema 없이 replace가 호출됐다');
       }
 
-      const parsed = await parseWriteDocument(body, schema, {
-        expectedType: serializer.type,
-        expectedId: id,
-      });
+      const parsed = await parseWriteDocument(
+        body,
+        schema,
+        {
+          expectedType: serializer.type,
+          expectedId: id,
+          requireId: true,
+          relationships: relationshipsSchema,
+        },
+        () => {
+          assertNoQueryParameters(query);
+        },
+      );
 
       const outcome = await this.dataSource.transaction(async (manager) => {
         this.assertIdShape(manager, id);
@@ -294,7 +349,12 @@ export function CrudActions<
           parsed.presentKeys,
           schemaProperties(schema),
         );
-        const { created } = await upsertRow(manager, model, id, values);
+        const { created } = await upsertRow(
+          manager,
+          model,
+          normalizeModelId(manager, model, id),
+          values,
+        );
 
         const entity = await this.findOne(manager, id, []);
         const linkage = await resolveRelationships(
@@ -334,7 +394,7 @@ export function CrudActions<
       });
 
       if (outcome.created) {
-        response.setHeader('Location', `${this.basePath}/${id}`);
+        response.setHeader('Location', `${this.basePath}/${outcome.document.data.id}`);
         response.status(201);
       }
       return outcome.document;
@@ -357,7 +417,7 @@ export function CrudActions<
     async showRelationshipFor(name: string, id: string): Promise<LinkageDocument> {
       const entity = await this.findOne(this.dataSource.manager, id, [name]);
       const object = serializeResource(serializer, entity);
-      const relationship = object.relationships[name];
+      const relationship = object.relationships?.[name];
       if (relationship === undefined) {
         throw new TypeError(`시리얼라이저가 선언하지 않은 관계다: ${name}`);
       }
@@ -369,13 +429,13 @@ export function CrudActions<
       if (links === undefined) {
         throw new TypeError(`관계 링크를 만들 수 없다: ${name}`);
       }
-      return { data: relationship.data ?? null, links };
+      return { jsonapi: { version: '1.1' }, data: relationship.data ?? null, links };
     }
 
     async replaceRelationshipFor(name: string, id: string, body: unknown): Promise<void> {
       const rule = this.ruleFor(name);
       await this.dataSource.transaction(async (manager) => {
-        const entity = await this.findOne(manager, id, [name]);
+        const entity = await this.findOne(manager, id, [name], true);
         const resolved = await resolveOne(manager, rule, body, '/data');
         Reflect.set(entity, name, resolved);
         await manager.getRepository(model).save(entity);
@@ -385,7 +445,7 @@ export function CrudActions<
     async addToRelationshipFor(name: string, id: string, body: unknown): Promise<void> {
       const rule = this.ruleFor(name);
       await this.dataSource.transaction(async (manager) => {
-        const entity = await this.findOne(manager, id, [name]);
+        const entity = await this.findOne(manager, id, [name], true);
         const incoming = await resolveOne(manager, rule, body, '/data');
         if (!Array.isArray(incoming)) {
           throw new TypeError(`to-many 관계가 아니다: ${name}`);
@@ -407,7 +467,7 @@ export function CrudActions<
     async removeFromRelationshipFor(name: string, id: string, body: unknown): Promise<void> {
       const rule = this.ruleFor(name);
       await this.dataSource.transaction(async (manager) => {
-        const entity = await this.findOne(manager, id, [name]);
+        const entity = await this.findOne(manager, id, [name], true);
         const outgoing = await resolveOne(manager, rule, body, '/data');
         if (!Array.isArray(outgoing)) {
           throw new TypeError(`to-many 관계가 아니다: ${name}`);
@@ -439,9 +499,9 @@ export function CrudActions<
         // 스펙 8.2: to-one 관계 URL은 모든 조회 파라미터를 거부한다.
         assertNoQueryParameters(query);
         if (value === null || value === undefined) {
-          return { data: null };
+          return { jsonapi: { version: '1.1' }, data: null };
         }
-        return { data: target.serializeUnknown(value) };
+        return singleDocument(target.serializeUnknown(value), []);
       }
 
       // 스펙 8.2: to-many는 `page[number]`/`page[size]`만 받고 총 개수를 언제나 낸다.

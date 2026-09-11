@@ -87,7 +87,7 @@ describe('PUT /api/v1/examples/{id}', () => {
           data: {
             type: 'users',
             attributes: {
-              email: 'examples-put-writer@example.test',
+              email: 'examples-put-writer@example.com',
               password: '충분히-긴-비밀번호-1234',
             },
           },
@@ -103,7 +103,7 @@ describe('PUT /api/v1/examples/{id}', () => {
           data: {
             type: 'authCredentials',
             attributes: {
-              email: 'examples-put-writer@example.test',
+              email: 'examples-put-writer@example.com',
               password: '충분히-긴-비밀번호-1234',
             },
           },
@@ -248,7 +248,13 @@ describe('PUT /api/v1/examples/{id}', () => {
       .set('Content-Type', VENDOR)
       .set('Authorization', `Bearer ${accessToken}`)
       .send(
-        JSON.stringify({ data: { type: 'examples', id: OTHER, attributes: { title: '제목' } } }),
+        JSON.stringify({
+          data: {
+            type: 'examples',
+            id: OTHER,
+            attributes: { title: '제목', status: 'active', score: 42 },
+          },
+        }),
       );
     expect(response.status).toBe(409);
     // 상태 코드만으로는 TYPE_MISMATCH 같은 다른 409 원인과 갈리지 않는다.

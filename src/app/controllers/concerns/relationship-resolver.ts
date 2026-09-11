@@ -3,6 +3,7 @@ import type { EntityManager, EntityTarget, ObjectLiteral } from 'typeorm';
 import { parseLinkageInput } from '../../jsonapi/document.js';
 import type { RelationshipInput, ResourceIdentifier } from '../../jsonapi/document.js';
 import { JsonApiError } from '../../jsonapi/errors.js';
+import { normalizeUuid } from '../../jsonapi/scalar-grammar.js';
 import type { RelationshipWriteRule, RelationshipWriteSchema } from '../../schemas/write-schema.js';
 
 /**
@@ -28,7 +29,14 @@ export interface ResolvedLinkage {
  * 보고 여기는 이 id가 행을 가리킬 수 있는지를 봐서, 합치면 해석 계층이 필터 계층에
  * 의존하게 된다. 한쪽을 고칠 일이 생기면 다른 쪽도 함께 본다.
  */
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export function normalizeModelId(
+  manager: EntityManager,
+  model: EntityTarget<ObjectLiteral>,
+  id: string,
+): string {
+  const [primary] = manager.dataSource.getMetadata(model).primaryColumns;
+  return primary?.type === 'uuid' ? normalizeUuid(id) : id;
+}
 
 /**
  * 이 id가 그 엔티티의 행을 가리킬 수 있는 모양인지 본다.
@@ -44,8 +52,12 @@ export function canIdentify(
   model: EntityTarget<ObjectLiteral>,
   id: string,
 ): boolean {
-  const [primary] = manager.dataSource.getMetadata(model).primaryColumns;
-  return primary?.type !== 'uuid' || UUID_PATTERN.test(id);
+  try {
+    normalizeModelId(manager, model, id);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -69,18 +81,37 @@ async function loadAll(
   identifiers: readonly ResourceIdentifier[],
   pointer: string,
 ): Promise<ObjectLiteral[]> {
-  const ids = [...new Set(identifiers.map((identifier) => identifier.id))];
+  const ids: string[] = [];
+  for (const [index, identifier] of identifiers.entries()) {
+    const resourcePointer = rule.cardinality === 'many' ? `${pointer}/${String(index)}` : pointer;
+    if (identifier.type !== rule.type) {
+      throw new JsonApiError('TYPE_MISMATCH', { source: { pointer: `${resourcePointer}/type` } });
+    }
+    const itemPointer =
+      rule.cardinality === 'many' ? `${pointer}/${String(index)}/id` : `${pointer}/id`;
+    if (!canIdentify(manager, rule.model, identifier.id))
+      throw new JsonApiError('RELATIONSHIP_RESOURCE_NOT_FOUND', {
+        source: { pointer: itemPointer },
+      });
+    const id = normalizeModelId(manager, rule.model, identifier.id);
+    if (ids.includes(id))
+      throw new JsonApiError('INVALID_JSONAPI_DOCUMENT', { source: { pointer: itemPointer } });
+    ids.push(id);
+  }
   if (ids.length === 0) {
     return [];
   }
-  if (ids.some((id) => !canIdentify(manager, rule.model, id))) {
-    throw new JsonApiError('RELATIONSHIP_RESOURCE_NOT_FOUND', { source: { pointer } });
-  }
   const rows = await manager.find(rule.model, { where: { id: In(ids) } });
-  if (rows.length !== ids.length) {
-    throw new JsonApiError('RELATIONSHIP_RESOURCE_NOT_FOUND', { source: { pointer } });
-  }
-  return rows;
+  return ids.map((id, index) => {
+    const row = rows.find((candidate) => Reflect.get(candidate, 'id') === id);
+    if (row === undefined)
+      throw new JsonApiError('RELATIONSHIP_RESOURCE_NOT_FOUND', {
+        source: {
+          pointer: rule.cardinality === 'many' ? `${pointer}/${String(index)}/id` : `${pointer}/id`,
+        },
+      });
+    return row;
+  });
 }
 
 /**
@@ -103,6 +134,7 @@ export async function resolveOne(
     expectedType: rule.type,
     cardinality: rule.cardinality,
     pointer,
+    deferModelSemantics: true,
   });
 
   if (linkage === null) {

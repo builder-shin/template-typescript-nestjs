@@ -126,6 +126,7 @@ describe('마이그레이션 down', () => {
     // "down 뒤에 아무것도 없다"는 저절로 통과한다.
     expect(afterUp.tables).toEqual([
       'categories',
+      'email_identity_backups',
       'example_tags',
       'examples',
       'refresh_sessions',

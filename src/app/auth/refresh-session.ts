@@ -1,136 +1,136 @@
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { IsNull } from 'typeorm';
 import { canIdentify } from '../controllers/concerns/relationship-resolver.js';
 import { JsonApiError } from '../jsonapi/errors.js';
 import { RefreshSession } from '../models/refresh-session.entity.js';
 import { User } from '../models/user.entity.js';
 import type { EntityManager } from 'typeorm';
+import type { RefreshTokenClaims, TokenService } from './tokens.js';
 
-/**
- * refresh session의 수명 관리.
- *
- * **호출자가 트랜잭션을 소유한다.** `rotateSession`은 행을 `FOR UPDATE`로 잡으므로
- * 트랜잭션 밖에서 부르면 TypeORM이 거절한다. Phase 5의 `upsertRow`와 같은 계약이다 —
- * 회전은 "옛 행을 폐기하고 새 행을 만든다"는 두 쓰기라, 둘 사이에서 실패하면 폐기만
- * 되고 새 token은 없는 상태가 남는다.
- */
-
-/** 새로 만든 세션. */
 export interface IssuedSession {
   readonly id: string;
   readonly expiresAt: Date;
+  readonly refreshToken: string;
 }
-
-/** 회전 결과. 새 token을 서명하려면 사용자 id가 함께 필요하다. */
 export interface RotatedSession extends IssuedSession {
   readonly userId: string;
 }
 
-/** 세션 하나를 만든다. */
+export function hashRefreshToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
+/** The caller owns the transaction and locks the user before issuing. */
 export async function issueSession(
   manager: EntityManager,
   userId: string,
   ttlSeconds: number,
+  tokens: TokenService,
 ): Promise<IssuedSession> {
-  const created = await manager.save(RefreshSession, {
+  const id = randomUUID();
+  const issuedAt = Math.floor(Date.now() / 1000);
+  const refreshToken = tokens.signRefreshToken(userId, id, issuedAt);
+  const expiresAt = new Date((issuedAt + ttlSeconds) * 1000);
+  await manager.save(RefreshSession, {
+    id,
     userId,
-    expiresAt: new Date(Date.now() + ttlSeconds * 1000),
+    tokenHash: hashRefreshToken(refreshToken),
+    expiresAt,
     revokedAt: null,
     replacedById: null,
   });
-  return { id: created.id, expiresAt: created.expiresAt };
+  return { id, expiresAt, refreshToken };
 }
 
-/**
- * 옛 세션을 폐기하고 새 세션으로 잇는다.
- *
- * 옛 행을 먼저 잠그는 이유: 같은 refresh token으로 동시에 두 번 갱신하면, 잠금이
- * 없을 때 둘 다 "폐기되지 않았다"를 보고 각자 새 세션을 만든다 — 훔친 token과 원래
- * token이 나란히 살아남는다.
- *
- * 사용자를 이 잠금과 같은 트랜잭션에서 다시 읽고 비활성이면 회전을 거절한다. `login`
- * (`auth.controller.ts`)과 Bearer 가드(`current-user.guard.ts`)는 둘 다 `isActive`를
- * 보는데 회전만 빠지면, 운영자가 계정을 비활성화해도 이미 발급된 refresh token은 계속
- * 회전할 수 있고 `issueSession`이 회전마다 `expires_at`을 새로 미뤄 주므로 그 체인이
- * 무한히 앞으로 미끄러진다 — 비활성화가 하겠다고 말한 일을 하지 못하는 것이다. 이
- * 검사를 컨트롤러가 아니라 여기 두는 이유는 두 가지다: 회전 결정과 같은 트랜잭션·같은
- * 잠금 안이어야 하고, 이 함수를 앞으로 부르는 자리가 늘어도 빠뜨릴 수 없어야 한다.
- */
+export async function lockUser(manager: EntityManager, userId: string): Promise<User | null> {
+  if (!canIdentify(manager, User, userId)) return null;
+  return manager.findOne(User, { where: { id: userId }, lock: { mode: 'pessimistic_write' } });
+}
+
+/** Return expected errors so the caller commits security changes before raising them. */
 export async function rotateSession(
   manager: EntityManager,
-  sessionId: string,
+  rawToken: string,
   ttlSeconds: number,
-): Promise<RotatedSession> {
-  const current = await lockSession(manager, sessionId);
-
+  tokens: TokenService,
+): Promise<RotatedSession | JsonApiError> {
+  const verified = await loadVerifiedSession(manager, rawToken, tokens);
+  if (verified instanceof JsonApiError) return verified;
+  const { current, user } = verified;
   if (current.revokedAt !== null) {
-    throw new JsonApiError('TOKEN_REVOKED');
-  }
-  if (current.expiresAt.getTime() <= Date.now()) {
-    throw new JsonApiError('TOKEN_EXPIRED');
-  }
-
-  const user = await manager.findOneBy(User, { id: current.userId });
-  if (user === null) {
-    // 도달 불가 분기: `refresh_sessions.user_id`는 NOT NULL이고 `users(id)`를
-    // `ON DELETE CASCADE`로 참조하며 DEFERRABLE이 아니다(`refresh-session.entity.ts`,
-    // 마이그레이션이 고정하고 `auth-schema.spec.ts`가 실제 PostgreSQL로 검증한다).
-    // 사용자 행이 지워지는 순간 이 세션 행도 같은 문장에서 함께 지워지므로, 방금
-    // `lockSession`이 `FOR UPDATE`로 잠근 이 행이 가리키는 사용자가 없을 수는 없다 —
-    // 경합 창도 없다. 그래서 `JsonApiError`(클라이언트 오류)가 아니라 `TypeError`를
-    // 던진다: 이것은 요청이 아니라 이 코드가 기대는 FK 불변식이 깨졌다는 뜻이다.
-    throw new TypeError('refresh_sessions가 가리키는 사용자를 찾을 수 없다 — FK 불변식 위반');
+    await manager.update(
+      RefreshSession,
+      { userId: user.id, revokedAt: IsNull() },
+      { revokedAt: new Date() },
+    );
+    return new JsonApiError('TOKEN_REVOKED');
   }
   if (!user.isActive) {
-    throw new JsonApiError('USER_INACTIVE');
+    await manager.update(RefreshSession, { id: current.id }, { revokedAt: new Date() });
+    return new JsonApiError('USER_INACTIVE');
   }
-
-  const next = await issueSession(manager, current.userId, ttlSeconds);
+  const next = await issueSession(manager, user.id, ttlSeconds, tokens);
   await manager.update(
     RefreshSession,
     { id: current.id },
     { revokedAt: new Date(), replacedById: next.id },
   );
-  return { ...next, userId: current.userId };
+  return { ...next, userId: user.id };
 }
 
-/**
- * 세션 하나를 폐기한다. 없거나 이미 폐기됐어도 조용히 끝난다.
- *
- * 멱등한 이유: 로그아웃이 바라는 최종 상태는 "이 세션이 못 쓰이는 것"이고, 두 번
- * 눌린 버튼은 클라이언트 오류가 아니다. `revokedAt: IsNull()` 조건으로 좁히는 것도
- * 같은 이유다 — 이미 폐기된 행의 시각을 덮어쓰면 언제 로그아웃했는지가 재시도로
- * 흔들린다.
- */
-export async function revokeSession(manager: EntityManager, sessionId: string): Promise<void> {
-  if (!canIdentify(manager, RefreshSession, sessionId)) {
-    return;
+export async function revokeSession(
+  manager: EntityManager,
+  rawToken: string,
+  tokens: TokenService,
+): Promise<undefined | JsonApiError> {
+  const verified = await loadVerifiedSession(manager, rawToken, tokens);
+  if (verified instanceof JsonApiError) return verified;
+  if (verified.current.revokedAt === null) {
+    await manager.update(RefreshSession, { id: verified.current.id }, { revokedAt: new Date() });
   }
-  await manager.update(
-    RefreshSession,
-    { id: sessionId, revokedAt: IsNull() },
-    { revokedAt: new Date() },
-  );
 }
 
-/**
- * 세션을 잠근 채 읽는다.
- *
- * uuid 모양을 먼저 거르는 이유: uuid 컬럼에 uuid가 아닌 문자열을 넣으면 PostgreSQL이
- * 22P02로 죽어 401이어야 할 것이 500이 된다. `sessionId`는 우리가 서명한 token에서
- * 오지만, 비밀 키를 쥔 쪽은 아무 `jti`나 실어 보낼 수 있다. Phase 4가 관계 linkage
- * id로 같은 사고를 겪고 만든 `canIdentify`를 그대로 쓴다 — 두 곳이 각자 판정하면
- * 한쪽만 고쳐지는 날이 온다.
- */
-async function lockSession(manager: EntityManager, sessionId: string): Promise<RefreshSession> {
-  if (!canIdentify(manager, RefreshSession, sessionId)) {
-    throw new JsonApiError('INVALID_TOKEN');
+async function loadVerifiedSession(
+  manager: EntityManager,
+  rawToken: string,
+  tokens: TokenService,
+): Promise<{ current: RefreshSession; user: User } | JsonApiError> {
+  let claims: RefreshTokenClaims;
+  let expired = false;
+  try {
+    try {
+      claims = tokens.verifyRefreshToken(rawToken);
+    } catch (error: unknown) {
+      if (!(error instanceof JsonApiError) || error.code !== 'TOKEN_EXPIRED') throw error;
+      claims = tokens.verifyExpiredRefreshToken(rawToken);
+      expired = true;
+    }
+  } catch (error: unknown) {
+    if (error instanceof JsonApiError) return error;
+    throw error;
   }
-  const session = await manager.findOne(RefreshSession, {
-    where: { id: sessionId },
+  // Every login/refresh/logout mutation uses this order, avoiding cross-session deadlocks.
+  const user = await lockUser(manager, claims.userId);
+  if (user === null || !canIdentify(manager, RefreshSession, claims.sessionId))
+    return new JsonApiError('INVALID_TOKEN');
+  const current = await manager.findOne(RefreshSession, {
+    where: { id: claims.sessionId },
     lock: { mode: 'pessimistic_write' },
   });
-  if (session === null) {
-    throw new JsonApiError('INVALID_TOKEN');
+  if (
+    current?.userId !== user.id ||
+    !/^[a-f0-9]{64}$/.test(current.tokenHash) ||
+    !timingSafeEqual(
+      Buffer.from(current.tokenHash, 'hex'),
+      Buffer.from(hashRefreshToken(rawToken), 'hex'),
+    )
+  ) {
+    return new JsonApiError('INVALID_TOKEN');
   }
-  return session;
+  if (expired || current.expiresAt.getTime() <= Date.now()) {
+    if (current.revokedAt === null)
+      await manager.update(RefreshSession, { id: current.id }, { revokedAt: new Date() });
+    return new JsonApiError('TOKEN_EXPIRED');
+  }
+  return { current, user };
 }

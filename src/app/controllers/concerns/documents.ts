@@ -12,12 +12,14 @@ import type { ResourceObject } from '../../serializers/serializer.js';
 
 /** 자원 하나를 담은 문서. */
 export interface SingleDocument {
+  readonly jsonapi: { readonly version: '1.1' };
   readonly data: ResourceObject;
   readonly included?: readonly ResourceObject[];
 }
 
 /** 자원 목록을 담은 문서. */
 export interface CollectionDocument {
+  readonly jsonapi: { readonly version: '1.1' };
   readonly data: readonly ResourceObject[];
   readonly included?: readonly ResourceObject[];
   readonly links: PaginationLinks;
@@ -26,16 +28,22 @@ export interface CollectionDocument {
 
 /** 관계의 linkage 문서. */
 export interface LinkageDocument {
+  readonly jsonapi: { readonly version: '1.1' };
   readonly data: ResourceIdentifier | readonly ResourceIdentifier[] | null;
   readonly links: { readonly self: string; readonly related: string };
 }
 
-/** 자원 하나를 문서로 만든다. `included`가 비면 멤버를 생략한다. */
+/** Explicit include requests retain an empty included array. */
 export function singleDocument(
   data: ResourceObject,
   included: readonly ResourceObject[],
+  includeRequested = false,
 ): SingleDocument {
-  return { data, ...(included.length === 0 ? {} : { included }) };
+  return {
+    jsonapi: { version: '1.1' },
+    data,
+    ...(included.length === 0 && !includeRequested ? {} : { included }),
+  };
 }
 
 /**
@@ -49,10 +57,12 @@ export function collectionDocument(
   included: readonly ResourceObject[],
   links: PaginationLinks,
   totalCount: number | undefined,
+  includeRequested = false,
 ): CollectionDocument {
   return {
+    jsonapi: { version: '1.1' },
     data,
-    ...(included.length === 0 ? {} : { included }),
+    ...(included.length === 0 && !includeRequested ? {} : { included }),
     links,
     ...(totalCount === undefined ? {} : { meta: { totalCount } }),
   };

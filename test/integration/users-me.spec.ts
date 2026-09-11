@@ -33,7 +33,7 @@ describe('GET /api/v1/users/me', () => {
         JSON.stringify({
           data: {
             type: 'users',
-            attributes: { email: 'me-나@example.test', password: '충분히-긴-비밀번호-1234' },
+            attributes: { email: 'me-나@example.com', password: '충분히-긴-비밀번호-1234' },
           },
         }),
       )
@@ -47,7 +47,7 @@ describe('GET /api/v1/users/me', () => {
         JSON.stringify({
           data: {
             type: 'authCredentials',
-            attributes: { email: 'me-나@example.test', password: '충분히-긴-비밀번호-1234' },
+            attributes: { email: 'me-나@example.com', password: '충분히-긴-비밀번호-1234' },
           },
         }),
       )
@@ -68,7 +68,7 @@ describe('GET /api/v1/users/me', () => {
       .expect(200);
 
     expect(response.body).toMatchObject({
-      data: { type: 'users', attributes: { email: 'me-나@example.test' } },
+      data: { type: 'users', attributes: { email: 'me-나@example.com' } },
     });
   });
 

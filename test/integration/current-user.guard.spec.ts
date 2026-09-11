@@ -63,31 +63,21 @@ describe('Bearer 인증 판정', () => {
     });
   });
 
-  it('Bearer가 아닌 스킴은 AUTHENTICATION_REQUIRED다', async () => {
-    // 무엇을 보냈든 우리가 아는 인증 수단이 아니다 — "토큰이 틀렸다"가 아니라
-    // "인증이 없다"에 가깝다.
+  it('rejects unsupported authorization schemes', async () => {
     await withRollback(dataSource, async (manager) => {
-      expect(await codeOf(() => authenticate(manager, 'Basic YWJjOmRlZg=='))).toBe(
-        'AUTHENTICATION_REQUIRED',
-      );
+      expect(await codeOf(() => authenticate(manager, 'Basic YWJjOmRlZg=='))).toBe('INVALID_TOKEN');
     });
   });
 
-  it('토큰 자리가 비어 있어도 AUTHENTICATION_REQUIRED다', async () => {
+  it('rejects an empty bearer credential', async () => {
     await withRollback(dataSource, async (manager) => {
-      expect(await codeOf(() => authenticate(manager, 'Bearer   '))).toBe(
-        'AUTHENTICATION_REQUIRED',
-      );
+      expect(await codeOf(() => authenticate(manager, 'Bearer   '))).toBe('INVALID_TOKEN');
     });
   });
 
-  it('스킴과 토큰 사이에 공백이 없으면 AUTHENTICATION_REQUIRED다', async () => {
-    // `bearerToken`의 `header.indexOf(' ')`가 -1을 돌려주는 분기다. 위 세 테스트는
-    // 전부 공백이 있는 헤더만 보내서 이 분기를 태우지 않는다.
+  it('rejects a header without a scheme separator', async () => {
     await withRollback(dataSource, async (manager) => {
-      expect(await codeOf(() => authenticate(manager, 'BearerXYZ'))).toBe(
-        'AUTHENTICATION_REQUIRED',
-      );
+      expect(await codeOf(() => authenticate(manager, 'BearerXYZ'))).toBe('INVALID_TOKEN');
     });
   });
 

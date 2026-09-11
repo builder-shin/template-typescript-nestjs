@@ -24,6 +24,7 @@ async function caughtError(run: () => Promise<unknown>): Promise<JsonApiError> {
   try {
     await run();
   } catch (error) {
+    if (error instanceof JsonApiErrors && error.errors[0] !== undefined) return error.errors[0];
     if (!(error instanceof JsonApiError)) {
       throw error;
     }
@@ -59,13 +60,15 @@ describe('parseWriteDocument', () => {
   });
 
   it('attributes가 아예 없으면 presentKeys가 빈다', async () => {
-    const parsed = await parseWriteDocument(document({}), Sample, { expectedType: 'samples' });
+    const parsed = await parseWriteDocument(document({ attributes: {} }), Sample, {
+      expectedType: 'samples',
+    });
     expect(parsed.presentKeys.size).toBe(0);
   });
 
   it('relationships를 그대로 넘긴다', async () => {
     const parsed = await parseWriteDocument(
-      document({ relationships: { owner: { data: { type: 'users', id: 'u1' } } } }),
+      document({ attributes: {}, relationships: { owner: { data: { type: 'users', id: 'u1' } } } }),
       Sample,
       { expectedType: 'samples' },
     );
@@ -86,12 +89,14 @@ describe('parseWriteDocument', () => {
     const error = await caughtError(() =>
       parseWriteDocument({ data: null }, Sample, { expectedType: 'samples' }),
     );
-    expect(error.code).toBe('INVALID_JSONAPI_DOCUMENT');
+    expect(error.code).toBe('VALIDATION_ERROR');
   });
 
   it('타입이 다르면 TYPE_MISMATCH다', async () => {
     const error = await caughtError(() =>
-      parseWriteDocument({ data: { type: 'others' } }, Sample, { expectedType: 'samples' }),
+      parseWriteDocument({ data: { type: 'others', attributes: {} } }, Sample, {
+        expectedType: 'samples',
+      }),
     );
     expect(error.code).toBe('TYPE_MISMATCH');
   });

@@ -1,4 +1,4 @@
-import { JsonApiError } from '../../src/app/jsonapi/errors.js';
+import { JsonApiError, JsonApiErrors } from '../../src/app/jsonapi/errors.js';
 import { parseLinkageInput, parseResourceInput } from '../../src/app/jsonapi/document.js';
 
 /**
@@ -10,7 +10,8 @@ import { parseLinkageInput, parseResourceInput } from '../../src/app/jsonapi/doc
 function expectJsonApiError(fn: () => unknown, code: string, pointer?: string): void {
   try {
     fn();
-  } catch (error) {
+  } catch (caught) {
+    const error = caught instanceof JsonApiErrors ? caught.errors[0] : caught;
     if (!(error instanceof JsonApiError)) {
       throw error;
     }
@@ -262,18 +263,18 @@ describe('parseLinkageInput', () => {
     expect(result).toEqual([]);
   });
 
-  it('to-many에 null을 주면 INVALID_JSONAPI_DOCUMENT', () => {
+  it('to-many에 null을 주면 VALIDATION_ERROR', () => {
     expectJsonApiError(
       () => parseLinkageInput({ data: null }, { expectedType: 'tags', cardinality: 'many' }),
-      'INVALID_JSONAPI_DOCUMENT',
+      'VALIDATION_ERROR',
       '/data',
     );
   });
 
-  it('to-one에 배열을 주면 INVALID_JSONAPI_DOCUMENT', () => {
+  it('to-one에 배열을 주면 VALIDATION_ERROR', () => {
     expectJsonApiError(
       () => parseLinkageInput({ data: [] }, { expectedType: 'categories', cardinality: 'one' }),
-      'INVALID_JSONAPI_DOCUMENT',
+      'VALIDATION_ERROR',
       '/data',
     );
   });
@@ -307,54 +308,54 @@ describe('parseLinkageInput', () => {
     );
   });
 
-  it('linkage에 id가 없으면 INVALID_JSONAPI_DOCUMENT', () => {
+  it('linkage에 id가 없으면 VALIDATION_ERROR', () => {
     expectJsonApiError(
       () =>
         parseLinkageInput(
           { data: { type: 'categories' } },
           { expectedType: 'categories', cardinality: 'one' },
         ),
-      'INVALID_JSONAPI_DOCUMENT',
+      'VALIDATION_ERROR',
       '/data/id',
     );
   });
 
-  it('linkage 식별자가 객체가 아니면 INVALID_JSONAPI_DOCUMENT', () => {
+  it('linkage 식별자가 객체가 아니면 VALIDATION_ERROR', () => {
     expectJsonApiError(
       () =>
         parseLinkageInput(
           { data: 'not-an-object' },
           { expectedType: 'categories', cardinality: 'one' },
         ),
-      'INVALID_JSONAPI_DOCUMENT',
+      'VALIDATION_ERROR',
       '/data',
     );
   });
 
-  it('linkage에 type이 없으면 INVALID_JSONAPI_DOCUMENT', () => {
+  it('linkage에 type이 없으면 VALIDATION_ERROR', () => {
     expectJsonApiError(
       () =>
         parseLinkageInput(
           { data: { id: 'c1' } },
           { expectedType: 'categories', cardinality: 'one' },
         ),
-      'INVALID_JSONAPI_DOCUMENT',
+      'VALIDATION_ERROR',
       '/data/type',
     );
   });
 
-  it('data 멤버가 없으면 INVALID_JSONAPI_DOCUMENT', () => {
+  it('data 멤버가 없으면 VALIDATION_ERROR', () => {
     expectJsonApiError(
       () => parseLinkageInput({}, { expectedType: 'tags', cardinality: 'many' }),
-      'INVALID_JSONAPI_DOCUMENT',
+      'VALIDATION_ERROR',
       '/data',
     );
   });
 
-  it('본문이 객체가 아니면 INVALID_JSONAPI_DOCUMENT', () => {
+  it('본문이 객체가 아니면 VALIDATION_ERROR', () => {
     expectJsonApiError(
       () => parseLinkageInput(null, { expectedType: 'tags', cardinality: 'many' }),
-      'INVALID_JSONAPI_DOCUMENT',
+      'VALIDATION_ERROR',
     );
   });
 
@@ -367,7 +368,7 @@ describe('parseLinkageInput', () => {
         { expectedType: 'tags', cardinality: 'one', pointer: '/data/relationships/tags/data' },
       );
     } catch (error) {
-      thrown = error;
+      thrown = error instanceof JsonApiErrors ? error.errors[0] : error;
     }
     if (!(thrown instanceof JsonApiError)) {
       throw new Error('JsonApiError가 던져지지 않았다');
@@ -383,7 +384,7 @@ describe('parseLinkageInput', () => {
         { expectedType: 'tags', cardinality: 'many', pointer: '/data/relationships/tags/data' },
       );
     } catch (error) {
-      thrown = error;
+      thrown = error instanceof JsonApiErrors ? error.errors[0] : error;
     }
     if (!(thrown instanceof JsonApiError)) {
       throw new Error('JsonApiError가 던져지지 않았다');
@@ -402,7 +403,7 @@ describe('parseLinkageInput', () => {
         },
       );
     } catch (error) {
-      thrown = error;
+      thrown = error instanceof JsonApiErrors ? error.errors[0] : error;
     }
     if (!(thrown instanceof JsonApiError)) {
       throw new Error('JsonApiError가 던져지지 않았다');

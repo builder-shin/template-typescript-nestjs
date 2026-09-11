@@ -158,7 +158,7 @@ describe('Examples API', () => {
           data: {
             type: 'users',
             attributes: {
-              email: 'examples-api-writer@example.test',
+              email: 'examples-api-writer@example.com',
               password: '충분히-긴-비밀번호-1234',
             },
           },
@@ -174,7 +174,7 @@ describe('Examples API', () => {
           data: {
             type: 'authCredentials',
             attributes: {
-              email: 'examples-api-writer@example.test',
+              email: 'examples-api-writer@example.com',
               password: '충분히-긴-비밀번호-1234',
             },
           },
@@ -223,6 +223,99 @@ describe('Examples API', () => {
   });
 
   describe('POST /api/v1/examples', () => {
+    it.each([
+      ['title', 123, 422],
+      ['title', true, 422],
+      ['title', ' ', 201],
+      ['title', null, 422],
+      ['description', 123, 422],
+      ['description', false, 422],
+      ['score', '42', 422],
+      ['score', 42.0, 201],
+      ['score', true, 422],
+      ['score', null, 422],
+      ['status', 0, 422],
+      ['title', 'x'.repeat(201), 422],
+    ])('re-audit strict attribute %s=%p returns %s', async (field, value, status) => {
+      const response = await api()
+        .post('/api/v1/examples')
+        .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          data: {
+            type: 'examples',
+            attributes: { title: 'Audit', status: 'active', score: 42, [field]: value },
+          },
+        });
+      expect(response.status).toBe(status);
+      if (status === 201) createdExampleIds.push((response.body as ResourceBody).data.id);
+      else
+        expect(
+          (response.body as ErrorBody).errors.map((error) => [error.code, error.source?.pointer]),
+        ).toEqual([['VALIDATION_ERROR', `/data/attributes/${field}`]]);
+    });
+
+    it('collects missing PUT id and attributes before semantic checks', async () => {
+      const response = await api()
+        .put(`/api/v1/examples/${MISSING}`)
+        .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ data: { attributes: {} } });
+      expect(response.status).toBe(422);
+      expect(
+        (response.body as ErrorBody).errors.map((error) => error.source?.pointer).sort(),
+      ).toEqual([
+        '/data/attributes/score',
+        '/data/attributes/status',
+        '/data/attributes/title',
+        '/data/id',
+        '/data/type',
+      ]);
+    });
+
+    it('preserves UUID URL forms and identifier metadata with exact missing-target pointers', async () => {
+      const created = (
+        (await createExample({ title: 'UUID', status: 'active', score: 42 })).body as ResourceBody
+      ).data.id;
+      const categoryId = await seedCategory();
+      for (const id of [created.replaceAll('-', ''), `{${created}}`, `urn:uuid:${created}`]) {
+        const result = await api().get(`/api/v1/examples/${encodeURIComponent(id)}`);
+        expect(result.status).toBe(200);
+        expect((result.body as ResourceBody).data.id).toBe(created);
+      }
+      const linked = await api()
+        .patch(`/api/v1/examples/${created}/relationships/category`)
+        .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({
+          data: {
+            type: 'exampleCategories',
+            id: `urn:uuid:${categoryId}`,
+            meta: { source: 'audit' },
+          },
+        });
+      expect(linked.status).toBe(204);
+      const missing = await api()
+        .patch(`/api/v1/examples/${created}/relationships/category`)
+        .set('Content-Type', VENDOR)
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ data: { type: 'exampleCategories', id: MISSING } });
+      expect(missing.status).toBe(404);
+      expect((missing.body as ErrorBody).errors[0]?.source?.pointer).toBe('/data/id');
+    });
+
+    it('returns included empty arrays only when include is explicitly requested', async () => {
+      const created = (
+        (await createExample({ title: 'Include', status: 'active', score: 42 }))
+          .body as ResourceBody
+      ).data.id;
+      const shown = await api().get(`/api/v1/examples/${created}?include=`);
+      expect(shown.status).toBe(200);
+      expect((shown.body as ResourceBody).included).toEqual([]);
+      const list = await api().get('/api/v1/categories?include=');
+      expect(list.status).toBe(200);
+      expect(list.body).toHaveProperty('included', []);
+    });
     it('201과 Location, 그리고 자원 문서를 낸다', async () => {
       const response = await createExample({ title: '제목', status: 'draft', score: 40 });
 
@@ -329,7 +422,11 @@ describe('Examples API', () => {
         .set('Accept', VENDOR)
         .set('Content-Type', VENDOR)
         .set('Authorization', `Bearer ${accessToken}`)
-        .send(JSON.stringify({ data: { type: 'others', attributes: { title: '제목' } } }));
+        .send(
+          JSON.stringify({
+            data: { type: 'others', attributes: { title: '제목', status: 'active', score: 42 } },
+          }),
+        );
 
       expect(response.status).toBe(409);
       expect((response.body as ErrorBody).errors[0]?.code).toBe('TYPE_MISMATCH');
@@ -343,7 +440,11 @@ describe('Examples API', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send(
           JSON.stringify({
-            data: { type: 'examples', id: MISSING, attributes: { title: '제목' } },
+            data: {
+              type: 'examples',
+              id: MISSING,
+              attributes: { title: '제목', status: 'active', score: 42 },
+            },
           }),
         );
 
@@ -420,7 +521,7 @@ describe('Examples API', () => {
       const response = await api().get('/api/v1/examples?page[size]=1').set('Accept', VENDOR);
       const body = response.body as CollectionBody;
       expect(body.data).toHaveLength(1);
-      expect(body.links.next).toContain('page[number]=2');
+      expect(body.links.next).toContain('page%5Bnumber%5D=2');
       expect(body.meta).toBeUndefined();
     });
 
@@ -433,7 +534,7 @@ describe('Examples API', () => {
         .set('Accept', VENDOR);
       const body = response.body as CollectionBody;
       expect(body.meta?.totalCount).toBe(2);
-      expect(body.links.last).toContain('page[number]=2');
+      expect(body.links.last).toContain('page%5Bnumber%5D=2');
     });
 
     it('filter와 sort를 적용한다', async () => {

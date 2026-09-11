@@ -40,7 +40,8 @@ export function isFilterOperator(value: string): value is FilterOperator {
  * 파서가 이 값을 보고 문자열을 엄격하게 변환한다. `'2026-13-40'`이나 `'참'` 같은 값은
  * 여기서 걸러지고 SQL까지 가지 않는다.
  */
-export type FilterValueType = 'string' | 'number' | 'boolean' | 'uuid' | 'timestamp' | 'enum';
+export type FilterValueType =
+  'string' | 'number' | 'integer' | 'boolean' | 'uuid' | 'timestamp' | 'enum';
 
 /** 필터 가능한 필드 하나의 정책. */
 export interface FilterFieldPolicy {

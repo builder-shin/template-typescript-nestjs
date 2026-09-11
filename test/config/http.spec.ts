@@ -20,7 +20,6 @@ interface ProbeExpressApp {
     path: string,
     handler: (request: { body: unknown }, response: { json(body: unknown): unknown }) => void,
   ): unknown;
-  get(setting: string): unknown;
 }
 
 describe('HTTP 조립', () => {
@@ -73,10 +72,29 @@ describe('HTTP 조립', () => {
     expect(response.body).toEqual({ received: { 인사: '본문' } });
   });
 
-  it('질의 파서를 simple로 고정한다', () => {
+  it('interprets bracketed filter keys as flat query parameters', async () => {
     // `src/app/jsonapi/`의 파서들은 `filter[title]` 같은 대괄호 키를 그대로 가진
     // 평평한 객체를 전제로 한다. `extended`로 바뀌면 그 전제가 조용히 무너진다.
-    const instance = app.getHttpAdapter().getInstance() as ProbeExpressApp;
-    expect(instance.get('query parser')).toBe('simple');
+    await request(app.getHttpServer())
+      .get('/api/v1/examples?filter%5Bscore%5D%5Bexact%5D=42')
+      .expect(200);
+  });
+
+  it('ignores malformed JSON on bodyless GET routes', async () => {
+    await request(app.getHttpServer())
+      .get('/api/v1/examples')
+      .set('Content-Type', 'application/json')
+      .send('{broken')
+      .expect(200);
+  });
+
+  it('uses JSON validation 422 before Accept negotiation on malformed write bodies', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/api/v1/examples')
+      .set('Content-Type', 'application/vnd.api+json')
+      .set('Accept', 'text/html')
+      .send('{broken');
+    expect(response.status).toBe(422);
+    expect(response.body).toMatchObject({ errors: [{ code: 'VALIDATION_ERROR' }] });
   });
 });

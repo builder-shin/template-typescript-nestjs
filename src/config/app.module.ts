@@ -3,6 +3,7 @@ import { APP_FILTER, APP_INTERCEPTOR } from '@nestjs/core';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { JsonApiExceptionFilter } from '../app/jsonapi/exception-filter.js';
 import { JsonApiResponseInterceptor } from '../app/jsonapi/response.js';
+import { RouteMethods } from '../app/jsonapi/route-methods.js';
 import { buildDataSourceOptions } from './database.js';
 import { RoutesModule } from './routes.module.js';
 import { loadDatabaseSettings } from './settings.js';
@@ -23,6 +24,7 @@ import { loadDatabaseSettings } from './settings.js';
     RoutesModule,
   ],
   providers: [
+    RouteMethods,
     { provide: APP_FILTER, useClass: JsonApiExceptionFilter },
     { provide: APP_INTERCEPTOR, useClass: JsonApiResponseInterceptor },
   ],

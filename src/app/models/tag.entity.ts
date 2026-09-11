@@ -19,7 +19,7 @@ export class Tag {
   @PrimaryGeneratedColumn('uuid')
   id!: string;
 
-  @Column({ name: 'name', type: 'varchar', length: 60, unique: true })
+  @Column({ name: 'name', type: 'varchar', length: 200, unique: true })
   name!: string;
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })

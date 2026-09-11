@@ -27,10 +27,10 @@ describe('USER_SERIALIZER', () => {
     ]);
   });
 
-  it('self 링크를 내지 않는다', () => {
-    // 스펙 16장에 `GET /api/v1/users/{id}`가 없다. 링크를 지어내면 클라이언트가
-    // 404를 따라간다.
-    expect(serializeResource(USER_SERIALIZER, sampleUser())).not.toHaveProperty('links');
+  it('links users to the authenticated profile endpoint', () => {
+    expect(serializeResource(USER_SERIALIZER, sampleUser()).links).toEqual({
+      self: '/api/v1/users/me',
+    });
   });
 });
 

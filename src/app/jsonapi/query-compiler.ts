@@ -1,3 +1,7 @@
+import { JsonApiError } from './errors.js';
+import { parseScalarFilterValue } from './filter.js';
+import type { FilterValueType } from '../schemas/query-policy.js';
+import { getExactEntities, serializeTimestamp } from './exact-timestamps.js';
 import type { ObjectLiteral, SelectQueryBuilder } from 'typeorm';
 import type { ResourceSerializer } from '../serializers/serializer.js';
 import { decodeCursor, encodeCursor, keysetPredicate } from './cursor.js';
@@ -45,7 +49,7 @@ function applyFilters<T extends ObjectLiteral>(
         break;
       case 'contains':
         // `%`와 `_`를 이스케이프한다. 그대로 새면 사용자가 와일드카드를 주입한다.
-        builder.andWhere(`${column} ILIKE :${parameter} ESCAPE '\\'`, {
+        builder.andWhere(`${column} LIKE :${parameter} ESCAPE '\\'`, {
           [parameter]: `%${escapeLike(String(condition.value))}%`,
         });
         break;
@@ -99,7 +103,7 @@ function applyIncludes<T extends ObjectLiteral & { id: string }>(
   serializer: ResourceSerializer<T>,
   include: readonly string[],
 ): void {
-  for (const path of include) {
+  for (const path of new Set([...Object.keys(serializer.relationships), ...include])) {
     const definition = serializer.relationships[path];
     if (definition === undefined) {
       throw new TypeError(`선언되지 않은 관계 경로다: ${path}`);
@@ -130,7 +134,7 @@ function cursorValues<T extends ObjectLiteral>(
     }
     const value: unknown = column.getEntityValue(entity);
     if (value instanceof Date) {
-      return value.toISOString();
+      return serializeTimestamp(value);
     }
     if (typeof value === 'string') {
       return value;
@@ -139,6 +143,47 @@ function cursorValues<T extends ObjectLiteral>(
       return String(value);
     }
     throw new TypeError(`커서로 쓸 수 없는 정렬 값이다: ${term.property}`);
+  });
+}
+
+/** Validate opaque cursor values against ORM column types before binding them to SQL. */
+function typedCursorValues<T extends ObjectLiteral>(
+  builder: SelectQueryBuilder<T>,
+  sort: readonly ResolvedSort[],
+  values: readonly string[],
+  parameter: string,
+): string[] {
+  const metadata = builder.expressionMap.mainAlias?.metadata;
+  if (metadata === undefined) throw new TypeError('Cursor query requires entity metadata');
+  return sort.map((term, index) => {
+    const column = metadata.findColumnWithPropertyName(term.property);
+    if (column === undefined) throw new TypeError(`Unknown cursor column: ${term.property}`);
+    const raw = values[index];
+    if (raw === undefined) throw new JsonApiError('INVALID_PAGE', { source: { parameter } });
+    const type: FilterValueType =
+      column.type === 'uuid'
+        ? 'uuid'
+        : column.type === 'integer' || column.type === 'int' || column.type === 'int4'
+          ? 'integer'
+          : column.type === 'timestamptz' || column.type === 'timestamp with time zone'
+            ? 'timestamp'
+            : column.type === 'enum'
+              ? 'enum'
+              : column.type === 'boolean'
+                ? 'boolean'
+                : 'string';
+    try {
+      return String(
+        parseScalarFilterValue(
+          raw,
+          { property: term.property, type, operators: [], values: column.enum?.map(String) },
+          parameter,
+        ),
+      );
+    } catch (error) {
+      if (!(error instanceof JsonApiError)) throw error;
+      throw new JsonApiError('INVALID_PAGE', { source: { parameter } });
+    }
   });
 }
 
@@ -181,7 +226,18 @@ export async function executeList<T extends ObjectLiteral & { id: string }>(
     // 커서를 쓸 수 있는 정렬인지는 `parseQuery`가 이미 봤다. 여기서는 옮기기만 한다.
     const raw = page.after ?? page.before ?? '';
     if (raw !== '') {
-      const values = decodeCursor(raw, sortSignature(parsed.sort), parsed.sort.length);
+      const decoded = decodeCursor(
+        raw,
+        sortSignature(parsed.sort),
+        parsed.sort.length,
+        page.before === undefined ? 'page[after]' : 'page[before]',
+      );
+      const values = typedCursorValues(
+        builder,
+        parsed.sort,
+        decoded,
+        page.before === undefined ? 'page[after]' : 'page[before]',
+      );
       const predicate = keysetPredicate(
         alias,
         parsed.sort,
@@ -192,7 +248,7 @@ export async function executeList<T extends ObjectLiteral & { id: string }>(
     }
   }
 
-  const rows = await builder.getMany();
+  const rows = await getExactEntities(builder);
   const probed = sliceProbe(rows, page);
   // `before`는 뒤에서부터 읽었으므로 되돌려 정렬 순서를 복원한다.
   const items = reversed ? [...probed.items].reverse() : probed.items;

@@ -41,20 +41,28 @@ describe('HealthController', () => {
     const response = await request(app.getHttpServer()).get('/health/live');
 
     expect(response.status).toBe(200);
-    expect(response.body as LiveStatus).toEqual({ status: 'ok' });
+    expect(response.body as LiveStatus).toEqual({
+      data: null,
+      meta: { status: 'ok' },
+      jsonapi: { version: '1.1' },
+    });
   });
 
   it('GET /health/ready 는 200과 ok 를 반환한다', async () => {
     const response = await request(app.getHttpServer()).get('/health/ready');
 
     expect(response.status).toBe(200);
-    expect(response.body as ReadyStatus).toEqual({ status: 'ok', database: 'ok' });
+    expect(response.body as ReadyStatus).toEqual({
+      data: null,
+      meta: { status: 'ok' },
+      jsonapi: { version: '1.1' },
+    });
   });
 
-  it('JSON:API vendor 타입이 아니라 평문 JSON으로 응답한다', async () => {
+  it('JSON:API vendor 타입으로 응답한다', async () => {
     const response = await request(app.getHttpServer()).get('/health/live');
 
-    expect(response.headers['content-type']).toMatch(/^application\/json/);
+    expect(response.headers['content-type']).toBe('application/vnd.api+json');
   });
 
   it('없는 health 경로는 404다', async () => {
@@ -63,10 +71,12 @@ describe('HealthController', () => {
     expect(response.status).toBe(404);
   });
 
-  it('health 응답에는 vendor Content-Type을 붙이지 않는다', async () => {
-    const response = await request(app.getHttpServer()).get('/health/live').expect(200);
-    expect(response.headers['content-type']).toMatch(/application\/json/);
-    expect(response.headers['content-type']).not.toContain('vnd.api+json');
+  it('상태 확인은 Accept 협상 없이 JSON:API를 반환한다', async () => {
+    const response = await request(app.getHttpServer())
+      .get('/health/live')
+      .set('Accept', 'text/plain')
+      .expect(200);
+    expect(response.headers['content-type']).toBe('application/vnd.api+json');
   });
 
   it('없는 경로는 JSON:API 오류 문서로 응답한다', async () => {
@@ -78,7 +88,7 @@ describe('HealthController', () => {
     expect(response.headers['content-type']).toBe('application/vnd.api+json');
     const body = response.body as { errors: { code: string; status: string }[] };
     const error = firstOf(body.errors);
-    expect(error.code).toBe('HTTP_ERROR');
+    expect(error.code).toBe('RESOURCE_NOT_FOUND');
     expect(error.status).toBe('404');
   });
 
@@ -88,23 +98,31 @@ describe('HealthController', () => {
       .set('Accept-Language', 'en')
       .expect(404);
     const body = response.body as { errors: { title: string }[] };
-    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.HTTP_ERROR.en.title);
+    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.RESOURCE_NOT_FOUND.en.title);
   });
 
   it('Accept-Language가 없으면 오류 title이 한국어다', async () => {
     const response = await request(app.getHttpServer()).get('/health/nope').expect(404);
     const body = response.body as { errors: { title: string }[] };
-    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.HTTP_ERROR.ko.title);
+    expect(firstOf(body.errors).title).toBe(ERROR_CATALOG.RESOURCE_NOT_FOUND.ko.title);
   });
 
   it('readiness가 데이터베이스를 확인한다', async () => {
     const response = await request(app.getHttpServer()).get('/health/ready').expect(200);
-    expect(response.body as ReadyStatus).toEqual({ status: 'ok', database: 'ok' });
+    expect(response.body as ReadyStatus).toEqual({
+      data: null,
+      meta: { status: 'ok' },
+      jsonapi: { version: '1.1' },
+    });
   });
 
   it('liveness는 데이터베이스를 확인하지 않는다', async () => {
     const response = await request(app.getHttpServer()).get('/health/live').expect(200);
-    expect(response.body as LiveStatus).toEqual({ status: 'ok' });
+    expect(response.body as LiveStatus).toEqual({
+      data: null,
+      meta: { status: 'ok' },
+      jsonapi: { version: '1.1' },
+    });
   });
 });
 
@@ -167,7 +185,7 @@ describe('HealthController.ready() 단위 테스트', () => {
     const controller = new HealthController(dataSource);
 
     logged.length = 0;
-    expect.assertions(5);
+    expect.assertions(6);
     try {
       await controller.ready();
     } catch (error) {
@@ -177,6 +195,7 @@ describe('HealthController.ready() 단위 테스트', () => {
         throw error;
       }
       expect(error.code).toBe('INTERNAL_SERVER_ERROR');
+      expect(error.status).toBe(503);
       // 실패 원인(자격 증명, 호스트, 드라이버 오류 메시지 등)이 클라이언트로 새면 정보
       // 노출이 된다. `detail`은 카탈로그/컨트롤러가 고른 고정 문구여야 하고, DB가 실제로
       // 뭐라고 실패했는지는 절대 담기지 않아야 한다.

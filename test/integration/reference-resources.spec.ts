@@ -238,7 +238,7 @@ describe('참조 자원 읽기 라우트', () => {
       .set('Content-Type', JSONAPI)
       .send(JSON.stringify({ data: { type: 'exampleCategories', attributes: { name: 'delta' } } }));
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(405);
     // 상태 코드만으로는 이 응답이 JSON:API 오류 문서인지, 아니면 APP_FILTER 배선이
     // 끊겨 나온 HTML/기본 404인지 구분하지 못한다. 이 코드는 Nest의 기본
     // NotFoundException이 exception-filter.ts의 normalize()를 거쳐 HTTP_ERROR로
@@ -252,7 +252,7 @@ describe('참조 자원 읽기 라우트', () => {
       .delete('/api/v1/tags/00000000-0000-0000-0000-000000000000')
       .set('Accept', JSONAPI);
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(405);
     expect((response.body as ErrorBody).errors[0]?.code).toBe('HTTP_ERROR');
   });
 });

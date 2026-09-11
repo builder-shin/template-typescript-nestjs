@@ -252,6 +252,7 @@ export function catalogEntry(code: JsonApiErrorCode): ErrorCatalogEntry {
 export interface JsonApiErrorSource {
   readonly pointer?: string;
   readonly parameter?: string;
+  readonly header?: string;
 }
 
 /**

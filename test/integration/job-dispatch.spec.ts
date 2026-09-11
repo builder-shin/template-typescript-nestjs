@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { ConsoleLogger, Logger } from '@nestjs/common';
 import { RefreshSession } from '../../src/app/models/refresh-session.entity.js';
 import { User } from '../../src/app/models/user.entity.js';
@@ -81,6 +82,28 @@ describe('dispatchJob', () => {
     expect(warnings.join('\n')).toContain(MISSING_ID);
   });
 
+  it.each([null, undefined, false, 42, 'not-a-payload', [], {}])(
+    'malformed process payload %j warns without querying the database or retrying',
+    async (data) => {
+      const manager = dataSource.manager;
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- Saved only to restore the same method, never invoked unbound.
+      const originalFind = manager.findOneBy;
+      manager.findOneBy = () => Promise.reject(new Error('Malformed payload reached the database'));
+      try {
+        const warnings = await captureWarnings(() =>
+          dispatchJob(
+            dataSource,
+            { name: JOB_NAMES.processExample, data },
+            { refreshSessionRetentionSeconds: 0 },
+          ),
+        );
+        expect(warnings).toHaveLength(1);
+      } finally {
+        manager.findOneBy = originalFind;
+      }
+    },
+  );
+
   it('purgeExpiredRefreshSessions 이름의 잡은 purgeExpiredRefreshSessions 핸들러로 분배된다', async () => {
     const commitLock = await acquireCommitLock(dataSource);
     const emailPrefix = 'job-dispatch-purge-';
@@ -91,6 +114,7 @@ describe('dispatchJob', () => {
         isActive: true,
       });
       const session = await dataSource.manager.save(RefreshSession, {
+        tokenHash: randomBytes(32).toString('hex'),
         userId: user.id,
         // 이미 만료됐고 보존 기간도 0으로 줄 것이므로 이 행은 대상이다.
         expiresAt: new Date(Date.now() - 60_000),

@@ -66,13 +66,15 @@ TypeORM과 RxJS를 사용합니다. HTTP parser와 전역 등록은 `../../confi
 모른다 — `Example`이나 `Category` 같은 이름은 이 디렉터리 어디에도 나오지
 않는다.
 
-## vendor 미디어 타입에는 파라미터가 없다
+## 요청 협상과 응답 미디어 타입
 
 `JSONAPI_MEDIA_TYPE`(`application/vnd.api+json`)은 파라미터 없이 정확히 이
-문자열이어야 한다. JSON:API 1.1이 vendor 타입에 허용하는 예외는 `ext`와
-`profile`뿐인데 이 템플릿은 둘 다 구현하지 않으므로, `q`(HTTP 협상 파라미터)를
-제외한 어떤 파라미터도 받아들이지 않는다 — `src/app/jsonapi/negotiation.ts`의
-판정이 그렇다.
+문자열로 응답한다. 요청의 `Content-Type`은 `profile`만 추가로 허용하고,
+`Accept`는 `profile`과 HTTP 품질 파라미터 `q`를 허용한다. 프로파일은 표현을
+확장하지 않고 받아들이며, 지원하지 않는 `ext`와 `charset`은 거부한다.
+`Accept`는 구체적인 미디어 범위가 와일드카드보다 우선한다. 따라서 vendor 타입에
+`q=0`을 주면 함께 온 `*/*`가 이를 뒤집을 수 없다. 따옴표 안의 쉼표·세미콜론과
+이스케이프도 구분해서 파싱한다(`negotiation.ts`).
 
 응답 쪽에서도 같은 제약을 지켜야 하는데, Express의 `res.send()`는 문자열
 본문에 `charset=utf-8`을 무조건 덧붙인다. 그대로 두면 서버가 자기 응답에 실은
@@ -109,6 +111,25 @@ HTTP status)의 유일한 소유자다. 오류를 던지는 자리는 이 카탈
 새 검사를 추가할 때 이 둘 중 어느 쪽인지 먼저 정한다 — "사용자가 이 요청을
 어떻게 구성해도 도달할 수 없는 상태"만 `TypeError`를 쓴다.
 
+성공·오류 문서는 `jsonapi.version: "1.1"`을 포함한다. 오류 위치는 본문이면
+`source.pointer`, 질의이면 `source.parameter`, 헤더이면 `source.header`로
+표시한다. 관계 식별자의 중복은 400, 허용하지 않는 추가 멤버는 422다.
+
+## 숫자와 시각은 DB에 보내기 전에 계약을 보존한다
+
+정수 필터는 PostgreSQL int32 범위를 검증한다. 페이지 크기는 유효한 양의 int64
+입력을 받은 뒤 100으로 제한하고, 계산한 offset은 `Number.MAX_SAFE_INTEGER`
+이하만 허용한다. 초과하거나 잘못된 입력은 DB 오류 대신 400이다.
+
+`exact-timestamps.ts`는 조회에 UTC timestamp 문자열 선택을 추가하여 DB의 마이크로초를
+보존한다. 일반 ORM `Date`는 유지하고 같은 SELECT의 정확한 값을 `WeakMap`에 연결한다.
+커서와 공개 시각은 `serializeTimestamp`로 읽는다. 전역 pg 파서 교체나 컬럼 정밀도
+축소로 누락을 가리지 않는다. 회귀 테스트는 JS `Date`가 만들 수 없는 `.123456`과
+`.123200`을 SQL로 저장하고 양방향 페이지 순회를 검증한다.
+
+페이지 링크는 대괄호와 예약 문자를 URL 인코딩하고, 갈 수 없는 `prev`·`next`·`last`는
+멤버를 지우지 않고 `null`로 유지한다. `contains`는 대소문자를 구분하는 `LIKE`다.
+
 ## 협상 가드는 메서드가 아니라 본문 유무로 판정한다
 
 `JsonApiNegotiationGuard`(`src/app/jsonapi/negotiation.ts`)가 `Content-Type`
@@ -132,8 +153,6 @@ HTTP status)의 유일한 소유자다. 오류를 던지는 자리는 이 카탈
 - **미디어 타입 상수(`JSONAPI_MEDIA_TYPE`)를 바꿀 때.** `src/config/http.ts`의
   body parser 등록이 이 값을 그대로 참조한다 — 이 계층 밖에서 유일하게 이
   상수에 의존하는 조립 지점이다.
-- **협상 판정 로직을 바꿀 때.** `src/app/jsonapi/media-type.ts`의
-  `stripVendorMediaTypeParameters`와 `src/app/jsonapi/negotiation.ts`의
-  파라미터 판정은 "vendor 타입에 `q` 외의 파라미터를 허용하지 않는다"는 같은
-  규칙을 응답 쪽과 요청 쪽에서 각각 구현한다 — 확장(`ext`)이나 프로파일
-  (`profile`)을 지원하게 되면 이 규칙 자체가 바뀌므로 두 파일을 함께 고친다.
+- **협상 판정 로직을 바꿀 때.** `negotiation.ts`는 요청의 허용 파라미터를,
+  `media-type.ts`는 응답의 고정 미디어 타입을 소유한다. 프로파일 요청을 허용해도
+  응답에 프로파일이나 charset을 자동으로 추가하지 않는다. 양쪽 HTTP 동작을 함께 검증한다.

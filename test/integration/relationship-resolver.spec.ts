@@ -1,5 +1,8 @@
 import type { DataSource } from 'typeorm';
-import { resolveRelationships } from '../../src/app/controllers/concerns/relationship-resolver.js';
+import {
+  resolveOne,
+  resolveRelationships,
+} from '../../src/app/controllers/concerns/relationship-resolver.js';
 import { JsonApiError } from '../../src/app/jsonapi/errors.js';
 import { Category } from '../../src/app/models/category.entity.js';
 import { Tag } from '../../src/app/models/tag.entity.js';
@@ -30,6 +33,56 @@ describe('resolveRelationships', () => {
   afterAll(async () => {
     await dataSource.destroy();
   });
+
+  it.each([
+    [
+      [
+        { type: 'exampleTags', id: 'nope' },
+        { type: 'wrong', id: MISSING },
+      ],
+      'RELATIONSHIP_RESOURCE_NOT_FOUND',
+      '/data/0/id',
+    ],
+    [
+      [
+        { type: 'exampleTags', id: MISSING },
+        { type: 'exampleTags', id: MISSING },
+        { type: 'wrong', id: MISSING },
+      ],
+      'INVALID_JSONAPI_DOCUMENT',
+      '/data/1/id',
+    ],
+    [
+      [
+        { type: 'exampleTags', id: MISSING },
+        { type: 'wrong', id: MISSING },
+      ],
+      'TYPE_MISMATCH',
+      '/data/1/type',
+    ],
+    [
+      [
+        { type: 'wrong', id: MISSING },
+        { type: 'exampleTags', id: 'nope' },
+      ],
+      'TYPE_MISMATCH',
+      '/data/0/type',
+    ],
+  ] as const)(
+    'keeps identifier semantic order before existence queries: %j',
+    async (data, code, pointer) => {
+      const error = await caught(() =>
+        resolveOne(
+          dataSource.manager,
+          { type: 'exampleTags', cardinality: 'many', model: Tag },
+          { data },
+          '/data',
+        ),
+      );
+      expect(error.code).toBe(code);
+      expect(error.source).toEqual({ pointer });
+    },
+  );
 
   it('to-one linkage를 실제 행으로 해석한다', async () => {
     await withRollback(dataSource, async (manager) => {
@@ -83,7 +136,7 @@ describe('resolveRelationships', () => {
         }),
       );
       expect(error.code).toBe('RELATIONSHIP_RESOURCE_NOT_FOUND');
-      expect(error.source).toEqual({ pointer: '/data/relationships/category/data' });
+      expect(error.source).toEqual({ pointer: '/data/relationships/category/data/id' });
     });
   });
 
@@ -141,18 +194,21 @@ describe('resolveRelationships', () => {
     });
   });
 
-  it('중복 id를 한 번만 붙인다', async () => {
+  it('rejects duplicate relationship identifiers', async () => {
     await withRollback(dataSource, async (manager) => {
-      const tag = await manager.save(manager.create(Tag, { name: 'ㄱ' }));
-      const resolved = await resolveRelationships(manager, EXAMPLE_RELATIONSHIPS, {
-        tags: {
-          data: [
-            { type: 'exampleTags', id: tag.id },
-            { type: 'exampleTags', id: tag.id },
-          ],
-        },
-      });
-      expect(resolved.toMany.tags).toHaveLength(1);
+      const tag = await manager.save(manager.create(Tag, { name: 'duplicate-parity' }));
+      const error = await caught(() =>
+        resolveRelationships(manager, EXAMPLE_RELATIONSHIPS, {
+          tags: {
+            data: [
+              { type: 'exampleTags', id: tag.id },
+              { type: 'exampleTags', id: tag.id },
+            ],
+          },
+        }),
+      );
+      expect(error.code).toBe('INVALID_JSONAPI_DOCUMENT');
+      expect(error.source).toEqual({ pointer: '/data/relationships/tags/data/1/id' });
     });
   });
 

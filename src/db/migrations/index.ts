@@ -1,3 +1,6 @@
+import { AlignAuthContract1789084800000 } from './20260911000000-align-auth-contract.js';
+import { NormalizeEmailIdentities1789124400000 } from './20260911110000-normalize-email-identities.js';
+import { AlignExampleIndexes1789131600000 } from './20260911130000-align-example-indexes.js';
 import type { MigrationInterface } from 'typeorm';
 import { AddExampleSortIndexes1788048000000 } from './20260830000000-add-example-sort-indexes.js';
 import { AddRefreshSessionsReplacedByIndex1788367541000 } from './20260902164541-add-refresh-sessions-replaced-by-index.js';
@@ -35,4 +38,7 @@ export const MIGRATIONS: readonly MigrationClass[] = [
   CreateAuthSchema1788307200000,
   AddRefreshSessionsReplacedByIndex1788367541000,
   AlignExampleSchemaWithCanon1788480000000,
+  AlignAuthContract1789084800000,
+  NormalizeEmailIdentities1789124400000,
+  AlignExampleIndexes1789131600000,
 ];

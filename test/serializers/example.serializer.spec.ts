@@ -80,8 +80,8 @@ describe('EXAMPLE_SERIALIZER', () => {
 
   it('날짜를 ISO 8601 문자열로 내보낸다', () => {
     const object = serializeResource(EXAMPLE_SERIALIZER, example());
-    expect(object.attributes.createdAt).toBe('2026-08-30T01:02:03.000Z');
-    expect(object.attributes.updatedAt).toBe('2026-08-30T04:05:06.000Z');
+    expect(object.attributes.createdAt).toBe('2026-08-30T01:02:03+00:00');
+    expect(object.attributes.updatedAt).toBe('2026-08-30T04:05:06+00:00');
   });
 
   it('description이 null이면 null을 내보낸다', () => {
@@ -106,11 +106,11 @@ describe('EXAMPLE_SERIALIZER', () => {
 
   it('관계 링크가 스펙 16장의 경로와 맞는다', () => {
     const object = serializeResource(EXAMPLE_SERIALIZER, example());
-    expect(object.relationships.category?.links).toEqual({
+    expect(object.relationships?.category?.links).toEqual({
       self: '/api/v1/examples/e1/relationships/category',
       related: '/api/v1/examples/e1/category',
     });
-    expect(object.relationships.tags?.links).toEqual({
+    expect(object.relationships?.tags?.links).toEqual({
       self: '/api/v1/examples/e1/relationships/tags',
       related: '/api/v1/examples/e1/tags',
     });
@@ -121,7 +121,7 @@ describe('EXAMPLE_SERIALIZER', () => {
       EXAMPLE_SERIALIZER,
       example({ category: category('c1', '안내서') }),
     );
-    expect(object.relationships.category?.data).toEqual({ type: 'exampleCategories', id: 'c1' });
+    expect(object.relationships?.category?.data).toEqual({ type: 'exampleCategories', id: 'c1' });
   });
 
   it('로드된 tags의 linkage를 낸다', () => {
@@ -129,7 +129,7 @@ describe('EXAMPLE_SERIALIZER', () => {
       EXAMPLE_SERIALIZER,
       example({ tags: [tag('t1', 'a'), tag('t2', 'b')] }),
     );
-    expect(object.relationships.tags?.data).toEqual([
+    expect(object.relationships?.tags?.data).toEqual([
       { type: 'exampleTags', id: 't1' },
       { type: 'exampleTags', id: 't2' },
     ]);

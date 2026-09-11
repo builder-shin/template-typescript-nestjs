@@ -4,6 +4,7 @@ import { processExample } from '../../src/app/jobs/process-example.js';
 import {
   JOB_ATTEMPTS,
   JOB_NAMES,
+  JOB_WORKER_SETTINGS,
   createJobsQueue,
   enqueueProcessExample,
   enqueuePurgeExpiredRefreshSessions,
@@ -72,14 +73,16 @@ describe('큐(queue.ts)와 워커 진입점의 통합 계약', () => {
     }
   });
 
-  it('enqueue한 잡이 attempts: 3으로 들어간다 — 스펙 10장의 재시도 계약이 큐에 실제로 실린다', async () => {
+  it('enqueue한 잡이 attempts: 4으로 들어간다 — 스펙 10장의 재시도 계약이 큐에 실제로 실린다', async () => {
     const processJob = await enqueueProcessExample(queue, { exampleId: MISSING_ID });
     const purgeJob = await enqueuePurgeExpiredRefreshSessions(queue);
     try {
-      // JOB_ATTEMPTS 자신이 스펙값(3)인지와, 두 enqueue 헬퍼가 실제로 그 값을 큐에
+      // JOB_ATTEMPTS 자신이 스펙값(4)인지와, 두 enqueue 헬퍼가 실제로 그 값을 큐에
       // 실었는지를 함께 고정한다 — 상수가 바뀌어도 이 테스트는 여전히 "그 값이 실제로
       // 실린다"만 보증하므로, 스펙값 자체가 맞는지는 별도로 단언해 둔다.
-      expect(JOB_ATTEMPTS).toBe(3);
+      expect(JOB_ATTEMPTS).toBe(4);
+      expect(processJob.opts.backoff).toEqual({ type: 'shared-exponential', delay: 15000 });
+      expect(purgeJob.opts.backoff).toEqual({ type: 'shared-exponential', delay: 15000 });
       expect(processJob.opts.attempts).toBe(JOB_ATTEMPTS);
       expect(purgeJob.opts.attempts).toBe(JOB_ATTEMPTS);
     } finally {
@@ -120,7 +123,7 @@ describe('큐(queue.ts)와 워커 진입점의 통합 계약', () => {
               }
               await processExample(dataSource.manager, job.data as ProcessExamplePayload);
             },
-            { connection: brokerConnection(redisUrl) },
+            { connection: brokerConnection(redisUrl), settings: JOB_WORKER_SETTINGS },
           );
           worker.on('completed', (finishedJob) => {
             if (finishedJob.id === target.jobId) {
@@ -167,7 +170,7 @@ describe('큐(queue.ts)와 워커 진입점의 통합 계약', () => {
   );
 
   it(
-    '던지는 프로세서는 attempts만큼(3회) 정확히 불린다 — "attempts: 3 = 총 세 번의 시도"를 실측으로 고정한다',
+    '던지는 프로세서는 attempts만큼(4회) 정확히 불린다 — "attempts: 4 = 총 네 번의 시도"를 실측으로 고정한다',
     async () => {
       // 이 테스트만을 위한 별도 큐다 — JOB_NAMES/processExample과 무관한, 이 실행에서만
       // 존재하는 이름을 써서 프로덕션 큐를 건드리지 않는다.

@@ -1,5 +1,6 @@
 import { getMetadataArgsStorage } from 'typeorm';
 import { Category } from '../../src/app/models/category.entity.js';
+import { EmailIdentityBackup } from '../../src/app/models/email-identity-backup.entity.js';
 import { Example, EXAMPLE_STATUSES } from '../../src/app/models/example.entity.js';
 import { ENTITIES } from '../../src/app/models/index.js';
 import { RefreshSession } from '../../src/app/models/refresh-session.entity.js';
@@ -31,13 +32,14 @@ function relationTypeFor(target: Function, propertyName: string): string | undef
 }
 
 describe('엔티티 등록', () => {
-  it('ENTITIES가 다섯 엔티티를 명시적으로 담는다', () => {
-    expect(ENTITIES).toHaveLength(5);
+  it('ENTITIES가 여섯 엔티티를 명시적으로 담는다', () => {
+    expect(ENTITIES).toHaveLength(6);
     expect(ENTITIES).toContain(Example);
     expect(ENTITIES).toContain(Category);
     expect(ENTITIES).toContain(Tag);
     expect(ENTITIES).toContain(User);
     expect(ENTITIES).toContain(RefreshSession);
+    expect(ENTITIES).toContain(EmailIdentityBackup);
   });
 });
 
@@ -85,17 +87,13 @@ describe('Example 엔티티', () => {
     expect(relation?.relationType).toBe('many-to-many');
   });
 
-  it('(created_at, id) 인덱스를 선언한다', () => {
+  it('preserves the migration-owned index with per-column sort directions', () => {
     const indices = getMetadataArgsStorage().indices.filter((entry) => entry.target === Example);
-    // `IndexMetadataArgs.columns`는 `string[]`와 선택자 함수의 유니온이다. 캐스트로
-    // 지우면 함수형이 왔을 때를 조용히 넘기게 되므로, 실제 분기로 좁힌다.
-    const columns = indices.map((entry) => {
-      if (!Array.isArray(entry.columns)) {
-        throw new Error('인덱스가 컬럼 배열이 아니라 선택자 함수로 선언되어 있다');
-      }
-      return entry.columns.join(',');
+    // PostgreSQL directions are verified against pg_indexes in migrations.spec.ts;
+    // TypeORM must not replace that index with its ASC-only representation.
+    expect(indices.find((entry) => entry.name === 'IDX_examples_created_at_id')).toMatchObject({
+      synchronize: false,
     });
-    expect(columns).toContain('createdAt,id');
   });
 });
 
@@ -128,6 +126,7 @@ describe('RefreshSession 엔티티', () => {
         'id',
         'replaced_by_id',
         'revoked_at',
+        'token_hash',
         'updated_at',
         'user_id',
       ].sort(),

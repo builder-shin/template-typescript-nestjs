@@ -98,6 +98,10 @@ pnpm start
 
 ## 백그라운드 작업
 
+공통 작업 설정은 최초 실행과 재시도 3회(총 4회)입니다. n번째 재시도는 `15 * 2**(n-1)`초에 `0..(10*n-1)` 범위에서 균등하게 뽑은 정수 초를 더해 기다립니다. 따라서 대기는 차례로 15–24초, 30–49초, 60–89초입니다. 만료 세션 정리는 기본 배치당 1,000건, 실행당 최대 10,000배치이며 DB 잠금 대기 상한은 2,000ms입니다.
+
+직접 호출의 배치 크기는 `1..9007199254740991`의 정수 값인 숫자만 허용하며 `1.0`도 허용합니다. 문자열·불리언·범위 밖 값은 DB에 접근하지 않고 `{ deleted: 0, batches: 0 }`으로 종료합니다. 결과는 삭제 수 `deleted`와 실행한 배치 수 `batches`이며, 마지막 빈 배치도 셉니다.
+
 BullMQ 큐(`jobs`) 하나에 잡 두 개가 올라갑니다. **CRUD는 이 잡들을 자동으로 enqueue하지 않습니다** — 쓰기 한 번을 잡 하나에 묶으면 대량 갱신 한 번이 큐를 채우게 되므로, enqueue는 항상 도메인 지점에서 명시적으로 호출합니다.
 
 - `processExample` — Example 하나를 조회해 로그만 남기고 아무것도 쓰지 않습니다(공개 필드 불변). 가리킬 수 없는 id나 이미 지워진 행은 경고 후 정상 종료하고, 일시적 DB 오류는 최대 3회 재시도합니다.
@@ -144,7 +148,7 @@ Example 읽기(`index`/`show`, 관계 `GET`)는 공개이고, 쓰기와 관계 �
 
 모든 `/api/v1` 요청에 `Accept: application/vnd.api+json`을 붙이고, 본문이 있는 요청에는 `Content-Type`도 같은 값을 붙입니다. **틀린 헤더가 가장 흔한 첫 걸림돌입니다** — `Accept`를 **다른** 타입으로 보내면 `406 NOT_ACCEPTABLE`입니다(헤더가 없거나 `*/*`이면 통과하므로, 헤더 없는 curl은 그냥 동작합니다). `Content-Type`은 **본문이 있는 요청**이면 메서드와 무관하게 이 값이어야 하고, 다르거나 빠지면 `415 UNSUPPORTED_MEDIA_TYPE`입니다 — 본문을 싣는 관계 `DELETE`도 포함입니다. `POST`·`PUT`·`PATCH`는 본문이 필수라 언제나 요구하고, 본문 없는 `GET`·`DELETE`는 이 헤더를 보지 않습니다. JSON:API 1.1은 이 미디어 타입에 파라미터를 금지하므로 `; charset=utf-8`을 붙이면 그것도 거부됩니다.
 
-`/health`는 JSON:API가 아니라 평문 JSON이므로 이 헤더를 쓰지 않습니다.
+`/health/live`와 `/health/ready`도 JSON:API 문서(`data: null`, `meta.status: "ok"`, `jsonapi.version: "1.1"`)를 반환합니다. 상태 확인 요청은 Accept 협상을 생략하며, DB 연결 실패 시 readiness는 503을 반환합니다.
 
 아래 예시의 `-g`(`--globoff`)는 장식이 아닙니다. curl은 URL의 `[]`와 `{}`를 자기 글로빙 문법으로 먼저 해석합니다 — `page[size]`는 `curl: (3) bad range`로 요청 자체가 나가지 않고, 자리표시자 `{id}`는 **조용히** `id`로 바뀌어 엉뚱한 URL로 나갑니다. JSON:API의 질의 키가 대괄호를 쓰므로 이 플래그가 필요합니다. 따옴표로는 막을 수 없습니다.
 
@@ -256,6 +260,12 @@ curl -sg -H 'Accept: application/vnd.api+json' \
 
 ## Docker로 실행
 
+2026-09-11 공통 계약 변경은 새 마이그레이션으로 적용합니다. `users.email`은 254자, 카테고리·태그 이름은 200자로 맞추고 refresh session에는 토큰 SHA-256 해시를 저장합니다. 기존 refresh session은 원본 토큰 해시를 복구할 수 없어 명시적으로 폐기되며, JWT 필수 클레임 변경과 함께 기존 사용자는 다시 로그인해야 합니다. 254자를 넘는 기존 이메일이 있으면 마이그레이션이 중단되므로 해당 데이터를 먼저 정리해야 합니다.
+
+시드는 공통 고정 ID의 카테고리 1개, 태그 1개, Example 1개를 생성합니다. 같은 값으로 다시 실행하면 타임스탬프를 유지하고, 사용자가 추가한 태그 관계와 기존 데이터는 보존합니다.
+
+조회 시 `page[size]`는 최대 100으로 제한하며, SQL offset은 정확한 정수 계산을 위해 최대 9,007,199,254,740,991까지 허용합니다. `score` 필터는 PostgreSQL 32비트 정수 범위를 벗어나면 400을 반환합니다. 커서는 DB의 마이크로초를 보존합니다.
+
 ```bash
 docker compose up -d --build --wait
 curl -s http://localhost:4000/health/ready
@@ -293,7 +303,7 @@ Compose 스택(`docker-compose.yml`)이 셸 기본값 문법(`${VAR:-default}`)�
 4. **시리얼라이저** — `src/app/serializers/`에 공개 표현(JSON:API type·attributes·relationships)을 만들고 `src/app/serializers/index.ts`에서 export합니다. 다른 자원의 관계 대상이거나 `include`로 노출된다면 `SERIALIZERS` 배열에도 등록합니다 — 이 배열은 ENTITIES·MIGRATIONS·`controllers`와 달리 런타임이 소비하지 않습니다(관계 대상은 각 시리얼라이저의 `target()`이, `included`는 `collectIncluded`가 정하고 둘 다 이 배열을 거치지 않습니다). 등록을 잊으면 그 구성을 고정하는 테스트(`test/serializers/example.serializer.spec.ts`)가 실패로 잡아 줍니다. `resourcePath`는 다음 단계 컨트롤러의 `@Controller` 경로와 문자열까지 같아야 합니다 — 다르면 부트스트랩이 즉시 예외를 던집니다.
 5. **컨트롤러** — `src/app/controllers/api/v1/`에 `CrudActions`로 위 산출물을 선언만으로 잇는 파일을 만듭니다(`examples.controller.ts` 참고). 자원별 service 계층은 만들지 않습니다. 이 선언에는 기본값이 있어 빠뜨려도 조립 자체는 되지만, 그 기본값이 실제로 뜻하는 바를 모르고 빠뜨리면 안 되는 옵션이 셋 있습니다.
    - **`writeGuards`** — 기본값은 빈 배열이고, **빈 배열은 그 자원의 쓰기(및 관계 변경) 라우트를 인증 없이 공개한다는 뜻입니다.** 위 "공개 API 표면" 표처럼 활성 사용자 Bearer token을 요구하려면 `writeGuards: [JwtActiveUserGuard]`(`src/app/auth/current-user.guard.ts`)를 명시적으로 넣어야 합니다. 읽기(`index`/`show`, 관계 `GET`)는 이 값과 무관하게 항상 공개입니다.
-   - **`enableUpsert`/`replaceSchema`** — `PUT`을 지원하려면 `enableUpsert: true`와 3단계에서 만든 Replace DTO를 가리키는 `replaceSchema`를 함께 선언합니다. `enableUpsert`를 켜지 않으면 `PUT`은 라우트 자체가 없어 404이고, 켜고서 `replaceSchema`를 빠뜨리면 조립 시점(부트스트랩)에 예외가 납니다.
+   - **`enableUpsert`/`replaceSchema`** — `PUT`을 지원하려면 `enableUpsert: true`와 3단계에서 만든 Replace DTO를 가리키는 `replaceSchema`를 함께 선언합니다. `enableUpsert`를 켜지 않으면 `PUT`은 405로 거부되고, 켜고서 `replaceSchema`를 빠뜨리면 조립 시점(부트스트랩)에 예외가 납니다.
    - **`enableWrites`** — 읽기 전용 자원은 `enableWrites: false`를 선언합니다. `POST`/`PATCH`/`DELETE`와 관계 변경 라우트가 아예 등록되지 않고, `createSchema`·`updateSchema`·`relationshipsSchema`를 선언하지 않아도 됩니다. 기준 구현은 `src/app/controllers/api/v1/categories.controller.ts`입니다.
 6. **라우트 등록** — **`src/config/routes.module.ts`의 `controllers` 배열에 추가**합니다. 여기 없으면 앞의 다섯 단계를 다 밟아도 라우트는 존재하지 않습니다.
 

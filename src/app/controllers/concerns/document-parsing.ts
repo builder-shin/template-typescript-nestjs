@@ -1,7 +1,12 @@
 import type { ClassConstructor } from 'class-transformer';
-import { parseResourceInput } from '../../jsonapi/document.js';
+import {
+  collectResourceValidation,
+  parseResourceInput,
+  pointerSegment,
+} from '../../jsonapi/document.js';
 import type { ParseResourceOptions, RelationshipInput } from '../../jsonapi/document.js';
 import { validateAttributes } from '../../schemas/write-schema.js';
+import { JsonApiError, JsonApiErrors } from '../../jsonapi/errors.js';
 
 /**
  * 요청 문서 파싱과 부분 갱신 적용.
@@ -11,8 +16,7 @@ import { validateAttributes } from '../../schemas/write-schema.js';
  * 필드"를 가르는 유일한 근거는 `plainToInstance` 이전의 원본 키 집합이다. 액션이
  * 원본 본문을 다시 읽지 않는 이유가 그것이다 — 두 곳에서 읽으면 두 해석이 갈라진다.
  *
- * 오류의 경계도 여기서 갈린다. 문서 구조는 `parseResourceInput`이 400으로 거절하고,
- * 값은 `validateAttributes`가 422로 거절한다.
+ * Schema and attribute failures are collected as 422 before semantic type/id checks.
  */
 
 /** 검증을 마친 쓰기 요청. */
@@ -29,14 +33,97 @@ export async function parseWriteDocument<D extends object>(
   body: unknown,
   schema: ClassConstructor<D>,
   options: ParseResourceOptions,
+  beforeSemantics?: () => void,
 ): Promise<ParsedWrite<D>> {
+  const errors = collectResourceValidation(body, options);
+  const data = isRecord(body) && isRecord(body.data) ? body.data : undefined;
+  let attributes: D | undefined;
+  if (data && isRecord(data.attributes)) {
+    try {
+      attributes = await validateAttributes(schema, data.attributes);
+    } catch (error) {
+      if (!(error instanceof JsonApiErrors)) throw error;
+      errors.push(...error.errors);
+    }
+  } else if (
+    data &&
+    data.attributes === undefined &&
+    options.expectedId !== undefined &&
+    options.requireId !== true
+  ) {
+    attributes = await validateAttributes(schema, {});
+  }
+  if (errors.length > 0) throw new JsonApiErrors(errors);
+  if (
+    options.expectedId !== undefined &&
+    options.requireId !== true &&
+    data &&
+    !('attributes' in data) &&
+    !('relationships' in data)
+  ) {
+    throw new JsonApiError('VALIDATION_ERROR', { source: { pointer: '/data' } });
+  }
+  beforeSemantics?.();
   const parsed = parseResourceInput(body, options);
-  const attributes = await validateAttributes(schema, parsed.attributes);
+  attributes ??= await validateAttributes(schema, parsed.attributes);
   return {
     attributes,
     presentKeys: parsed.presentKeys,
     relationships: parsed.relationships,
     id: parsed.id,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Auth documents have a literal type and only data.type/data.attributes. */
+export async function parseAuthWriteDocument<D extends object>(
+  body: unknown,
+  schema: ClassConstructor<D>,
+  expectedType: string,
+): Promise<ParsedWrite<D>> {
+  const errors: JsonApiError[] = [];
+  const add = (pointer?: string): void => {
+    errors.push(
+      new JsonApiError('VALIDATION_ERROR', {
+        source: pointer === undefined ? undefined : { pointer },
+      }),
+    );
+  };
+  let attributes: D | undefined;
+  if (!isRecord(body)) add();
+  else {
+    if (!isRecord(body.data)) add('/data');
+    else {
+      const data = body.data;
+      if (data.type !== expectedType) add('/data/type');
+      if (!isRecord(data.attributes)) add('/data/attributes');
+      else {
+        try {
+          attributes = await validateAttributes(schema, data.attributes);
+        } catch (error) {
+          if (!(error instanceof JsonApiErrors)) throw error;
+          errors.push(...error.errors);
+        }
+      }
+      for (const key of Object.keys(data))
+        if (!['type', 'attributes'].includes(key)) add(`/data/${pointerSegment(key)}`);
+    }
+    for (const key of Object.keys(body)) if (key !== 'data') add(`/${pointerSegment(key)}`);
+  }
+  if (errors.length > 0) throw new JsonApiErrors(errors);
+  if (attributes === undefined) throw new TypeError('Validated auth attributes are missing');
+  const rawAttributes =
+    isRecord(body) && isRecord(body.data) && isRecord(body.data.attributes)
+      ? body.data.attributes
+      : {};
+  return {
+    attributes,
+    presentKeys: new Set(Object.keys(rawAttributes)),
+    relationships: {},
+    id: undefined,
   };
 }
 

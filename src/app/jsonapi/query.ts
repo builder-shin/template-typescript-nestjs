@@ -4,9 +4,10 @@ import { JsonApiError } from './errors.js';
 import { isFilterKey, parseFilters } from './filter.js';
 import type { FilterCondition } from './filter.js';
 import { parseInclude } from './include.js';
-import { isPageKey, parsePage } from './pagination.js';
+import { isPageKey, parsePage, validatePageValue } from './pagination.js';
 import type { PageRequest } from './pagination.js';
 import { parseSort } from './sort.js';
+import { queryPairs } from './query-input.js';
 import type { ResolvedSort } from './sort.js';
 
 /**
@@ -25,6 +26,14 @@ export interface ParsedQuery {
 }
 
 function invalidParameter(parameter: string): JsonApiError {
+  if (parameter.startsWith('filter'))
+    return new JsonApiError('INVALID_FILTER', { source: { parameter } });
+  if (parameter.startsWith('sort'))
+    return new JsonApiError('INVALID_SORT', { source: { parameter } });
+  if (parameter.startsWith('include'))
+    return new JsonApiError('INVALID_INCLUDE', { source: { parameter } });
+  if (parameter.startsWith('page'))
+    return new JsonApiError('INVALID_PAGE', { source: { parameter } });
   return new JsonApiError('INVALID_QUERY_PARAMETER', { source: { parameter } });
 }
 
@@ -55,7 +64,27 @@ export function parseQuery(
   policy: QueryPolicy,
   declaredRelationships: readonly string[],
 ): ParsedQuery {
-  assertKnownKeys(query);
+  // Validate supplied values in request order; defer cross-parameter checks.
+  const prior: Record<string, string | readonly string[] | undefined> = Object.create(
+    null,
+  ) as Record<string, string | readonly string[] | undefined>;
+  for (const [key, value] of queryPairs(query)) {
+    const one = { [key]: value };
+    if (Object.hasOwn(prior, key)) throw invalidParameter(key);
+    prior[key] = value;
+    assertKnownKeys(one);
+    if (isFilterKey(key)) parseFilters(prior, policy);
+    else if (key === 'sort') parseSort(one, policy);
+    else if (key === 'include') parseInclude(one, policy, declaredRelationships);
+    else if (isPageKey(key)) validatePageValue(key, value);
+    if (
+      (key === 'page[after]' || key === 'page[before]') &&
+      prior['page[after]'] !== undefined &&
+      prior['page[before]'] !== undefined
+    ) {
+      throw new JsonApiError('INVALID_PAGE', { source: { parameter: key } });
+    }
+  }
 
   const filters = parseFilters(query, policy);
   const sort = parseSort(query, policy);
@@ -63,7 +92,7 @@ export function parseQuery(
   const page = parsePage(query, policy);
 
   if (page.mode === 'cursor') {
-    assertCursorSortable(sort);
+    assertCursorSortable(sort, page.before === undefined ? 'page[after]' : 'page[before]');
   }
 
   return { filters, sort, include, page };
@@ -80,18 +109,15 @@ export function parseRelatedCollectionQuery(
   query: Readonly<Record<string, string | readonly string[] | undefined>>,
   policy: QueryPolicy,
 ): PageRequest {
-  for (const key of Object.keys(query)) {
-    // `page[totals]`는 받아들이되 값을 보지 않는다. 이 엔드포인트는 언제나 총 개수를
-    // 내므로 끄고 켤 것이 없지만, 링크 생성기가 모든 링크에 이 파라미터를 붙이기
-    // 때문에 거부하면 우리가 낸 self 링크를 우리가 400으로 되돌려주게 된다.
-    if (key === 'page[number]' || key === 'page[size]' || key === 'page[totals]') {
-      continue;
-    }
-    throw invalidParameter(key);
+  const seen = new Set<string>();
+  for (const [key, value] of queryPairs(query)) {
+    if (key !== 'page[number]' && key !== 'page[size]') throw invalidParameter(key);
+    if (seen.has(key)) throw invalidParameter(key);
+    seen.add(key);
+    validatePageValue(key, value);
   }
 
-  const page = parsePage(query, policy);
-  return { ...page, totals: true };
+  return parsePage(query, policy);
 }
 
 /**
@@ -104,7 +130,7 @@ export function assertNoQueryParameters(
   query: Readonly<Record<string, string | readonly string[] | undefined>>,
 ): void {
   for (const key of Object.keys(query)) {
-    throw invalidParameter(key);
+    throw new JsonApiError('INVALID_QUERY_PARAMETER', { source: { parameter: key } });
   }
 }
 
@@ -120,10 +146,14 @@ export function parseSingleResourceQuery(
   policy: QueryPolicy,
   declaredRelationships: readonly string[],
 ): readonly string[] {
-  for (const key of Object.keys(query)) {
+  let seen = false;
+  for (const [key, value] of queryPairs(query)) {
     if (key !== 'include') {
       throw invalidParameter(key);
     }
+    if (seen) throw invalidParameter(key);
+    seen = true;
+    parseInclude({ [key]: value }, policy, declaredRelationships);
   }
   return parseInclude(query, policy, declaredRelationships);
 }

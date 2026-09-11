@@ -1,3 +1,12 @@
+import { TokenService } from '../../src/app/auth/tokens.js';
+const tokens = new TokenService({
+  secret: 'test-only-session-secret-key-32-bytes',
+  issuer: 'test',
+  audience: 'test',
+  accessExpiresSeconds: 900,
+  refreshExpiresSeconds: 3600,
+  leewaySeconds: 0,
+});
 import { IsNull } from 'typeorm';
 import type { DataSource } from 'typeorm';
 import { JsonApiError } from '../../src/app/jsonapi/errors.js';
@@ -15,7 +24,8 @@ const EMAIL = 'refresh-concurrency@example.test';
 /** 던진 오류의 JSON:API 코드를 꺼낸다. */
 async function codeOf(run: () => Promise<unknown>): Promise<string> {
   try {
-    await run();
+    const result = await run();
+    if (result instanceof JsonApiError) return result.code;
   } catch (error: unknown) {
     if (error instanceof JsonApiError) {
       return error.code;
@@ -25,30 +35,7 @@ async function codeOf(run: () => Promise<unknown>): Promise<string> {
   throw new Error('오류가 나지 않았다');
 }
 
-/**
- * `rotateSession`의 `FOR UPDATE` 잠금이 실제 동시 회전을 막는지 검증한다.
- *
- * `refresh-session.spec.ts`의 "이미 회전한 세션을 다시 쓰면 TOKEN_REVOKED다"는
- * `withRollback`의 단일 매니저·단일 트랜잭션 안에서 **순차** 호출한다 — 두 번째 호출이
- * 첫 번째가 같은 트랜잭션 안에서 이미 써 둔 값을 그대로 읽으므로, `FOR UPDATE`를
- * 지워도 통과한다(실측: 아래 "레드 실측"). 진짜 경합은 서로 다른 두 커넥션이 같은
- * 행을 **동시에** 봐야 성립하므로, 이 파일은 (아래에서 설명하는 이유로 다른 스위트도
- * 그렇듯) `withRollback`을 쓰지 않고 행을 실제로 커밋한다.
- *
- * `acquireCommitLock`은 잡지 않는다. `users`/`refresh_sessions`에 실제로 커밋하는
- * 통합 스펙은 이 파일 하나가 아니라 다섯이다 — 이 파일, `auth-api.spec.ts`,
- * `users-me.spec.ts`, `examples-api.spec.ts`, `examples-put.spec.ts`. 다섯 모두
- * `refresh_sessions`에도 커밋한다(이 파일은 `issueSession`/`rotateSession`을 직접
- * 부르고, 나머지 넷은 `POST /api/v1/auth/login`을 한 번 이상 호출해 그 안에서
- * `issueSession`이 행을 만든다). `grep -rl "save(User\|save(RefreshSession"
- * test/`로는 이 다섯 중 이 파일만 잡힌다 — 나머지 넷은 저장을 HTTP 경유로 하므로
- * 소스에 `save(...)` 리터럴이 없다. 그런데도 이 잠금이 필요 없는 진짜 근거는 별개다:
- * 다섯 스위트가 쓰는 이메일(`refresh-concurrency@example.test`, `auth-`, `me-`,
- * `examples-api-`, `examples-put-` 접두사)이 서로 겹치지 않고, 다섯 중 어디도
- * `users`/`refresh_sessions`를 "테이블 전체"로 단언하지 않는다 — 그런 컬렉션 라우트
- * 자체가 없다(`GET /users`가 없고 `GET /users/me`만 있다). 잠금이 막아 줄 간섭이
- * 애초에 없으므로 잡으면 병렬성만 잃는다.
- */
+/** Two real transactions: replay must commit bulk revocation before returning its error. */
 describe('refresh session 회전 동시성', () => {
   let dataSource: DataSource;
 
@@ -75,7 +62,7 @@ describe('refresh session 회전 동시성', () => {
       passwordHash: 'x',
       isActive: true,
     });
-    const original = await issueSession(dataSource.manager, user.id, TTL);
+    const original = await issueSession(dataSource.manager, user.id, TTL, tokens);
 
     // 2. 트랜잭션 두 개(A, B)를 각각 연다. 둘 다 열린 뒤에 회전을 시작한다.
     const runnerA = dataSource.createQueryRunner();
@@ -86,11 +73,16 @@ describe('refresh session 회전 동시성', () => {
     await runnerB.startTransaction();
 
     try {
+      // Fix which transaction leads while both remain open.
+      await runnerA.manager.findOne(User, {
+        where: { id: user.id },
+        lock: { mode: 'pessimistic_write' },
+      });
       // 3. rotateSession(A)와 rotateSession(B)를 동시에 띄운다 — 어느 쪽도 여기서
       //    await하지 않는다. A가 먼저 호출되므로 SELECT ... FOR UPDATE도 먼저 나간다.
       //    잠금이 있으면 A가 행을 잡고, B의 SELECT ... FOR UPDATE는 그 자리에서 막힌다.
-      const resultA = rotateSession(runnerA.manager, original.id, TTL);
-      const resultB = rotateSession(runnerB.manager, original.id, TTL);
+      const resultA = rotateSession(runnerA.manager, original.refreshToken, TTL, tokens);
+      const resultB = rotateSession(runnerB.manager, original.refreshToken, TTL, tokens);
 
       // 4. A의 회전이 끝나면(아직 커밋 전 — 행 잠금은 유지된다) A를 커밋한다. 그제서야
       //    B의 SELECT ... FOR UPDATE가 풀리고, 커밋된(폐기된) 행을 보고 TOKEN_REVOKED를
@@ -98,25 +90,18 @@ describe('refresh session 회전 동시성', () => {
       //    ※ 순서가 결정적이다 — A를 커밋하기 전에 B를 await하면 영원히 막힌다. B가
       //    기다리는 잠금은 A의 커밋으로만 풀리기 때문이다.
       const rotatedA = await resultA;
+      if (rotatedA instanceof JsonApiError) throw rotatedA;
       await runnerA.commitTransaction();
 
-      // 5. 단언: A는 성공하고 B는 TOKEN_REVOKED다. 그리고 원래 세션에서 나온 살아
-      //    있는 세션이 정확히 하나인지 DB로 확인한다 — 잠금이 없으면 B도 성공해 두
-      //    개가 남는다(훔친 token과 원래 token이 나란히 산다. 아래 "레드 실측" 참고).
       expect(rotatedA.userId).toBe(user.id);
       expect(await codeOf(() => resultB)).toBe('TOKEN_REVOKED');
+      await runnerB.commitTransaction();
 
       const aliveCount = await dataSource.manager.count(RefreshSession, {
         where: { userId: user.id, revokedAt: IsNull() },
       });
-      expect(aliveCount).toBe(1);
+      expect(aliveCount).toBe(0);
     } finally {
-      // 6. 두 트랜잭션 모두 정리한다. A는 이미 커밋됐을 수도(정상 경로) 있고, 위
-      //    단언이 실패해 커밋 전에 예외가 났을 수도 있다 — `isTransactionActive`로
-      //    실제 상태를 보고 필요할 때만 롤백한다. B는 이 테스트의 모든 경로에서 커밋한
-      //    적이 없으므로 무조건 롤백한다. `withRollback`과 같은 이유로 release()는
-      //    각자 자신의 try/finally 안에 둔다 — 앞선 정리가 던져도 뒤의 release가
-      //    반드시 돌아야 커넥션 풀이 마르지 않는다.
       try {
         try {
           if (runnerA.isTransactionActive) {
@@ -127,7 +112,7 @@ describe('refresh session 회전 동시성', () => {
         }
       } finally {
         try {
-          await runnerB.rollbackTransaction();
+          if (runnerB.isTransactionActive) await runnerB.rollbackTransaction();
         } finally {
           await runnerB.release();
         }

@@ -74,6 +74,18 @@ describe('마이그레이션 적용', () => {
     expect(await dataSource.showMigrations()).toBe(false);
   });
 
+  it('indexes the shared default ordering, title ordering and category FK', async () => {
+    const rows = await dataSource.query<{ indexdef: string }[]>(
+      `SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND tablename = 'examples'`,
+    );
+    const definitions = rows.map((row) => row.indexdef);
+    expect(definitions.some((definition) => definition.includes('(created_at DESC, id)'))).toBe(
+      true,
+    );
+    expect(definitions.some((definition) => definition.includes('(title, id)'))).toBe(true);
+    expect(definitions.some((definition) => definition.includes('(category_id)'))).toBe(true);
+  });
+
   it('엔티티 메타데이터가 실제 스키마와 어긋나지 않는다', async () => {
     // synchronize가 만들려는 SQL이 비어 있어야 엔티티와 마이그레이션이 일치한다.
     const sqlInMemory = await dataSource.driver.createSchemaBuilder().log();
@@ -137,7 +149,9 @@ describe('스키마 제약', () => {
 
   it('Example을 저장하고 기본값을 적용한다', async () => {
     await withRollback(dataSource, async (manager) => {
-      const saved = await manager.save(manager.create(Example, { title: '제목', score: 0 }));
+      const saved = await manager.save(
+        manager.create(Example, { title: '제목', status: 'draft', score: 0 }),
+      );
       expect(saved.id).toMatch(/^[0-9a-f-]{36}$/);
       expect(saved.status).toBe('draft');
       expect(saved.description).toBeNull();
@@ -174,7 +188,12 @@ describe('스키마 제약', () => {
     await withRollback(dataSource, async (manager) => {
       const category = await manager.save(manager.create(Category, { name: '분류' }));
       const example = await manager.save(
-        manager.create(Example, { title: '제목', score: 0, categoryId: category.id }),
+        manager.create(Example, {
+          title: '제목',
+          status: 'draft',
+          score: 0,
+          categoryId: category.id,
+        }),
       );
       await manager.delete(Category, { id: category.id });
       const reloaded = await manager.findOneByOrFail(Example, { id: example.id });
@@ -186,7 +205,7 @@ describe('스키마 제약', () => {
     await withRollback(dataSource, async (manager) => {
       const tag = await manager.save(manager.create(Tag, { name: '라벨' }));
       const example = await manager.save(
-        manager.create(Example, { title: '제목', score: 0, tags: [tag] }),
+        manager.create(Example, { title: '제목', status: 'draft', score: 0, tags: [tag] }),
       );
       await manager.delete(Example, { id: example.id });
       const rows = await manager.query<{ count: number }[]>(
@@ -206,7 +225,7 @@ describe('스키마 제약', () => {
         manager.create(Tag, { name: 'b' }),
       ]);
       const example = await manager.save(
-        manager.create(Example, { title: '제목', score: 0, tags }),
+        manager.create(Example, { title: '제목', status: 'draft', score: 0, tags }),
       );
       const reloaded = await manager.findOneOrFail(Example, {
         where: { id: example.id },
@@ -229,7 +248,9 @@ describe('스키마 제약', () => {
   it('withRollback이 실제로 롤백한다', async () => {
     let createdId = '';
     await withRollback(dataSource, async (manager) => {
-      const saved = await manager.save(manager.create(Example, { title: '사라질 것', score: 0 }));
+      const saved = await manager.save(
+        manager.create(Example, { title: '사라질 것', status: 'draft', score: 0 }),
+      );
       createdId = saved.id;
     });
     const found = await dataSource.getRepository(Example).findOneBy({ id: createdId });

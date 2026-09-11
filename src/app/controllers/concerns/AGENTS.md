@@ -166,8 +166,8 @@ class-validator에는 Pydantic의 `MISSING` sentinel이 없다. "필드를 안 �
   디렉터리의 계약이다.
 - **`enableUpsert`를 켤 때.** `replaceSchema`를 같은 선언에 함께 둔다 — 안 하면
   같은 이유로 import 시점에 죽는다. `route-registrar.ts`는 `enableUpsert`가
-  없으면 `replace` 라우트 자체를 만들지 않으므로, 켜지 않은 자원의 `PUT`은
-  404이지 405가 아니다.
+  없으면 `replace` 라우트 자체를 만들지 않는다. 기존 경로의 지원하지 않는 메서드는
+  `RouteMethods`와 예외 필터가 `405 HTTP_ERROR` 및 `Allow` 헤더로 정규화한다.
 - **`enableWrites`를 끌 때.** `createSchema`·`updateSchema`·`relationshipsSchema`를
   선언하지 않아도 된다 — 그 셋을 읽는 액션에 라우트가 없기 때문이다. 반대로 켜 둔
   채(기본값) `createSchema`나 `updateSchema`를 빠뜨리면 import 시점에 죽는다.

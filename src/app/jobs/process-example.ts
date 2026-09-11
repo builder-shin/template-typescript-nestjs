@@ -1,5 +1,5 @@
 import { Logger } from '@nestjs/common';
-import { canIdentify } from '../controllers/concerns/relationship-resolver.js';
+import { normalizeUuid } from '../jsonapi/scalar-grammar.js';
 import { Example } from '../models/example.entity.js';
 import type { EntityManager } from 'typeorm';
 
@@ -33,20 +33,30 @@ export interface ProcessExamplePayload {
  * 입력(가리킬 수 없는 id, 사라진 행)은 경고를 남기고 **정상 반환**한다 — 던지면
  * BullMQ가 같은 답을 세 번 더 받아 낸다. 반대로 DB 오류는 그대로 던져 재시도에 맡긴다.
  */
-export async function processExample(
-  manager: EntityManager,
-  payload: ProcessExamplePayload,
-): Promise<void> {
+export async function processExample(manager: EntityManager, payload: unknown): Promise<void> {
+  if (
+    typeof payload !== 'object' ||
+    payload === null ||
+    Array.isArray(payload) ||
+    !('exampleId' in payload)
+  ) {
+    logger.warn('Malformed Example job payload; skipping without retry');
+    return;
+  }
   const { exampleId } = payload;
 
   // uuid 모양을 먼저 거른다 — uuid 컬럼에 uuid가 아닌 문자열을 넣으면 22P02로 죽고,
   // 그러면 "경고 후 종료"여야 할 것이 재시도 대상 오류가 된다.
-  if (!canIdentify(manager, Example, exampleId)) {
-    logger.warn(`Example을 가리킬 수 없는 id다(id=${exampleId}) — 재시도 없이 건너뛴다`);
+  let normalizedId: string;
+  try {
+    if (typeof exampleId !== 'string') throw new Error('Expected a UUID string');
+    normalizedId = normalizeUuid(exampleId);
+  } catch {
+    logger.warn(`Example을 가리킬 수 없는 id다(id=${String(exampleId)}) — 재시도 없이 건너뛴다`);
     return;
   }
 
-  const example = await manager.findOneBy(Example, { id: exampleId });
+  const example = await manager.findOneBy(Example, { id: normalizedId });
   if (example === null) {
     // 잡이 큐에 들어간 뒤 행이 지워지는 것은 정상적인 경합이지 오류가 아니다.
     logger.warn(`Example을 찾을 수 없다(id=${exampleId}) — 재시도 없이 건너뛴다`);

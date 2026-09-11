@@ -1,3 +1,12 @@
+import { TokenService } from '../../src/app/auth/tokens.js';
+const tokens = new TokenService({
+  secret: 'test-only-session-secret-key-32-bytes',
+  issuer: 'test',
+  audience: 'test',
+  accessExpiresSeconds: 900,
+  refreshExpiresSeconds: 3600,
+  leewaySeconds: 0,
+});
 import type { DataSource, EntityManager } from 'typeorm';
 import { JsonApiError } from '../../src/app/jsonapi/errors.js';
 import { RefreshSession } from '../../src/app/models/refresh-session.entity.js';
@@ -14,7 +23,8 @@ async function makeUser(manager: EntityManager, email: string, isActive = true):
 /** 던진 오류의 JSON:API 코드를 꺼낸다. */
 async function codeOf(run: () => Promise<unknown>): Promise<string> {
   try {
-    await run();
+    const result = await run();
+    if (result instanceof JsonApiError) return result.code;
   } catch (error: unknown) {
     if (error instanceof JsonApiError) {
       return error.code;
@@ -38,7 +48,7 @@ describe('refresh session', () => {
   it('발급하면 만료가 미래이고 폐기되지 않은 행이 생긴다', async () => {
     await withRollback(dataSource, async (manager) => {
       const user = await makeUser(manager, 'ㅁ@example.test');
-      const issued = await issueSession(manager, user.id, TTL);
+      const issued = await issueSession(manager, user.id, TTL, tokens);
 
       const row = await manager.findOneByOrFail(RefreshSession, { id: issued.id });
       expect(row.revokedAt).toBeNull();
@@ -51,9 +61,10 @@ describe('refresh session', () => {
     // 스펙 9장의 "refresh token 회전 시 기존 token 즉시 폐기"가 이것이다.
     await withRollback(dataSource, async (manager) => {
       const user = await makeUser(manager, 'ㅂ@example.test');
-      const first = await issueSession(manager, user.id, TTL);
+      const first = await issueSession(manager, user.id, TTL, tokens);
 
-      const second = await rotateSession(manager, first.id, TTL);
+      const second = await rotateSession(manager, first.refreshToken, TTL, tokens);
+      if (second instanceof JsonApiError) throw second;
 
       const old = await manager.findOneByOrFail(RefreshSession, { id: first.id });
       expect(old.revokedAt).not.toBeNull();
@@ -66,10 +77,12 @@ describe('refresh session', () => {
     // 재사용 탐지의 최소선이다. 훔친 refresh token이 한 번 더 통하면 회전이 사는 값이 없다.
     await withRollback(dataSource, async (manager) => {
       const user = await makeUser(manager, 'ㅅ@example.test');
-      const first = await issueSession(manager, user.id, TTL);
-      await rotateSession(manager, first.id, TTL);
+      const first = await issueSession(manager, user.id, TTL, tokens);
+      await rotateSession(manager, first.refreshToken, TTL, tokens);
 
-      expect(await codeOf(() => rotateSession(manager, first.id, TTL))).toBe('TOKEN_REVOKED');
+      expect(await codeOf(() => rotateSession(manager, first.refreshToken, TTL, tokens))).toBe(
+        'TOKEN_REVOKED',
+      );
     });
   });
 
@@ -79,10 +92,12 @@ describe('refresh session', () => {
     // 검사를 태우는 것만 보고, "로그아웃"이 태우는지는 보지 않는다.
     await withRollback(dataSource, async (manager) => {
       const user = await makeUser(manager, 'ㅊ@example.test');
-      const issued = await issueSession(manager, user.id, TTL);
-      await revokeSession(manager, issued.id);
+      const issued = await issueSession(manager, user.id, TTL, tokens);
+      await revokeSession(manager, issued.refreshToken, tokens);
 
-      expect(await codeOf(() => rotateSession(manager, issued.id, TTL))).toBe('TOKEN_REVOKED');
+      expect(await codeOf(() => rotateSession(manager, issued.refreshToken, TTL, tokens))).toBe(
+        'TOKEN_REVOKED',
+      );
     });
   });
 
@@ -91,14 +106,16 @@ describe('refresh session', () => {
     // 행 쪽도 반드시 본다.
     await withRollback(dataSource, async (manager) => {
       const user = await makeUser(manager, 'ㅇ@example.test');
-      const expired = await manager.save(RefreshSession, {
-        userId: user.id,
-        expiresAt: new Date(Date.now() - 1000),
-        revokedAt: null,
-        replacedById: null,
-      });
+      const expired = await issueSession(manager, user.id, TTL, tokens);
+      await manager.update(
+        RefreshSession,
+        { id: expired.id },
+        { expiresAt: new Date(Date.now() - 1000) },
+      );
 
-      expect(await codeOf(() => rotateSession(manager, expired.id, TTL))).toBe('TOKEN_EXPIRED');
+      expect(await codeOf(() => rotateSession(manager, expired.refreshToken, TTL, tokens))).toBe(
+        'TOKEN_EXPIRED',
+      );
     });
   });
 
@@ -108,16 +125,20 @@ describe('refresh session', () => {
     // 회전마다 만료를 새로 미뤄 주므로 그 체인이 무한히 앞으로 미끄러진다.
     await withRollback(dataSource, async (manager) => {
       const user = await makeUser(manager, 'ㅍ@example.test', false);
-      const issued = await issueSession(manager, user.id, TTL);
+      const issued = await issueSession(manager, user.id, TTL, tokens);
 
-      expect(await codeOf(() => rotateSession(manager, issued.id, TTL))).toBe('USER_INACTIVE');
+      expect(await codeOf(() => rotateSession(manager, issued.refreshToken, TTL, tokens))).toBe(
+        'USER_INACTIVE',
+      );
     });
   });
 
   it('없는 세션은 INVALID_TOKEN이다', async () => {
     await withRollback(dataSource, async (manager) => {
       expect(
-        await codeOf(() => rotateSession(manager, '00000000-0000-4000-8000-000000000000', TTL)),
+        await codeOf(() =>
+          rotateSession(manager, '00000000-0000-4000-8000-000000000000', TTL, tokens),
+        ),
       ).toBe('INVALID_TOKEN');
     });
   });
@@ -126,7 +147,7 @@ describe('refresh session', () => {
     // 그대로 질의하면 PostgreSQL이 22P02로 죽어 401이어야 할 것이 500이 된다.
     // Phase 4에서 관계 linkage id로 같은 사고가 났다.
     await withRollback(dataSource, async (manager) => {
-      expect(await codeOf(() => rotateSession(manager, '세션이-아니다', TTL))).toBe(
+      expect(await codeOf(() => rotateSession(manager, '세션이-아니다', TTL, tokens))).toBe(
         'INVALID_TOKEN',
       );
     });
@@ -136,11 +157,11 @@ describe('refresh session', () => {
     // 로그아웃 버튼을 두 번 누르는 것은 클라이언트 오류가 아니다.
     await withRollback(dataSource, async (manager) => {
       const user = await makeUser(manager, 'ㅈ@example.test');
-      const issued = await issueSession(manager, user.id, TTL);
+      const issued = await issueSession(manager, user.id, TTL, tokens);
 
-      await revokeSession(manager, issued.id);
+      await revokeSession(manager, issued.refreshToken, tokens);
       const first = await manager.findOneByOrFail(RefreshSession, { id: issued.id });
-      await revokeSession(manager, issued.id);
+      await revokeSession(manager, issued.refreshToken, tokens);
       const second = await manager.findOneByOrFail(RefreshSession, { id: issued.id });
 
       expect(first.revokedAt).not.toBeNull();
@@ -149,20 +170,14 @@ describe('refresh session', () => {
     });
   });
 
-  it('없는 세션을 폐기해도 조용하다', async () => {
-    // 이미 정리된 세션으로 로그아웃해도 204여야 한다는 계약이 여기서 시작된다.
+  it('rejects logout when there is no verifiable session', async () => {
     await withRollback(dataSource, async (manager) => {
       await expect(
-        revokeSession(manager, '00000000-0000-4000-8000-000000000000'),
-      ).resolves.toBeUndefined();
-    });
-  });
-
-  it('uuid가 아닌 id로 폐기해도 조용하다', async () => {
-    // 폐기는 "이 세션을 못 쓰게 하라"이고, 가리킬 수조차 없는 id는 이미 그 상태다.
-    // 그대로 질의하면 22P02로 죽어 204여야 할 것이 500이 된다.
-    await withRollback(dataSource, async (manager) => {
-      await expect(revokeSession(manager, '세션이-아니다')).resolves.toBeUndefined();
+        revokeSession(manager, '00000000-0000-4000-8000-000000000000', tokens),
+      ).resolves.toMatchObject({ code: 'INVALID_TOKEN' });
+      await expect(revokeSession(manager, 'not-a-token', tokens)).resolves.toMatchObject({
+        code: 'INVALID_TOKEN',
+      });
     });
   });
 });

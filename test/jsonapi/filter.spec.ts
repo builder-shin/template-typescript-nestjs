@@ -107,7 +107,7 @@ describe('parseFilters 값 변환', () => {
   it('timestamp를 문자열 그대로 넘긴다', () => {
     expect(
       parseFilters({ 'filter[createdAt][gte]': '2026-08-30T00:00:00Z' }, POLICY)[0]?.value,
-    ).toBe('2026-08-30T00:00:00Z');
+    ).toBe('2026-08-30T00:00:00.000000Z');
   });
 
   // 정본(FastAPI)은 소수 초의 자릿수를 제한하지 않는다(실측: 1~9자리 전부 200).
@@ -115,7 +115,9 @@ describe('parseFilters 값 변환', () => {
   // 필터가 통째로 400 이 된다.
   it.each(['1', '12', '123', '1234', '123456'])('소수 초 %s자리를 받는다', (fraction: string) => {
     const raw = `2026-08-30T00:00:00.${fraction}Z`;
-    expect(parseFilters({ 'filter[createdAt][gte]': raw }, POLICY)[0]?.value).toBe(raw);
+    expect(parseFilters({ 'filter[createdAt][gte]': raw }, POLICY)[0]?.value).toBe(
+      `2026-08-30T00:00:00.${fraction.padEnd(6, '0')}Z`,
+    );
   });
 
   // 7자리 이상은 마이크로초까지 **자른다**. 그대로 넘기면 Postgres 가 반올림해
@@ -219,7 +221,7 @@ describe('parseFilters 거부', () => {
   it('윤년의 2월 29일은 받는다', () => {
     expect(
       parseFilters({ 'filter[createdAt][gte]': '2024-02-29T00:00:00Z' }, POLICY)[0]?.value,
-    ).toBe('2024-02-29T00:00:00Z');
+    ).toBe('2024-02-29T00:00:00.000000Z');
   });
 
   it.each([

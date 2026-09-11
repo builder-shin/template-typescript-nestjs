@@ -57,7 +57,7 @@ describe('parsePage 기본값', () => {
     expect(parsePage({ 'page[number]': '3' }, POLICY).number).toBe(3);
   });
 
-  it('page[totals]=true를 읽는다', () => {
+  it('page%5Btotals%5D=true를 읽는다', () => {
     expect(parsePage({ 'page[totals]': 'true' }, POLICY).totals).toBe(true);
     expect(parsePage({ 'page[totals]': 'false' }, POLICY).totals).toBe(false);
   });
@@ -90,10 +90,8 @@ describe('parsePage 기본값', () => {
 });
 
 describe('parsePage 거부', () => {
-  it('page[size]가 최대치를 넘으면 거부한다', () => {
-    const error = caught(() => parsePage({ 'page[size]': '101' }, POLICY));
-    expect(error.code).toBe('INVALID_PAGE');
-    expect(error.source).toEqual({ parameter: 'page[size]' });
+  it('clamps sizes above the maximum', () => {
+    expect(parsePage({ 'page[size]': '101' }, POLICY).size).toBe(100);
   });
 
   it('page[size]가 0 이하면 거부한다', () => {
@@ -165,64 +163,76 @@ describe('probeLimit / sliceProbe', () => {
 describe('buildOffsetLinks', () => {
   const base = '/api/v1/examples';
 
+  it('encodes reserved values and orders totals before the page like the canonical links', () => {
+    const query = { 'filter[title]': "a !'()*", 'page[totals]': 'true' };
+    const links = buildOffsetLinks(base, query, parsePage(query, POLICY), false, 0);
+    expect(links.self).toBe(
+      '/api/v1/examples?filter%5Btitle%5D=a+%21%27%28%29%2A&page%5Btotals%5D=true&page%5Bnumber%5D=1&page%5Bsize%5D=25',
+    );
+  });
+
   it('self와 first를 낸다', () => {
     const page = parsePage({}, POLICY);
     const links = buildOffsetLinks(base, {}, page, false, undefined);
-    expect(links.self).toBe('/api/v1/examples?page[number]=1&page[size]=25');
-    expect(links.first).toBe('/api/v1/examples?page[number]=1&page[size]=25');
+    expect(links.self).toBe('/api/v1/examples?page%5Bnumber%5D=1&page%5Bsize%5D=25');
+    expect(links.first).toBe('/api/v1/examples?page%5Bnumber%5D=1&page%5Bsize%5D=25');
   });
 
   it('첫 페이지에는 prev가 없다', () => {
     const links = buildOffsetLinks(base, {}, parsePage({}, POLICY), false, undefined);
-    expect(links.prev).toBeUndefined();
+    expect(links.prev).toBeNull();
   });
 
   it('다음 페이지가 없으면 next가 없다', () => {
     const links = buildOffsetLinks(base, {}, parsePage({}, POLICY), false, undefined);
-    expect(links.next).toBeUndefined();
+    expect(links.next).toBeNull();
   });
 
   it('다음 페이지가 있으면 next를 낸다', () => {
     const query = { 'page[number]': '2', 'page[size]': '5' };
     const links = buildOffsetLinks(base, query, parsePage(query, POLICY), true, undefined);
-    expect(links.next).toBe('/api/v1/examples?page[number]=3&page[size]=5');
-    expect(links.prev).toBe('/api/v1/examples?page[number]=1&page[size]=5');
+    expect(links.next).toBe('/api/v1/examples?page%5Bnumber%5D=3&page%5Bsize%5D=5');
+    expect(links.prev).toBe('/api/v1/examples?page%5Bnumber%5D=1&page%5Bsize%5D=5');
   });
 
   it('totals를 요청하지 않으면 last가 없다', () => {
     // COUNT를 돌리지 않았으므로 마지막 페이지 번호를 알 수 없다.
     const links = buildOffsetLinks(base, {}, parsePage({}, POLICY), true, undefined);
-    expect(links.last).toBeUndefined();
+    expect(links.last).toBeNull();
   });
 
   it('totals를 요청하면 last를 내고 모든 링크가 totals를 유지한다', () => {
     const query = { 'page[size]': '10', 'page[totals]': 'true', 'page[number]': '2' };
     const links = buildOffsetLinks(base, query, parsePage(query, POLICY), true, 35);
-    expect(links.last).toBe('/api/v1/examples?page[number]=4&page[size]=10&page[totals]=true');
-    expect(links.self).toContain('page[totals]=true');
-    expect(links.first).toContain('page[totals]=true');
-    expect(links.prev).toContain('page[totals]=true');
-    expect(links.next).toContain('page[totals]=true');
+    expect(links.last).toBe(
+      '/api/v1/examples?page%5Btotals%5D=true&page%5Bnumber%5D=4&page%5Bsize%5D=10',
+    );
+    expect(links.self).toContain('page%5Btotals%5D=true');
+    expect(links.first).toContain('page%5Btotals%5D=true');
+    expect(links.prev).toContain('page%5Btotals%5D=true');
+    expect(links.next).toContain('page%5Btotals%5D=true');
   });
 
   it('총 개수가 0이면 last는 1페이지다', () => {
     const query = { 'page[totals]': 'true' };
     const links = buildOffsetLinks(base, query, parsePage(query, POLICY), false, 0);
-    expect(links.last).toBe('/api/v1/examples?page[number]=1&page[size]=25&page[totals]=true');
+    expect(links.last).toBe(
+      '/api/v1/examples?page%5Btotals%5D=true&page%5Bnumber%5D=1&page%5Bsize%5D=25',
+    );
   });
 
   it('filter와 sort를 링크에 그대로 실어 나른다', () => {
     // 링크를 따라간 결과가 원래 요청과 다른 집합이면 페이지네이션이 깨진 것이다.
     const query = { 'filter[status]': 'draft', sort: '-createdAt' };
     const links = buildOffsetLinks(base, query, parsePage(query, POLICY), true, undefined);
-    expect(links.next).toContain('filter[status]=draft');
+    expect(links.next).toContain('filter%5Bstatus%5D=draft');
     expect(links.next).toContain('sort=-createdAt');
   });
 
   it('값을 URL 인코딩한다', () => {
     const query = { 'filter[title]': '가 나' };
     const links = buildOffsetLinks(base, query, parsePage(query, POLICY), false, undefined);
-    expect(links.self).toContain('filter[title]=%EA%B0%80%20%EB%82%98');
+    expect(links.self).toContain('filter%5Btitle%5D=%EA%B0%80+%EB%82%98');
   });
 
   it('같은 파라미터가 두 번 온 값을 링크에 모두 실어 나른다', () => {
@@ -230,10 +240,10 @@ describe('buildOffsetLinks', () => {
     // 원래 읽던 페이지와 다른 집합이 된다.
     const query = { 'filter[status][in]': ['draft', 'published'] };
     const links = buildOffsetLinks(base, query, parsePage(query, POLICY), true, undefined);
-    expect(links.self).toContain('filter[status][in]=draft');
-    expect(links.self).toContain('filter[status][in]=published');
-    expect(links.next).toContain('filter[status][in]=draft');
-    expect(links.next).toContain('filter[status][in]=published');
+    expect(links.self).toContain('filter%5Bstatus%5D%5Bin%5D=draft');
+    expect(links.self).toContain('filter%5Bstatus%5D%5Bin%5D=published');
+    expect(links.next).toContain('filter%5Bstatus%5D%5Bin%5D=draft');
+    expect(links.next).toContain('filter%5Bstatus%5D%5Bin%5D=published');
   });
 });
 
@@ -250,21 +260,21 @@ describe('buildCursorLinks', () => {
       undefined,
       false,
     );
-    expect(links.first).toBe('/api/v1/examples?page[after]=&page[size]=25');
-    expect(links.last).toBe('/api/v1/examples?page[before]=&page[size]=25');
+    expect(links.first).toBe('/api/v1/examples?page%5Bafter%5D=&page%5Bsize%5D=25');
+    expect(links.last).toBe('/api/v1/examples?page%5Bbefore%5D=&page%5Bsize%5D=25');
   });
 
   it('다음 페이지가 있으면 마지막 행의 커서로 next를 낸다', () => {
     const query = { 'page[after]': '' };
     const links = buildCursorLinks(base, query, parsePage(query, POLICY), 'AAA', 'ZZZ', true);
-    expect(links.next).toBe('/api/v1/examples?page[after]=ZZZ&page[size]=25');
-    expect(links.prev).toBe('/api/v1/examples?page[before]=AAA&page[size]=25');
+    expect(links.next).toBe('/api/v1/examples?page%5Bafter%5D=ZZZ&page%5Bsize%5D=25');
+    expect(links.prev).toBeNull();
   });
 
   it('다음 페이지가 없으면 next를 내지 않는다', () => {
     const query = { 'page[after]': '' };
     const links = buildCursorLinks(base, query, parsePage(query, POLICY), 'AAA', 'ZZZ', false);
-    expect(links.next).toBeUndefined();
+    expect(links.next).toBeNull();
   });
 
   it('페이지가 비면 prev도 next도 없다', () => {
@@ -277,24 +287,24 @@ describe('buildCursorLinks', () => {
       undefined,
       false,
     );
-    expect(links.prev).toBeUndefined();
-    expect(links.next).toBeUndefined();
+    expect(links.prev).toBeNull();
+    expect(links.next).toBeNull();
   });
 
   it('filter를 링크에 실어 나른다', () => {
     const query = { 'page[after]': '', 'filter[status]': 'draft' };
     const links = buildCursorLinks(base, query, parsePage(query, POLICY), undefined, 'Z', true);
-    expect(links.next).toContain('filter[status]=draft');
+    expect(links.next).toContain('filter%5Bstatus%5D=draft');
   });
 
   it('totals를 요청하면 모든 커서 링크가 그 값을 유지한다', () => {
-    const query = { 'page[after]': '', 'page[totals]': 'true' };
+    const query = { 'page[after]': 'START', 'page[totals]': 'true' };
     const links = buildCursorLinks(base, query, parsePage(query, POLICY), 'AAA', 'ZZZ', true);
-    expect(links.self).toContain('page[totals]=true');
-    expect(links.first).toContain('page[totals]=true');
-    expect(links.last).toContain('page[totals]=true');
-    expect(links.prev).toContain('page[totals]=true');
-    expect(links.next).toContain('page[totals]=true');
+    expect(links.self).toContain('page%5Btotals%5D=true');
+    expect(links.first).toContain('page%5Btotals%5D=true');
+    expect(links.last).toContain('page%5Btotals%5D=true');
+    expect(links.prev).toContain('page%5Btotals%5D=true');
+    expect(links.next).toContain('page%5Btotals%5D=true');
   });
 
   it('page[before]로 읽을 때 hasMore가 가르는 것은 next가 아니라 prev다', () => {
@@ -304,17 +314,17 @@ describe('buildCursorLinks', () => {
     const page = parsePage(query, POLICY);
 
     const atStart = buildCursorLinks(base, query, page, 'AAA', 'ZZZ', false);
-    expect(atStart.prev).toBeUndefined();
-    expect(atStart.next).toBe('/api/v1/examples?page[after]=ZZZ&page[size]=25');
+    expect(atStart.prev).toBeNull();
+    expect(atStart.next).toBe('/api/v1/examples?page%5Bafter%5D=ZZZ&page%5Bsize%5D=25');
 
     const midway = buildCursorLinks(base, query, page, 'AAA', 'ZZZ', true);
-    expect(midway.prev).toBe('/api/v1/examples?page[before]=AAA&page[size]=25');
-    expect(midway.next).toBe('/api/v1/examples?page[after]=ZZZ&page[size]=25');
+    expect(midway.prev).toBe('/api/v1/examples?page%5Bbefore%5D=AAA&page%5Bsize%5D=25');
+    expect(midway.next).toBe('/api/v1/examples?page%5Bafter%5D=ZZZ&page%5Bsize%5D=25');
   });
 
   it('page[before]로 들어온 요청의 self는 before를 그대로 쓴다', () => {
     const query = { 'page[before]': 'ZZZ' };
     const links = buildCursorLinks(base, query, parsePage(query, POLICY), 'AAA', 'BBB', true);
-    expect(links.self).toBe('/api/v1/examples?page[before]=ZZZ&page[size]=25');
+    expect(links.self).toBe('/api/v1/examples?page%5Bbefore%5D=ZZZ&page%5Bsize%5D=25');
   });
 });

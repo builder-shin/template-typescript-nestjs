@@ -5,7 +5,7 @@ import { ExamplesController } from '../app/controllers/api/v1/examples.controlle
 import { TagsController } from '../app/controllers/api/v1/tags.controller.js';
 import { UsersController } from '../app/controllers/api/v1/users.controller.js';
 import { HealthController } from '../app/controllers/health.controller.js';
-import { JwtActiveUserGuard } from '../app/auth/current-user.guard.js';
+import { JwtActiveUserGuard, JwtUserGuard } from '../app/auth/current-user.guard.js';
 import { JWT_SETTINGS_TOKEN, TokenService } from '../app/auth/tokens.js';
 import { loadJwtSettings } from './settings.js';
 
@@ -34,6 +34,7 @@ import { loadJwtSettings } from './settings.js';
     { provide: JWT_SETTINGS_TOKEN, useFactory: () => loadJwtSettings() },
     TokenService,
     JwtActiveUserGuard,
+    JwtUserGuard,
   ],
 })
 export class RoutesModule {}

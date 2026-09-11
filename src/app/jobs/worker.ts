@@ -5,6 +5,7 @@ import { brokerConnection, JOBS_QUEUE_NAME } from '../../config/broker.js';
 import { buildDataSourceOptions } from '../../config/database.js';
 import { loadDatabaseSettings, loadWorkerSettings } from '../../config/settings.js';
 import { dispatchJob } from './dispatch.js';
+import { JOB_WORKER_SETTINGS } from './queue.js';
 import type { Job } from 'bullmq';
 
 /**
@@ -45,7 +46,7 @@ async function bootstrap(): Promise<void> {
   const worker = new Worker(
     JOBS_QUEUE_NAME,
     (job: Job): Promise<void> => dispatchJob(dataSource, job, workerSettings),
-    { connection: brokerConnection(workerSettings.redisUrl) },
+    { connection: brokerConnection(workerSettings.redisUrl), settings: JOB_WORKER_SETTINGS },
   );
 
   /**

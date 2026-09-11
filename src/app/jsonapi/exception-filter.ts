@@ -1,11 +1,12 @@
-import { Catch, HttpException, Logger } from '@nestjs/common';
+import { Catch, HttpException, Logger, Optional } from '@nestjs/common';
 import type { ArgumentsHost, ExceptionFilter } from '@nestjs/common';
 import { ERROR_CATALOG, JsonApiError, JsonApiErrors } from './errors.js';
-import type { JsonApiErrorSource } from './errors.js';
+import type { JsonApiErrorCode, JsonApiErrorSource } from './errors.js';
 import type { SupportedLanguage } from './language.js';
 import { resolveLanguage } from './language.js';
 import { JSONAPI_MEDIA_TYPE, pinJsonApiContentType } from './media-type.js';
 import type { HeaderWritableResponse } from './media-type.js';
+import { RouteMethods } from './route-methods.js';
 
 /**
  * 모든 오류를 JSON:API 오류 문서로 변환하는 전역 필터.
@@ -35,6 +36,7 @@ export interface JsonApiErrorObject {
 
 /** JSON:API 오류 문서. */
 export interface ErrorDocument {
+  readonly jsonapi: { readonly version: '1.1' };
   readonly errors: readonly JsonApiErrorObject[];
 }
 
@@ -44,6 +46,7 @@ export function buildErrorDocument(
   language: SupportedLanguage,
 ): ErrorDocument {
   return {
+    jsonapi: { version: '1.1' },
     errors: errors.map((error) => {
       // title 과 detail 을 **둘 다** 카탈로그에서 고른 언어로 낸다. detail 을
       // 던지는 쪽이 영문 문자열로 붙이던 때는 `Accept-Language: ko` 를 줘도
@@ -86,11 +89,21 @@ interface FilteredRequest {
 }
 
 interface JsonApiResponse extends HeaderWritableResponse {
+  removeHeader(name: string): void;
   status(code: number): JsonApiResponse;
   json(body: unknown): unknown;
 }
 
 /** 던져진 값을 오류 객체 목록으로 정규화한다. */
+const HTTP_ERROR_CODES: Readonly<Partial<Record<number, JsonApiErrorCode>>> = {
+  400: 'INVALID_JSONAPI_DOCUMENT',
+  404: 'RESOURCE_NOT_FOUND',
+  406: 'NOT_ACCEPTABLE',
+  409: 'RESOURCE_CONFLICT',
+  415: 'UNSUPPORTED_MEDIA_TYPE',
+  422: 'VALIDATION_ERROR',
+};
+
 function normalize(exception: unknown): readonly JsonApiError[] {
   if (exception instanceof JsonApiErrors) {
     return exception.errors;
@@ -99,7 +112,11 @@ function normalize(exception: unknown): readonly JsonApiError[] {
     return [exception];
   }
   if (exception instanceof HttpException) {
-    return [new JsonApiError('HTTP_ERROR', { status: exception.getStatus() })];
+    const status = exception.getStatus();
+    if (status < 400 || status > 599) return [new JsonApiError('INTERNAL_SERVER_ERROR')];
+    const code =
+      status >= 500 ? 'INTERNAL_SERVER_ERROR' : (HTTP_ERROR_CODES[status] ?? 'HTTP_ERROR');
+    return [new JsonApiError(code, { status })];
   }
   return [new JsonApiError('INTERNAL_SERVER_ERROR')];
 }
@@ -136,16 +153,27 @@ function shouldLog(exception: unknown, status: number): boolean {
 export class JsonApiExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(JsonApiExceptionFilter.name);
 
+  constructor(@Optional() private readonly routeMethods?: RouteMethods) {}
+
   catch(exception: unknown, host: ArgumentsHost): void {
     const http = host.switchToHttp();
     const response = http.getResponse<JsonApiResponse>();
     const request = http.getRequest<FilteredRequest>();
+    // Nest applies static success headers before entering the controller method.
+    response.removeHeader('Location');
 
     const raw = request.headers['accept-language'];
     const header = Array.isArray(raw) ? raw[0] : raw;
     const language = resolveLanguage(header);
 
-    const errors = normalize(exception);
+    let errors = normalize(exception);
+    if (exception instanceof HttpException && exception.getStatus() === 404) {
+      const allowed = this.routeMethods?.allowed(request.url) ?? [];
+      if (allowed.length > 0 && !allowed.includes(request.method) && !allowed.includes('ALL')) {
+        response.setHeader('Allow', allowed.join(', '));
+        errors = [new JsonApiError('HTTP_ERROR', { status: 405 })];
+      }
+    }
     const [first] = errors;
     if (first === undefined) {
       throw new TypeError('정규화 결과가 비어 있다');

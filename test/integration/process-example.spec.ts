@@ -24,10 +24,15 @@ describe('processExample', () => {
    * Nest의 `Logger.overrideLogger`로 실제 로그를 가로챈다 — `exception-filter.spec.ts`가
    * 이미 쓰는 방식이다. 그 파일을 읽고 같은 관용구를 따르되, `finally`에서 반드시 원복한다.
    */
-  async function captureWarnings(run: () => Promise<void>): Promise<string[]> {
+  async function captureWarnings(
+    run: () => Promise<void>,
+    success: string[] = [],
+  ): Promise<string[]> {
     const warnings: string[] = [];
     Logger.overrideLogger({
-      log: () => undefined,
+      log: (message: unknown) => {
+        success.push(String(message));
+      },
       warn: (message: unknown, ...params: unknown[]) => {
         warnings.push([message, ...params].map((part) => String(part)).join(' '));
       },
@@ -99,4 +104,50 @@ describe('processExample', () => {
       await expect(processExample(manager, { exampleId: MISSING_ID })).rejects.toThrow();
     });
   });
+
+  it.each(['canonical', 'compact', 'braced', 'urn', 'uppercase'])(
+    'processes a persisted UUID in %s form without mutation',
+    async (form) => {
+      await withRollback(dataSource, async (manager) => {
+        const entity = await manager.save(Example, {
+          title: 'UUID worker',
+          status: 'active',
+          score: 42,
+        });
+        const before = await manager.findOneByOrFail(Example, { id: entity.id });
+        const ids: Record<string, string> = {
+          canonical: entity.id,
+          compact: entity.id.replaceAll('-', ''),
+          braced: `{${entity.id}}`,
+          urn: `urn:uuid:${entity.id}`,
+          uppercase: entity.id.toUpperCase(),
+        };
+        const id = ids[form];
+        if (id === undefined) throw new Error('Missing UUID test form');
+        const successes: string[] = [];
+        const warnings = await captureWarnings(
+          () => processExample(manager, { exampleId: id }),
+          successes,
+        );
+        expect(warnings).toEqual([]);
+        expect(successes).toHaveLength(1);
+        expect(successes[0]).toContain(id);
+        expect(await manager.findOneByOrFail(Example, { id: entity.id })).toEqual(before);
+      });
+    },
+  );
+
+  it.each([null, 42, true, [], {}])(
+    'rejects nonstring identifier %p without accessing the database',
+    async (value) => {
+      await withRollback(dataSource, async (manager) => {
+        // An aborted PostgreSQL transaction rejects every subsequent SQL statement.
+        await expect(
+          manager.query('SELECT 1 FROM nonexistent_process_example_probe'),
+        ).rejects.toThrow();
+        const warnings = await captureWarnings(() => processExample(manager, { exampleId: value }));
+        expect(warnings).toHaveLength(1);
+      });
+    },
+  );
 });

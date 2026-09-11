@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { RefreshSession } from '../../src/app/models/refresh-session.entity.js';
 import { User } from '../../src/app/models/user.entity.js';
 import {
@@ -87,6 +88,7 @@ describe('purgeExpiredRefreshSessions', () => {
     extra: { revokedAt?: Date | null; replacedById?: string | null } = {},
   ): Promise<string> {
     const session = await dataSource.manager.save(RefreshSession, {
+      tokenHash: randomBytes(32).toString('hex'),
       userId,
       expiresAt,
       revokedAt: extra.revokedAt ?? null,
@@ -210,37 +212,22 @@ describe('purgeExpiredRefreshSessions', () => {
     await expect(exists(targetId)).resolves.toBe(true);
   });
 
-  it('batchSize가 1 이상의 정수가 아니면 TypeError이고, 배치를 하나도 돌리지 않는다', async () => {
-    // `batchSize: 0`을 그냥 통과시키면 `batchDeleted < batchSize`가 `0 < 0`으로 영원히
-    // 거짓이 되어 아무것도 못 지운 채 배치만 반복한다 — lockTimeoutMs와 같은 이유로
-    // 루프를 시작하기 전에 검사해야 한다.
-    const userId = await createUser('batchsize-typeerror');
-    const targetId = await createSession(userId, new Date(Date.now() - 120_000));
+  it.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1, true, false, '2', null])(
+    'invalid batch argument %s skips work and returns an empty result',
+    async (batchSize) => {
+      const userId = await createUser('batchsize-invalid');
+      const targetId = await createSession(userId, new Date(Date.now() - 120_000));
 
-    await expect(
-      purgeExpiredRefreshSessions(dataSource, {
-        retentionSeconds: 0,
-        batchSize: 0,
-        lockTimeoutMs: 500,
-      }),
-    ).rejects.toThrow(TypeError);
-    await expect(
-      purgeExpiredRefreshSessions(dataSource, {
-        retentionSeconds: 0,
-        batchSize: -1,
-        lockTimeoutMs: 500,
-      }),
-    ).rejects.toThrow(TypeError);
-    await expect(
-      purgeExpiredRefreshSessions(dataSource, {
-        retentionSeconds: 0,
-        batchSize: 1.5,
-        lockTimeoutMs: 500,
-      }),
-    ).rejects.toThrow(TypeError);
-
-    await expect(exists(targetId)).resolves.toBe(true);
-  });
+      await expect(
+        purgeExpiredRefreshSessions(dataSource, {
+          retentionSeconds: 0,
+          batchSize: batchSize as number,
+          lockTimeoutMs: 500,
+        }),
+      ).resolves.toEqual({ deleted: 0, batches: 0 });
+      await expect(exists(targetId)).resolves.toBe(true);
+    },
+  );
 
   it('가리키는 대상 행이 지워지면 replaced_by_id가 null이 되고, 그 행 자체는 남는다', async () => {
     // newSession(B)이 곧 purge 대상(만료)이고, oldSession(A)이 B를 replacedById로

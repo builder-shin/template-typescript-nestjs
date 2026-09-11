@@ -1,3 +1,4 @@
+import { serializeTimestamp } from '../jsonapi/exact-timestamps.js';
 import { Example } from '../models/example.entity.js';
 import { ERASED_CATEGORY_SERIALIZER } from './category.serializer.js';
 import { serializeResource } from './serializer.js';
@@ -24,8 +25,8 @@ export const EXAMPLE_SERIALIZER: ResourceSerializer<Example> = {
     description: (example) => example.description,
     status: (example) => example.status,
     score: (example) => example.score,
-    createdAt: (example) => example.createdAt.toISOString(),
-    updatedAt: (example) => example.updatedAt.toISOString(),
+    createdAt: (example) => serializeTimestamp(example.createdAt),
+    updatedAt: (example) => serializeTimestamp(example.updatedAt),
   },
   relationships: {
     category: {

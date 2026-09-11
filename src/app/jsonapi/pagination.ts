@@ -26,13 +26,13 @@ export interface PageRequest {
   readonly totals: boolean;
 }
 
-/** 페이지 링크. 낼 수 없는 링크는 멤버째 생략한다. */
+/** Pagination links explicitly retain unavailable destinations as null. */
 export interface PaginationLinks {
   readonly self: string;
-  readonly first?: string;
-  readonly prev?: string;
-  readonly next?: string;
-  readonly last?: string;
+  readonly first?: string | null;
+  readonly prev?: string | null;
+  readonly next?: string | null;
+  readonly last?: string | null;
 }
 
 /** probe로 한 행 더 읽은 결과를 자른 것. */
@@ -59,6 +59,19 @@ const INTEGER_PATTERN = /^-?\d+$/;
 
 function invalidPage(parameter: string): JsonApiError {
   return new JsonApiError('INVALID_PAGE', { source: { parameter } });
+}
+
+/** Validate one raw value; offset/cursor compatibility is checked after all pairs. */
+export function validatePageValue(key: string, raw: string | undefined): void {
+  if (raw === undefined) throw invalidPage(key);
+  if (key === 'page[after]' || key === 'page[before]') return;
+  if (key === 'page[totals]') {
+    if (raw !== 'true' && raw !== 'false') throw invalidPage(key);
+    return;
+  }
+  if (!/^[0-9]{1,19}$/.test(raw)) throw invalidPage(key);
+  const value = BigInt(raw);
+  if (value < 1n || value > 9223372036854775807n) throw invalidPage(key);
 }
 
 /**
@@ -89,10 +102,11 @@ function single(
 }
 
 function integer(raw: string, key: string): number {
-  if (!INTEGER_PATTERN.test(raw)) {
-    throw invalidPage(key);
-  }
-  return Number.parseInt(raw, 10);
+  if (raw.length > 19 || !INTEGER_PATTERN.test(raw)) throw invalidPage(key);
+  const value = BigInt(raw);
+  // The page whose offset is MAX_SAFE_INTEGER still has a representable number.
+  if (value < 1n || value > BigInt(Number.MAX_SAFE_INTEGER) + 1n) throw invalidPage(key);
+  return Number(value);
 }
 
 /** 질의 파라미터에서 페이지 요청을 만든다. */
@@ -110,13 +124,10 @@ export function parsePage(
 
   let size = policy.defaultPageSize;
   if (rawSize !== undefined) {
-    size = integer(rawSize, 'page[size]');
-    if (size < 1) {
-      throw invalidPage('page[size]');
-    }
-    if (size > MAX_PAGE_SIZE) {
-      throw invalidPage('page[size]');
-    }
+    if (!/^\d{1,19}$/.test(rawSize)) throw invalidPage('page[size]');
+    const requested = BigInt(rawSize);
+    if (requested < 1n || requested > 9223372036854775807n) throw invalidPage('page[size]');
+    size = Number(requested > BigInt(MAX_PAGE_SIZE) ? BigInt(MAX_PAGE_SIZE) : requested);
   }
 
   let totals = false;
@@ -153,6 +164,7 @@ export function parsePage(
     }
   }
 
+  if (!Number.isSafeInteger((number - 1) * size)) throw invalidPage('page[number]');
   return { mode: 'offset', size, number, totals };
 }
 
@@ -169,19 +181,17 @@ export function sliceProbe<T>(rows: readonly T[], page: PageRequest): ProbeResul
   return { items: rows, hasMore: false };
 }
 
-/**
- * 질의 키를 인코딩하되 대괄호는 남긴다.
- *
- * `filter[title]`이 `filter%5Btitle%5D`로 나가도 서버는 읽지만, JSON:API 규격의 예시와
- * 실제로 오가는 링크가 눈으로 대조되지 않는다. 대괄호는 사실상 모든 클라이언트가
- * 그대로 받아들인다.
- */
-function encodeKey(key: string): string {
-  return encodeURIComponent(key).replace(/%5B/g, '[').replace(/%5D/g, ']');
+/** Canonical URL query encoding (including brackets and reserved punctuation). */
+function encodeQueryValue(value: string): string {
+  return encodeURIComponent(value)
+    .replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`)
+    .replace(/%20/g, '+');
 }
 
 function toQueryString(pairs: readonly (readonly [string, string])[]): string {
-  return pairs.map(([key, value]) => `${encodeKey(key)}=${encodeURIComponent(value)}`).join('&');
+  return pairs
+    .map(([key, value]) => `${encodeQueryValue(key)}=${encodeQueryValue(value)}`)
+    .join('&');
 }
 
 /** page 파라미터를 뺀 나머지를 원래 모습 그대로 모은다. */
@@ -226,20 +236,20 @@ export function buildOffsetLinks(
   const link = (pageNumber: number): string => {
     const pairs: (readonly [string, string])[] = [
       ...preserved,
+      ...(page.totals ? [['page[totals]', 'true'] as const] : []),
       ['page[number]', String(pageNumber)],
       ['page[size]', String(page.size)],
-      ...(page.totals ? [['page[totals]', 'true'] as const] : []),
     ];
     return `${basePath}?${toQueryString(pairs)}`;
   };
 
   const links: {
     self: string;
-    first?: string;
-    prev?: string;
-    next?: string;
-    last?: string;
-  } = { self: link(current), first: link(1) };
+    first?: string | null;
+    prev?: string | null;
+    next?: string | null;
+    last?: string | null;
+  } = { self: link(current), first: link(1), prev: null, next: null, last: null };
 
   if (current > 1) {
     links.prev = link(current - 1);
@@ -247,29 +257,14 @@ export function buildOffsetLinks(
   if (hasMore) {
     links.next = link(current + 1);
   }
-  if (page.totals && totalCount !== undefined) {
+  if (totalCount !== undefined) {
     links.last = link(Math.max(1, Math.ceil(totalCount / page.size)));
   }
 
   return links;
 }
 
-/**
- * cursor 모드의 페이지 링크를 만든다.
- *
- * offset 모드와 달리 `first`와 `last`를 빈 진입점으로 낸다 — `page[after]=`는 컬렉션의
- * 시작, `page[before]=`는 끝을 가리킨다. 총 개수를 모르고도 양 끝으로 갈 수 있다.
- *
- * `prev`/`next`는 이번 페이지의 첫 행과 마지막 행에서 만든 커서다. 페이지가 비었으면
- * 만들 커서가 없으므로 둘 다 내지 않는다.
- *
- * `hasMore`는 "읽은 방향으로 더 있는가"다. `page[after]`로 읽으면 그 방향은 앞쪽이라
- * `next`를 가르고, `page[before]`로 읽으면 뒤쪽이라 `prev`를 가른다. 두 모드에 같은
- * 규칙을 쓰면 거꾸로 맨 앞까지 올라간 페이지가 `next`를 잃는다.
- *
- * 반대 방향은 이번 조회가 들여다보지 않은 쪽이라 있는지 알 수 없다. 모르면서 링크를
- * 빼면 갈 수 있는 곳을 막고, 넣으면 빈 페이지로 이어질 수 있다 — 후자를 고른다.
- */
+/** Cursor links use the probe in the read direction and a nonempty boundary for the opposite direction. */
 export function buildCursorLinks(
   basePath: string,
   query: Readonly<Record<string, string | readonly string[] | undefined>>,
@@ -283,9 +278,9 @@ export function buildCursorLinks(
   const link = (pageParams: readonly (readonly [string, string])[]): string => {
     const pairs: (readonly [string, string])[] = [
       ...preserved,
+      ...(page.totals ? [['page[totals]', 'true'] as const] : []),
       ...pageParams,
       ['page[size]', String(page.size)],
-      ...(page.totals ? [['page[totals]', 'true'] as const] : []),
     ];
     return `${basePath}?${toQueryString(pairs)}`;
   };
@@ -297,19 +292,21 @@ export function buildCursorLinks(
 
   const links: {
     self: string;
-    first?: string;
-    prev?: string;
-    next?: string;
-    last?: string;
+    first?: string | null;
+    prev?: string | null;
+    next?: string | null;
+    last?: string | null;
   } = {
+    prev: null,
+    next: null,
     self: link(selfParams),
     first: link([['page[after]', '']]),
     last: link([['page[before]', '']]),
   };
 
   const backward = page.before !== undefined;
-  const hasPrev = backward ? hasMore : true;
-  const hasNext = backward ? true : hasMore;
+  const hasPrev = backward ? hasMore : Boolean(page.after);
+  const hasNext = backward ? Boolean(page.before) : hasMore;
 
   if (hasPrev && firstCursor !== undefined) {
     links.prev = link([['page[before]', firstCursor]]);

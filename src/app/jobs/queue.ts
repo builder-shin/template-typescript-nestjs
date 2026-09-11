@@ -1,6 +1,6 @@
 import { Queue } from 'bullmq';
 import { JOBS_QUEUE_NAME } from '../../config/broker.js';
-import type { ConnectionOptions, Job, JobsOptions } from 'bullmq';
+import type { ConnectionOptions, Job, JobsOptions, WorkerOptions } from 'bullmq';
 import type { ProcessExamplePayload } from './process-example.js';
 
 /**
@@ -29,33 +29,19 @@ export const JOB_NAMES = {
   purgeExpiredRefreshSessions: 'purgeExpiredRefreshSessions',
 } as const;
 
-/**
- * 일시적 오류에 대한 최대 시도 횟수(스펙 10장) — 첫 시도 포함 총 3회.
- *
- * `test/integration/jobs-queue.spec.ts`가 이 값 자체가 3인지, 그리고 "3"이 프로세서가
- * 정확히 세 번 불린다는 뜻인지를 실측으로 고정한다.
- */
-export const JOB_ATTEMPTS = 3;
+/** Initial attempt plus three retries, matching the shared worker contract. */
+export const JOB_ATTEMPTS = 4;
 
-/**
- * 모든 잡이 공유하는 기본 옵션. `attempts`와 `backoff`를 정의하는 단 하나의 자리다 —
- * 두 곳에서 각자 정의하면 한쪽만 고쳐지는 날이 온다.
- *
- * backoff는 지수 백오프로 1초부터 시작한다. 이 잡들이 재시도하는 오류(스펙 10장의
- * "일시적 DB 오류")는 보통 커넥션 반짝 장애·잠금 경합처럼 짧게 스스로 풀리는 종류라,
- * 즉시 재시도(0ms)보다는 약간의 여유를 주는 편이 재시도가 실제로 의미 있을 확률을
- * 높인다. 정확한 상한값이 스펙에 없으므로 bullmq 기본 전략(지수)에 통상적인 시작값을
- * 얹었다.
- *
- * 세 번째 시도까지 걸리는 시간(1s+2s)이 워커를 붙잡아 두는 것은 아니다 — 실패한
- * 잡은 `job.js`의 재시도 경로가 `moveToDelayed(...)`를 불러 delayed 집합으로 옮긴다
- * (`node_modules/bullmq/dist/esm/classes/job.js`에서 직접 확인했다), 그동안 워커는
- * 다른 잡을 계속 처리할 수 있다. 이 시간이 짧다는 것이 의미하는 바는 워커 처리량이
- * 아니라 이 잡 하나의 최종 성패를 아는 데까지 걸리는 지연이 작다는 것뿐이다.
- */
+/** Shared with Dramatiq/Sidekiq: exponential base plus integer-second jitter. */
+export const JOB_WORKER_SETTINGS: NonNullable<WorkerOptions['settings']> = {
+  backoffStrategy: (attemptsMade: number): number =>
+    15000 * 2 ** (attemptsMade - 1) + Math.floor(Math.random() * 10 * attemptsMade) * 1000,
+};
+
+/** The three retry delays lie in 15..24, 30..49 and 60..89 seconds. */
 const DEFAULT_JOB_OPTIONS: JobsOptions = {
   attempts: JOB_ATTEMPTS,
-  backoff: { type: 'exponential', delay: 1000 },
+  backoff: { type: 'shared-exponential', delay: 15000 },
 };
 
 /**

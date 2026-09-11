@@ -6,6 +6,7 @@ import {
 } from '../../src/app/controllers/concerns/upsert-executor.js';
 import { Category } from '../../src/app/models/category.entity.js';
 import { Example } from '../../src/app/models/example.entity.js';
+import { User } from '../../src/app/models/user.entity.js';
 import { ExampleReplace } from '../../src/app/schemas/example.schemas.js';
 import { schemaProperties } from '../../src/app/schemas/write-schema.js';
 import { createTestDataSource, withRollback } from '../db/fixture.js';
@@ -51,7 +52,7 @@ describe('replacementValues', () => {
 
   it('보낸 필드는 그대로 싣는다', async () => {
     await withRollback(dataSource, (manager) => {
-      const { attributes, presentKeys } = parse({ title: '제목', score: 50 });
+      const { attributes, presentKeys } = parse({ title: '제목', status: 'draft', score: 50 });
       const values = replacementValues(manager, Example, attributes, presentKeys, OWNED);
       expect(values.title).toBe('제목');
       return Promise.resolve();
@@ -63,7 +64,7 @@ describe('replacementValues', () => {
     // `score`는 함께 보낸다 — NOT NULL이고 컬럼 기본값이 없어, 보내지 않으면 이 분기
     // 자체가 아니라 `resetValueFor`의 예외 분기(아래 별도 테스트)를 타 버린다.
     await withRollback(dataSource, (manager) => {
-      const { attributes, presentKeys } = parse({ title: '제목', score: 50 });
+      const { attributes, presentKeys } = parse({ title: '제목', status: 'draft', score: 50 });
       const values = replacementValues(manager, Example, attributes, presentKeys, OWNED);
       expect(values.description).toBeNull();
       return Promise.resolve();
@@ -71,22 +72,16 @@ describe('replacementValues', () => {
   });
 
   it('보내지 않은 필드에 컬럼 기본값이 있으면 그 값으로 되돌린다', async () => {
-    // 아래 "보낸 status는 그대로 남는다"와 짝이다 — 이 테스트는 "결측 → 되돌림" 분기를,
-    // 그 테스트는 "보낸 값 사용" 분기를 본다. `status`는 컬럼 기본값(`draft`)이 있어
-    // 두 분기의 결과가 서로 달라지므로 어느 분기가 실행됐는지 가릴 수 있다.
+    // 필수 Example.status에는 기본값이 없으므로 User.isActive로 기본값 복원을 확인한다.
     await withRollback(dataSource, (manager) => {
-      const { attributes, presentKeys } = parse({ title: '제목', score: 50 });
-      const values = replacementValues(manager, Example, attributes, presentKeys, OWNED);
-      expect(values.status).toBe('draft');
+      const values = replacementValues(manager, User, {}, new Set(), ['isActive']);
+      expect(values.isActive).toBe(true);
       return Promise.resolve();
     });
   });
 
   it('보낸 status는 그대로 남는다', async () => {
-    // 위 "보내지 않은 필드에 컬럼 기본값이 있으면..." 테스트와 짝이다. `status`를 보내면
-    // "보낸 값 사용" 분기(`presentKeys.has`)를 타고, 보내지 않으면 위 테스트가 보는
-    // "결측 → 되돌림" 분기(`resetValueFor`)를 탄다 — 결과가 갈리므로 둘 중 어느 분기가
-    // 실행됐는지 이 쌍으로 가릴 수 있다.
+    // 명시한 필수 status는 기본값 복원 경로를 거치지 않는다.
     await withRollback(dataSource, (manager) => {
       const { attributes, presentKeys } = parse({ title: '제목', status: 'active', score: 50 });
       const values = replacementValues(manager, Example, attributes, presentKeys, OWNED);
@@ -96,13 +91,14 @@ describe('replacementValues', () => {
   });
 
   it('null로 보낸 nullable 필드도 null이다', async () => {
-    // 주의: 이 테스트 하나만으로는 "보낸 값 사용"과 "결측 → 되돌림" 두 분기를 가릴 수
-    // 없다 — `description`이 nullable이라 두 분기 모두 결과가 `null`로 같다. 분기를 가르는
-    // 것은 위 `status` 쌍("보내지 않은 필드에 컬럼 기본값이 있으면..."/"보낸 status는
-    // 그대로 남는다")이고, 이 테스트가 지키는 것은 별개의 계약이다 — 명시적 `null`이
-    // "안 보냄"으로 오인되어 사라지지 않는다는 것.
+    // nullable 필드에 명시한 null이 응답과 DB 값에 그대로 반영되어야 한다.
     await withRollback(dataSource, (manager) => {
-      const { attributes, presentKeys } = parse({ title: '제목', description: null, score: 50 });
+      const { attributes, presentKeys } = parse({
+        title: '제목',
+        description: null,
+        status: 'draft',
+        score: 50,
+      });
       const values = replacementValues(manager, Example, attributes, presentKeys, OWNED);
       expect(values.description).toBeNull();
       return Promise.resolve();
@@ -111,7 +107,7 @@ describe('replacementValues', () => {
 
   it('스키마에 없는 프로퍼티는 싣지 않는다', async () => {
     await withRollback(dataSource, (manager) => {
-      const { attributes, presentKeys } = parse({ title: '제목', score: 50 });
+      const { attributes, presentKeys } = parse({ title: '제목', status: 'draft', score: 50 });
       const values = replacementValues(manager, Example, attributes, presentKeys, OWNED);
       expect('categoryId' in values).toBe(false);
       expect('createdAt' in values).toBe(false);
@@ -173,7 +169,11 @@ describe('upsertRow', () => {
 
   it('없는 id면 만들고 created를 참으로 낸다', async () => {
     await withRollback(dataSource, async (manager) => {
-      const outcome = await upsertRow(manager, Example, ID, { title: '처음', score: 50 });
+      const outcome = await upsertRow(manager, Example, ID, {
+        title: '처음',
+        status: 'draft',
+        score: 50,
+      });
       expect(outcome.created).toBe(true);
 
       const rows = await manager.query<{ title: string }[]>(
@@ -186,8 +186,12 @@ describe('upsertRow', () => {
 
   it('있는 id면 교체하고 created를 거짓으로 낸다', async () => {
     await withRollback(dataSource, async (manager) => {
-      await upsertRow(manager, Example, ID, { title: '처음', score: 50 });
-      const outcome = await upsertRow(manager, Example, ID, { title: '두 번째', score: 50 });
+      await upsertRow(manager, Example, ID, { title: '처음', status: 'draft', score: 50 });
+      const outcome = await upsertRow(manager, Example, ID, {
+        title: '두 번째',
+        status: 'draft',
+        score: 50,
+      });
       expect(outcome.created).toBe(false);
 
       const rows = await manager.query<{ title: string }[]>(
@@ -202,8 +206,8 @@ describe('upsertRow', () => {
     // `ON CONFLICT`가 아니라 그냥 INSERT였다면 두 번째가 유일성 위반으로 죽거나
     // 행이 둘이 된다.
     await withRollback(dataSource, async (manager) => {
-      await upsertRow(manager, Example, ID, { title: '처음', score: 50 });
-      await upsertRow(manager, Example, ID, { title: '두 번째', score: 50 });
+      await upsertRow(manager, Example, ID, { title: '처음', status: 'draft', score: 50 });
+      await upsertRow(manager, Example, ID, { title: '두 번째', status: 'draft', score: 50 });
       const rows = await manager.query<{ count: number }[]>(
         `SELECT COUNT(*)::int AS count FROM examples WHERE id = $1`,
         [ID],
@@ -214,8 +218,13 @@ describe('upsertRow', () => {
 
   it('보낸 컬럼만 갱신한다', async () => {
     await withRollback(dataSource, async (manager) => {
-      await upsertRow(manager, Example, ID, { title: '처음', score: 50, description: '본문' });
-      await upsertRow(manager, Example, ID, { title: '두 번째', score: 50 });
+      await upsertRow(manager, Example, ID, {
+        title: '처음',
+        status: 'draft',
+        score: 50,
+        description: '본문',
+      });
+      await upsertRow(manager, Example, ID, { title: '두 번째', status: 'draft', score: 50 });
       const rows = await manager.query<{ description: string | null }[]>(
         `SELECT description FROM examples WHERE id = $1`,
         [ID],
@@ -236,9 +245,15 @@ describe('upsertRow', () => {
     await withRollback(dataSource, async (manager) => {
       const first = await manager.save(manager.create(Category, { name: '분류 A' }));
       const second = await manager.save(manager.create(Category, { name: '분류 B' }));
-      await upsertRow(manager, Example, ID, { title: '처음', score: 50, categoryId: first.id });
+      await upsertRow(manager, Example, ID, {
+        title: '처음',
+        status: 'draft',
+        score: 50,
+        categoryId: first.id,
+      });
       await upsertRow(manager, Example, ID, {
         title: '두 번째',
+        status: 'draft',
         score: 50,
         categoryId: second.id,
       });
@@ -258,7 +273,7 @@ describe('upsertRow', () => {
     // 흔들린다. `pg_backend_pid()`는 이 쿼리를 실행하는 바로 그 세션의 pid라 같은
     // `manager`(=같은 커넥션) 위에서 부르면 안전하게 좁혀진다.
     await withRollback(dataSource, async (manager) => {
-      await upsertRow(manager, Example, ID, { title: '처음', score: 50 });
+      await upsertRow(manager, Example, ID, { title: '처음', status: 'draft', score: 50 });
       const locks = await manager.query<{ count: number }[]>(
         `SELECT COUNT(*)::int AS count FROM pg_locks WHERE locktype = 'advisory' AND pid = pg_backend_pid()`,
       );
@@ -276,7 +291,7 @@ describe('upsertRow', () => {
     // 풀로 돌아가므로 `dataSource.query`가 다른 커넥션을 받을 수 있고, 좁히지 않은
     // COUNT는 다른 워커가 그 순간 붙들고 있는 advisory 잠금까지 센다.
     const pid = await withRollback(dataSource, async (manager) => {
-      await upsertRow(manager, Example, ID, { title: '처음', score: 50 });
+      await upsertRow(manager, Example, ID, { title: '처음', status: 'draft', score: 50 });
       const rows = await manager.query<{ pid: number }[]>('SELECT pg_backend_pid() AS pid');
       const backendPid = rows[0]?.pid;
       if (backendPid === undefined) {

@@ -11,6 +11,9 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
+import { parseLinkageInput } from '../../jsonapi/document.js';
+import { assertNoQueryParameters } from '../../jsonapi/query.js';
+import type { QueryInput } from '../../jsonapi/query-input.js';
 import { ApiBearerAuth } from '@nestjs/swagger';
 import type { CanActivate, Type } from '@nestjs/common';
 import type { ObjectLiteral } from 'typeorm';
@@ -114,10 +117,7 @@ export function registerRoutes<
     Query()(proto, 'show', 1);
   });
 
-  // 쓰기 라우트는 선언이 켠 자원에만 생긴다. 읽기 전용 자원에서 POST/PATCH/DELETE를
-  // 부르면 그 메서드의 라우트가 없어 404가 나간다 — Express가 경로 단위로 메서드를
-  // 묶지 않아 405를 판정할 지점이 없기 때문이고, 아래 `PUT` 미지원과 같은 기제다.
-  // 정본은 405다(`crud-base.ts`의 `enableWrites` 문서 참고).
+  // Unregistered methods on an existing path are normalized to 405 by RouteMethods.
   if (enableWrites) {
     decorate(proto, 'create', (descriptor) => {
       Post()(proto, 'create', descriptor);
@@ -126,22 +126,24 @@ export function registerRoutes<
       // `Location` 헤더를 붙이려면 응답 객체가 필요하다. `passthrough`이므로 반환값은
       // 그대로 Nest가 직렬화한다.
       Res({ passthrough: true })(proto, 'create', 1);
+      Query()(proto, 'create', 2);
     });
 
     decorate(proto, 'update', (descriptor) => {
       Patch(':id')(proto, 'update', descriptor);
       Param('id')(proto, 'update', 0);
       Body()(proto, 'update', 1);
+      Query()(proto, 'update', 2);
     });
 
     decorate(proto, 'destroy', (descriptor) => {
       Delete(':id')(proto, 'destroy', descriptor);
       HttpCode(204)(proto, 'destroy', descriptor);
       Param('id')(proto, 'destroy', 0);
+      Query()(proto, 'destroy', 1);
     });
 
-    // `PUT`은 선언이 켠 자원에만 생긴다. 켜지 않은 자원에서 `PUT`을 부르면 라우트가 없어
-    // 404가 나가고, 그것이 "이 자원은 upsert를 지원하지 않는다"의 정확한 답이다.
+    // PUT is registered only for resources that enable upsert.
     if (declaration.enableUpsert === true) {
       decorate(proto, 'replace', (descriptor) => {
         Put(':id')(proto, 'replace', descriptor);
@@ -149,6 +151,7 @@ export function registerRoutes<
         Body()(proto, 'replace', 1);
         // 생성이면 `Location`을 붙이고 201로 바꾼다. 교체는 기본값 200 그대로다.
         Res({ passthrough: true })(proto, 'replace', 2);
+        Query()(proto, 'replace', 3);
       });
       writeMethods.push('replace');
     }
@@ -177,12 +180,18 @@ function registerRelationship(
   writeMethods: string[],
 ): void {
   const showName = `showRelationship$${name}`;
-  proto[showName] = function showRelationship(this: RelationshipDelegates, id: string) {
+  proto[showName] = function showRelationship(
+    this: RelationshipDelegates,
+    id: string,
+    query: QueryInput = {},
+  ) {
+    assertNoQueryParameters(query);
     return this.showRelationshipFor(name, id);
   };
   decorate(proto, showName, (descriptor) => {
     Get(`:id/relationships/${name}`)(proto, showName, descriptor);
     Param('id')(proto, showName, 0);
+    Query()(proto, showName, 1);
   });
 
   const relatedName = `showRelated$${name}`;
@@ -208,7 +217,15 @@ function registerRelationship(
     this: RelationshipDelegates,
     id: string,
     body: unknown,
+    query: QueryInput = {},
   ) {
+    parseLinkageInput(
+      body,
+      { expectedType: rule.type, cardinality: rule.cardinality, deferModelSemantics: true },
+      () => {
+        assertNoQueryParameters(query);
+      },
+    );
     return this.replaceRelationshipFor(name, id, body);
   };
   decorate(proto, updateName, (descriptor) => {
@@ -216,6 +233,7 @@ function registerRelationship(
     HttpCode(204)(proto, updateName, descriptor);
     Param('id')(proto, updateName, 0);
     Body()(proto, updateName, 1);
+    Query()(proto, updateName, 2);
   });
   writeMethods.push(updateName);
 
@@ -225,7 +243,15 @@ function registerRelationship(
       this: RelationshipDelegates,
       id: string,
       body: unknown,
+      query: QueryInput = {},
     ) {
+      parseLinkageInput(
+        body,
+        { expectedType: rule.type, cardinality: rule.cardinality, deferModelSemantics: true },
+        () => {
+          assertNoQueryParameters(query);
+        },
+      );
       return this.addToRelationshipFor(name, id, body);
     };
     decorate(proto, addName, (descriptor) => {
@@ -233,6 +259,7 @@ function registerRelationship(
       HttpCode(204)(proto, addName, descriptor);
       Param('id')(proto, addName, 0);
       Body()(proto, addName, 1);
+      Query()(proto, addName, 2);
     });
     writeMethods.push(addName);
 
@@ -241,7 +268,15 @@ function registerRelationship(
       this: RelationshipDelegates,
       id: string,
       body: unknown,
+      query: QueryInput = {},
     ) {
+      parseLinkageInput(
+        body,
+        { expectedType: rule.type, cardinality: rule.cardinality, deferModelSemantics: true },
+        () => {
+          assertNoQueryParameters(query);
+        },
+      );
       return this.removeFromRelationshipFor(name, id, body);
     };
     decorate(proto, removeName, (descriptor) => {
@@ -249,6 +284,7 @@ function registerRelationship(
       HttpCode(204)(proto, removeName, descriptor);
       Param('id')(proto, removeName, 0);
       Body()(proto, removeName, 1);
+      Query()(proto, removeName, 2);
     });
     writeMethods.push(removeName);
   }
