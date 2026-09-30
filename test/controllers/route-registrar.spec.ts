@@ -247,6 +247,8 @@ describe('writeGuards', () => {
     }).compile();
     guarded = moduleRef.createNestApplication<INestApplication<Server>>();
     await guarded.init();
+    // 루프백에 미리 연다 — 이유는 `test/app-factory.ts`의 같은 줄 주석.
+    await guarded.listen(0, '127.0.0.1');
   });
 
   afterAll(async () => {

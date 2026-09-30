@@ -45,6 +45,9 @@ JSON:API 프로토콜과 선언형 CRUD, PostgreSQL 영속성, JWT 인증, Redis
   않는다. 전체 게이트는 루트 문서의 `./scripts/check.sh`를 따른다.
 - `createTestApp()`을 사용하는 health·config HTTP 검사도 실제 PostgreSQL과
   `TEST_DATABASE_URL`이 필요하다. DB 이름은 `_test`로 끝나야 한다.
+- `createTestApp()`은 앱을 `127.0.0.1`의 임시 포트에 미리 연다. 앱을 직접 조립하는
+  스위트도 HTTP 요청을 보내기 전에 `listen(0, '127.0.0.1')`을 부른다 — 이유는
+  `test/app-factory.ts`의 주석.
 - Redis 통합 검사는 테스트 전용 Redis와 `TEST_REDIS_URL`을 준비한다. fixture는 URL
   형식만 확인하며 해당 서버가 테스트 전용인지 판별하지 못한다.
 - 새 회귀는 외부 서비스 필요 여부에 맞는 하위 디렉터리에 둔다. 순수 단위 검사와 실제
@@ -115,6 +118,13 @@ PostgreSQL로 본다.
 - id를 적립하기 마땅치 않은 자원(계정 등)은 스위트 전용 접두사·고정값으로 지운다
   (`WHERE email LIKE 'examples-api-%'`, 또는
   `refresh-session-concurrency.spec.ts`처럼 스위트 전용 고정 이메일 하나).
+- **unique 제약이 걸린 값에는 스위트 전용 접두사를 붙인다.** 커밋된 행은 롤백
+  스위트에게도 보이므로(위 절), 흔한 이름을 커밋하면 같은 이름을 롤백 트랜잭션
+  안에서 만드는 스위트가 unique 제약에 걸린다 — `examples-api.spec.ts`가
+  `분류`·`ㄱ`·`ㄴ`을 커밋하던 동안 `relationship-resolver`·`migrations` 스위트가
+  실제로 그렇게 죽었다. 접두사는 **다른 스위트의 정리 패턴에 걸리지 않게**
+  고른다 — `auth-parity@…` 계정은 `auth-api.spec.ts`의 `LIKE 'auth-%'`에 걸려
+  다른 워커에서 지워졌다.
 - `TRUNCATE`와 조건 없는 `DELETE`는 쓰지 않는다. 예전에 `truncateAll`이 있었지만
   실제 사고로 지워졌다 — 다른 스펙이 실제 HTTP로 행을 커밋하기 시작하면서,
   `TRUNCATE`는 워커 경계를 넘어 남의 커밋 행까지 지우고 `ACCESS EXCLUSIVE`
