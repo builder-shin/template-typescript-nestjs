@@ -113,10 +113,16 @@ describe('Examples API', () => {
     return response;
   }
 
-  /** 분류 한 행을 만들고 id를 돌려준다. */
+  /**
+   * 분류 한 행을 만들고 id를 돌려준다.
+   *
+   * 이름에 스위트 접두사를 붙인다 — 이 행은 커밋되므로, 같은 이름(`분류`)을 롤백
+   * 트랜잭션 안에서 만드는 다른 스위트가 그동안 `UQ_categories_name`에 걸린다
+   * (실측 2026-09-30). `examples-put.spec.ts`의 `put-` 접두사와 같은 규율이다.
+   */
   async function seedCategory(): Promise<string> {
     const rows = await dataSource.query<{ id: string }[]>(
-      `INSERT INTO categories (name) VALUES ('분류') RETURNING id`,
+      `INSERT INTO categories (name) VALUES ('api-분류') RETURNING id`,
     );
     const id = rows[0]?.id;
     if (id === undefined) {
@@ -126,10 +132,10 @@ describe('Examples API', () => {
     return id;
   }
 
-  /** 라벨 두 행을 만들고 id를 돌려준다. */
+  /** 라벨 두 행을 만들고 id를 돌려준다. 이름의 접두사는 `seedCategory`와 같은 이유다. */
   async function seedTags(): Promise<string[]> {
     const rows = await dataSource.query<{ id: string }[]>(
-      `INSERT INTO tags (name) VALUES ('ㄱ'), ('ㄴ') RETURNING id`,
+      `INSERT INTO tags (name) VALUES ('api-ㄱ'), ('api-ㄴ') RETURNING id`,
     );
     const ids = rows.map((row) => row.id);
     createdTagIds.push(...ids);

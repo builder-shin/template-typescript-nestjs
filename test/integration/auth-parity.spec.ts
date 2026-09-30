@@ -10,7 +10,9 @@ import { JWT_SETTINGS_TOKEN } from '../../src/app/auth/tokens.js';
 import type { JwtSettings } from '../../src/config/settings.js';
 
 const VENDOR = 'application/vnd.api+json';
-const EMAIL = 'auth-parity@example.com';
+// `auth-`로 시작하면 안 된다 — `auth-api.spec.ts`의 정리 쿼리(`LIKE 'auth-%'`)가 다른
+// 워커에서 이 계정을 지운다(실측 2026-09-30: 로그인이 간헐적으로 실패했다).
+const EMAIL = 'parity-auth@example.com';
 const PASSWORD = 'password-parity-123';
 interface Document {
   data: { id: string; attributes: Record<string, unknown>; links?: { self: string } };

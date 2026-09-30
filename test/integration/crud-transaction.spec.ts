@@ -232,6 +232,8 @@ describe('CrudActions 트랜잭션 경계', () => {
     const created = moduleRef.createNestApplication<NestExpressApplication>();
     configureHttp(created);
     await created.init();
+    // 루프백에 미리 연다 — 이유는 `test/app-factory.ts`의 같은 줄 주석.
+    await created.listen(0, '127.0.0.1');
     app = created;
   });
 
